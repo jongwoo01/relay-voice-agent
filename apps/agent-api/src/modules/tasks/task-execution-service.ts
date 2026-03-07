@@ -78,10 +78,15 @@ export class TaskExecutionService {
     await this.taskEventRepository.saveMany(input.taskId, prepared.initialEvents);
 
     const execution = this.runtime
-      .runPrepared(prepared)
+      .runPrepared(prepared, async (progressEvent) => {
+        await this.taskEventRepository.saveMany(input.taskId, [progressEvent]);
+      })
       .then(async (result) => {
         await this.taskRepository.save(input.brainSessionId!, result.task);
-        await this.taskEventRepository.saveMany(input.taskId, result.events);
+        await this.taskEventRepository.saveMany(
+          input.taskId,
+          result.events.filter((event) => event.type !== "executor_progress")
+        );
 
         if (result.executorSession) {
           await this.sessionRepository.save(result.executorSession);

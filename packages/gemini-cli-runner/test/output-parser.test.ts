@@ -1,22 +1,94 @@
-import { describe, expect, it } from "vitest";
-import { parseGeminiCliOutput } from "../src/output-parser.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  buildExecutorResultFromGeminiCliOutput,
+  parseGeminiCliOutput
+} from "../src/output-parser.js";
 
 describe("parseGeminiCliOutput", () => {
-  it("extracts message and sessionId from json output", () => {
+  it("parses stream-json output into structured headless events", () => {
     const parsed = parseGeminiCliOutput(
-      JSON.stringify({
-        session_id: "session-123",
-        text: "브라우저 탭 정리를 마쳤어요"
-      })
+      [
+        JSON.stringify({
+          type: "init",
+          session_id: "session-123",
+          model: "gemini-2.5-pro"
+        }),
+        JSON.stringify({
+          type: "tool_use",
+          name: "browser.inspect_tabs"
+        }),
+        JSON.stringify({
+          type: "result",
+          response: "브라우저 탭 정리를 마쳤어요"
+        })
+      ].join("\n")
     );
 
-    expect(parsed).toEqual({
-      sessionId: "session-123",
-      message: "브라우저 탭 정리를 마쳤어요"
-    });
+    expect(parsed.events).toEqual([
+      {
+        type: "init",
+        payload: {
+          session_id: "session-123",
+          model: "gemini-2.5-pro"
+        }
+      },
+      {
+        type: "tool_use",
+        payload: {
+          name: "browser.inspect_tabs"
+        }
+      },
+      {
+        type: "result",
+        payload: {
+          response: "브라우저 탭 정리를 마쳤어요"
+        }
+      }
+    ]);
   });
 
   it("throws when the output is empty", () => {
     expect(() => parseGeminiCliOutput("")).toThrow("Gemini CLI output was empty");
+  });
+});
+
+describe("buildExecutorResultFromGeminiCliOutput", () => {
+  it("maps tool events to progress and result to completion", async () => {
+    const onProgress = vi.fn();
+    const parsed = parseGeminiCliOutput(
+      [
+        JSON.stringify({
+          type: "init",
+          session_id: "session-123"
+        }),
+        JSON.stringify({
+          type: "tool_use",
+          name: "browser.inspect_tabs"
+        }),
+        JSON.stringify({
+          type: "tool_result",
+          name: "browser.inspect_tabs"
+        }),
+        JSON.stringify({
+          type: "result",
+          response: "브라우저 탭 정리를 마쳤어요"
+        })
+      ].join("\n")
+    );
+
+    const result = await buildExecutorResultFromGeminiCliOutput({
+      taskId: "task-1",
+      now: "2026-03-08T00:00:00.000Z",
+      output: parsed,
+      onProgress
+    });
+
+    expect(result.sessionId).toBe("session-123");
+    expect(result.progressEvents.map((event) => event.message)).toEqual([
+      "Tool requested: browser.inspect_tabs",
+      "Tool finished: browser.inspect_tabs"
+    ]);
+    expect(result.completionEvent.message).toBe("브라우저 탭 정리를 마쳤어요");
+    expect(onProgress).toHaveBeenCalledTimes(2);
   });
 });

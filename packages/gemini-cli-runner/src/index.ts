@@ -1,8 +1,22 @@
 export { buildGeminiCliCommand } from "./command-builder.js";
-export { parseGeminiCliOutput } from "./output-parser.js";
 export {
+  buildExecutorResultFromGeminiCliOutput,
+  createMockGeminiCliOutput,
+  createToolResultEvent,
+  createToolUseEvent,
+  parseGeminiCliOutput,
+  parseGeminiCliEventLine,
+  toExecutorProgressEvent,
+  type GeminiCliHeadlessEvent,
+  type GeminiCliHeadlessEventType,
+  type ParsedGeminiCliOutput
+} from "./output-parser.js";
+export {
+  createSpawnRunner,
   defaultExecFile,
   GeminiCliExecutor,
-  type ExecFileLike,
-  type ExecResult
+  type ExecResult,
+  type RunCommandLike,
+  type RunCommandOptions,
+  type SpawnLike
 } from "./subprocess-executor.js";

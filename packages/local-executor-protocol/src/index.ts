@@ -8,6 +8,10 @@ export interface ExecutorRunRequest {
   resumeSessionId?: string;
 }
 
+export type ExecutorProgressListener = (
+  event: TaskEvent
+) => void | Promise<void>;
+
 export interface ExecutorRunResult {
   progressEvents: TaskEvent[];
   completionEvent: TaskEvent;
@@ -15,5 +19,8 @@ export interface ExecutorRunResult {
 }
 
 export interface LocalExecutor {
-  run(request: ExecutorRunRequest): Promise<ExecutorRunResult>;
+  run(
+    request: ExecutorRunRequest,
+    onProgress?: ExecutorProgressListener
+  ): Promise<ExecutorRunResult>;
 }

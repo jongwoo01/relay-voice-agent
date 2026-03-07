@@ -1,26 +1,46 @@
 import type {
   ExecutorRunResult,
+  ExecutorProgressListener,
   LocalExecutor
 } from "@agent/local-executor-protocol";
+import {
+  buildExecutorResultFromGeminiCliOutput,
+  createMockGeminiCliOutput,
+  createToolResultEvent,
+  createToolUseEvent
+} from "@agent/gemini-cli-runner";
 import type { Task } from "@agent/shared-types";
 
 export class MockExecutor implements LocalExecutor {
-  async run(request: { task: Task; now: string }): Promise<ExecutorRunResult> {
-    return {
-      progressEvents: [
+  async run(
+    request: { task: Task; now: string; resumeSessionId?: string },
+    onProgress?: ExecutorProgressListener
+  ): Promise<ExecutorRunResult> {
+    return buildExecutorResultFromGeminiCliOutput({
+      taskId: request.task.id,
+      now: request.now,
+      onProgress,
+      output: createMockGeminiCliOutput([
         {
-          taskId: request.task.id,
-          type: "executor_progress",
-          message: "브라우저를 확인하는 중",
-          createdAt: request.now
+          type: "init",
+          payload: {
+            session_id: request.resumeSessionId ?? "mock-session-1",
+            model: "gemini-mock"
+          }
+        },
+        createToolUseEvent("browser.inspect_tabs", {
+          mode: "cleanup"
+        }),
+        createToolResultEvent("browser.inspect_tabs", {
+          tabCount: 17
+        }),
+        {
+          type: "result",
+          payload: {
+            response: "작업을 완료했어요"
+          }
         }
-      ],
-      completionEvent: {
-        taskId: request.task.id,
-        type: "executor_completed",
-        message: "작업을 완료했어요",
-        createdAt: request.now
-      }
-    };
+      ])
+    });
   }
 }

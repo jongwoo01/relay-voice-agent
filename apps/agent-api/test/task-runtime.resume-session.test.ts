@@ -8,7 +8,9 @@ import { TaskRuntime } from "../src/index.js";
 
 class CapturingExecutor implements LocalExecutor {
   public readonly run = vi.fn(
-    async (request: ExecutorRunRequest): Promise<ExecutorRunResult> => ({
+    async (
+      request: ExecutorRunRequest
+    ): Promise<ExecutorRunResult> => ({
       progressEvents: [],
       completionEvent: {
         taskId: request.task.id,
@@ -43,7 +45,8 @@ describe("task-runtime resume session", () => {
         prompt: "아까 하던 브라우저 정리 이어서 해",
         resumeSessionId: "session-999",
         workingDirectory: "/tmp/browser"
-      })
+      }),
+      undefined
     );
     expect(result.executorSession).toEqual({
       taskId: "task-3",

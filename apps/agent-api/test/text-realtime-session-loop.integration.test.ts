@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  ExecutorProgressListener,
   ExecutorRunRequest,
   ExecutorRunResult,
   LocalExecutor
@@ -20,18 +21,24 @@ describe("text-realtime-session-loop", () => {
     let resolveExecution: (() => void) | undefined;
 
     class DeferredExecutor implements LocalExecutor {
-      async run(request: ExecutorRunRequest): Promise<ExecutorRunResult> {
+      async run(
+        request: ExecutorRunRequest,
+        onProgress?: ExecutorProgressListener
+      ): Promise<ExecutorRunResult> {
+        const progressEvent = {
+          taskId: request.task.id,
+          type: "executor_progress" as const,
+          message: "정리 중",
+          createdAt: request.now
+        };
+        if (onProgress) {
+          await onProgress(progressEvent);
+        }
+
         return await new Promise<ExecutorRunResult>((resolve) => {
           resolveExecution = () =>
             resolve({
-              progressEvents: [
-                {
-                  taskId: request.task.id,
-                  type: "executor_progress",
-                  message: "정리 중",
-                  createdAt: request.now
-                }
-              ],
+              progressEvents: [progressEvent],
               completionEvent: {
                 taskId: request.task.id,
                 type: "executor_completed",
@@ -80,6 +87,12 @@ describe("text-realtime-session-loop", () => {
     const activeTasksBeforeCompletion = await loop.listActiveTasks("brain-1");
     expect(activeTasksBeforeCompletion).toHaveLength(1);
     expect(activeTasksBeforeCompletion[0]?.status).toBe("running");
+    await expect(loop.listTaskEvents(firstTurn.task!.id)).resolves.toEqual([
+      expect.objectContaining({ type: "task_created" }),
+      expect.objectContaining({ type: "task_queued" }),
+      expect.objectContaining({ type: "task_started" }),
+      expect.objectContaining({ type: "executor_progress", message: "정리 중" })
+    ]);
 
     resolveExecution?.();
     await loop.waitForBackgroundWork();

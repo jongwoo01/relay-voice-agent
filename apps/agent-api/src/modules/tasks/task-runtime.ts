@@ -2,6 +2,7 @@ import { completeTask, createTask, queueTask, reportTaskProgress } from "@agent/
 import type {
   ExecutorRunRequest,
   ExecutorRunResult,
+  ExecutorProgressListener,
   LocalExecutor
 } from "@agent/local-executor-protocol";
 import type { Task, TaskEvent, TaskExecutorSession } from "@agent/shared-types";
@@ -72,8 +73,11 @@ export class TaskRuntime {
     };
   }
 
-  async runPrepared(prepared: PreparedTaskRun): Promise<TaskRunResult> {
-    const execution = await this.executor.run(prepared.request);
+  async runPrepared(
+    prepared: PreparedTaskRun,
+    onProgress?: ExecutorProgressListener
+  ): Promise<TaskRunResult> {
+    const execution = await this.executor.run(prepared.request, onProgress);
     return this.applyExecutionResult(prepared, execution);
   }
 

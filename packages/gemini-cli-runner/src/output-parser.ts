@@ -1,10 +1,130 @@
-export interface ParsedGeminiCliOutput {
-  message: string;
-  sessionId?: string;
+import type { ExecutorRunResult, ExecutorProgressListener } from "@agent/local-executor-protocol";
+import type { TaskEvent } from "@agent/shared-types";
+
+export type GeminiCliHeadlessEventType =
+  | "init"
+  | "message"
+  | "tool_use"
+  | "tool_result"
+  | "error"
+  | "result";
+
+export interface GeminiCliHeadlessEvent {
+  type: GeminiCliHeadlessEventType;
+  payload: Record<string, unknown>;
 }
 
-function firstNonEmptyString(values: Array<string | undefined>): string | undefined {
-  return values.find((value) => typeof value === "string" && value.trim().length > 0);
+export interface ParsedGeminiCliOutput {
+  events: GeminiCliHeadlessEvent[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function firstNonEmptyString(values: Array<unknown>): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function stringifyIfPresent(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return JSON.stringify(value);
+}
+
+function extractSessionId(event: GeminiCliHeadlessEvent): string | undefined {
+  return firstNonEmptyString([
+    event.payload.session_id,
+    event.payload.sessionId,
+    isRecord(event.payload.session) ? event.payload.session.id : undefined
+  ]);
+}
+
+function extractMessageChunk(event: GeminiCliHeadlessEvent): string | undefined {
+  return firstNonEmptyString([
+    event.payload.text,
+    event.payload.delta,
+    event.payload.content,
+    isRecord(event.payload.message) ? event.payload.message.content : undefined,
+    isRecord(event.payload.message) ? event.payload.message.text : undefined
+  ]);
+}
+
+function extractToolName(event: GeminiCliHeadlessEvent): string | undefined {
+  return firstNonEmptyString([
+    event.payload.name,
+    event.payload.tool_name,
+    event.payload.toolName,
+    isRecord(event.payload.tool) ? event.payload.tool.name : undefined
+  ]);
+}
+
+function extractResultResponse(event: GeminiCliHeadlessEvent): string | undefined {
+  return firstNonEmptyString([
+    event.payload.response,
+    event.payload.message,
+    event.payload.text,
+    isRecord(event.payload.result) ? event.payload.result.response : undefined
+  ]);
+}
+
+function extractErrorMessage(event: GeminiCliHeadlessEvent): string | undefined {
+  return firstNonEmptyString([
+    event.payload.message,
+    isRecord(event.payload.error) ? event.payload.error.message : undefined
+  ]);
+}
+
+function toProgressMessage(event: GeminiCliHeadlessEvent): string | undefined {
+  switch (event.type) {
+    case "tool_use": {
+      const toolName = extractToolName(event) ?? "unknown_tool";
+      return `Tool requested: ${toolName}`;
+    }
+    case "tool_result": {
+      const toolName = extractToolName(event) ?? "unknown_tool";
+      return `Tool finished: ${toolName}`;
+    }
+    case "error":
+      return extractErrorMessage(event) ?? "Executor reported a warning";
+    default:
+      return undefined;
+  }
+}
+
+export function parseGeminiCliEventLine(line: string): GeminiCliHeadlessEvent {
+  const parsed = JSON.parse(line) as Record<string, unknown>;
+  const eventType = firstNonEmptyString([parsed.type]);
+
+  if (
+    eventType !== "init" &&
+    eventType !== "message" &&
+    eventType !== "tool_use" &&
+    eventType !== "tool_result" &&
+    eventType !== "error" &&
+    eventType !== "result"
+  ) {
+    throw new Error(`Gemini CLI emitted an unknown stream event: ${eventType ?? "missing"}`);
+  }
+
+  const { type: _ignoredType, ...payload } = parsed;
+
+  return {
+    type: eventType,
+    payload
+  };
 }
 
 export function parseGeminiCliOutput(stdout: string): ParsedGeminiCliOutput {
@@ -14,25 +134,132 @@ export function parseGeminiCliOutput(stdout: string): ParsedGeminiCliOutput {
     throw new Error("Gemini CLI output was empty");
   }
 
-  const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+  const events = trimmed
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map(parseGeminiCliEventLine);
 
-  const message = firstNonEmptyString([
-    typeof parsed.text === "string" ? parsed.text : undefined,
-    typeof parsed.message === "string" ? parsed.message : undefined,
-    typeof parsed.output === "string" ? parsed.output : undefined
-  ]);
-
-  if (!message) {
-    throw new Error("Gemini CLI output did not include a message field");
+  if (events.length === 0) {
+    throw new Error("Gemini CLI output did not include any stream events");
   }
 
-  const sessionId = firstNonEmptyString([
-    typeof parsed.sessionId === "string" ? parsed.sessionId : undefined,
-    typeof parsed.session_id === "string" ? parsed.session_id : undefined
-  ]);
+  return { events };
+}
+
+export interface BuildExecutorResultInput {
+  taskId: string;
+  now: string;
+  output: ParsedGeminiCliOutput;
+  onProgress?: ExecutorProgressListener;
+}
+
+export async function buildExecutorResultFromGeminiCliOutput(
+  input: BuildExecutorResultInput
+): Promise<ExecutorRunResult> {
+  const progressEvents: TaskEvent[] = [];
+  const assistantMessages: string[] = [];
+  let sessionId: string | undefined;
+  let completionMessage: string | undefined;
+
+  for (const event of input.output.events) {
+    sessionId ??= extractSessionId(event);
+
+    if (event.type === "message") {
+      const role = firstNonEmptyString([
+        event.payload.role,
+        isRecord(event.payload.message) ? event.payload.message.role : undefined
+      ]);
+
+      if (role === "assistant") {
+        const chunk = extractMessageChunk(event);
+        if (chunk) {
+          assistantMessages.push(chunk);
+        }
+      }
+    }
+
+    const progressMessage = toProgressMessage(event);
+    if (progressMessage) {
+      const progressEvent: TaskEvent = {
+        taskId: input.taskId,
+        type: "executor_progress",
+        message: progressMessage,
+        createdAt: input.now
+      };
+      progressEvents.push(progressEvent);
+      if (input.onProgress) {
+        await input.onProgress(progressEvent);
+      }
+    }
+
+    if (event.type === "result") {
+      completionMessage = extractResultResponse(event);
+    }
+  }
+
+  const finalMessage =
+    completionMessage ??
+    firstNonEmptyString([assistantMessages.join("").trim()]) ??
+    "Gemini CLI completed without a final response message";
 
   return {
-    message,
+    progressEvents,
+    completionEvent: {
+      taskId: input.taskId,
+      type: "executor_completed",
+      message: finalMessage,
+      createdAt: input.now
+    },
     sessionId
+  };
+}
+
+export function toExecutorProgressEvent(
+  taskId: string,
+  now: string,
+  event: GeminiCliHeadlessEvent
+): TaskEvent | undefined {
+  const progressMessage = toProgressMessage(event);
+
+  if (!progressMessage) {
+    return undefined;
+  }
+
+  return {
+    taskId,
+    type: "executor_progress",
+    message: progressMessage,
+    createdAt: now
+  };
+}
+
+export function createMockGeminiCliOutput(events: GeminiCliHeadlessEvent[]): ParsedGeminiCliOutput {
+  return { events };
+}
+
+export function createToolUseEvent(
+  toolName: string,
+  args?: Record<string, unknown>
+): GeminiCliHeadlessEvent {
+  return {
+    type: "tool_use",
+    payload: {
+      name: toolName,
+      arguments: args
+    }
+  };
+}
+
+export function createToolResultEvent(
+  toolName: string,
+  result?: unknown
+): GeminiCliHeadlessEvent {
+  return {
+    type: "tool_result",
+    payload: {
+      name: toolName,
+      result: stringifyIfPresent(result)
+    }
   };
 }

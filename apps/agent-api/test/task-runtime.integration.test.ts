@@ -17,6 +17,7 @@ describe("task-runtime", () => {
       "task_queued",
       "task_started",
       "executor_progress",
+      "executor_progress",
       "executor_completed"
     ]);
   });

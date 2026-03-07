@@ -12,7 +12,9 @@ import {
 
 class CapturingExecutor implements LocalExecutor {
   public readonly run = vi.fn(
-    async (request: ExecutorRunRequest): Promise<ExecutorRunResult> => ({
+    async (
+      request: ExecutorRunRequest
+    ): Promise<ExecutorRunResult> => ({
       progressEvents: [],
       completionEvent: {
         taskId: request.task.id,
@@ -51,7 +53,8 @@ describe("task-execution-service", () => {
       expect.objectContaining({
         resumeSessionId: "session-existing",
         workingDirectory: "/tmp/browser"
-      })
+      }),
+      undefined
     );
     expect(result.executorSession).toEqual({
       taskId: "task-1",

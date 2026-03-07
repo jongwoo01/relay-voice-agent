@@ -11,7 +11,9 @@ import {
 
 class CapturingExecutor implements LocalExecutor {
   public readonly run = vi.fn(
-    async (request: ExecutorRunRequest): Promise<ExecutorRunResult> => ({
+    async (
+      request: ExecutorRunRequest
+    ): Promise<ExecutorRunResult> => ({
       progressEvents: [],
       completionEvent: {
         taskId: request.task.id,
@@ -74,7 +76,8 @@ describe("brain-turn-service", () => {
       expect.objectContaining({
         prompt: "브라우저 탭 정리해줘",
         resumeSessionId: undefined
-      })
+      }),
+      expect.any(Function)
     );
   });
 
@@ -118,7 +121,8 @@ describe("brain-turn-service", () => {
       expect.objectContaining({
         resumeSessionId: "session-existing",
         workingDirectory: "/tmp/browser"
-      })
+      }),
+      expect.any(Function)
     );
   });
 });

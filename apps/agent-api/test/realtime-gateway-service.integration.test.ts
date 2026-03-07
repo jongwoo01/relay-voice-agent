@@ -18,7 +18,9 @@ import {
 
 class CapturingExecutor implements LocalExecutor {
   public readonly run = vi.fn(
-    async (request: ExecutorRunRequest): Promise<ExecutorRunResult> => ({
+    async (
+      request: ExecutorRunRequest
+    ): Promise<ExecutorRunResult> => ({
       progressEvents: [],
       completionEvent: {
         taskId: request.task.id,
@@ -100,7 +102,8 @@ describe("realtime-gateway-service", () => {
       expect.objectContaining({
         resumeSessionId: "session-existing",
         workingDirectory: "/tmp/browser"
-      })
+      }),
+      expect.any(Function)
     );
     expect(result.assistant).toEqual({
       text: "이어서 진행할게. 작업 상태는 패널에 보여줄게.",
