@@ -1,0 +1,14 @@
+{
+  "name": "@agent/desktop",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./main.js",
+  "scripts": {
+    "dev": "electron ."
+  },
+  "dependencies": {
+    "@agent/agent-api": "file:../agent-api",
+    "electron": "^40.8.0"
+  }
+}

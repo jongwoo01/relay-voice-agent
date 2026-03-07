@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gemini Live Agent Desktop</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="panel conversation-panel">
+        <header class="panel-header">
+          <div>
+            <p class="eyebrow">Conversation</p>
+            <h1>Desktop Agent</h1>
+          </div>
+          <div class="header-actions">
+            <span id="mic-state" class="mic-state">idle</span>
+            <button id="mic-toggle" type="button" class="mic-toggle">Mic On</button>
+            <button id="user-speaking-toggle" type="button" class="state-toggle">User Idle</button>
+            <button id="assistant-speaking-toggle" type="button" class="state-toggle">Assistant Idle</button>
+          </div>
+        </header>
+        <div id="messages" class="message-list"></div>
+        <form id="composer" class="composer">
+          <textarea
+            id="prompt"
+            rows="3"
+            placeholder="메시지를 입력하세요"
+          ></textarea>
+          <button type="submit">Send</button>
+        </form>
+      </section>
+
+      <aside class="panel task-panel">
+        <header class="panel-header">
+          <p class="eyebrow">Tasks</p>
+          <h2>Background Work</h2>
+        </header>
+        <div id="tasks" class="task-list"></div>
+        <section class="briefing-panel">
+          <h3>Briefings</h3>
+          <div id="notifications" class="briefing-list"></div>
+        </section>
+      </aside>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+  </html>

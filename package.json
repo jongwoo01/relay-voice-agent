@@ -14,6 +14,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "dev:desktop": "npm run dev --workspace @agent/desktop",
     "dev:live-text-session": "tsx scripts/dev-live-text-session.ts",
     "dev:text-session": "tsx scripts/dev-text-session.ts",
     "smoke:gemini": "node scripts/smoke-gemini-cli.mjs",

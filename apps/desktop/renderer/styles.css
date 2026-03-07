@@ -1,0 +1,236 @@
+:root {
+  color-scheme: light;
+  --bg: #f6f2ea;
+  --panel: rgba(255, 252, 247, 0.92);
+  --line: rgba(44, 36, 24, 0.12);
+  --ink: #231c14;
+  --muted: #7d7465;
+  --accent: #a55233;
+  --accent-strong: #7c351b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "SF Pro Display", "Apple SD Gothic Neo", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(165, 82, 51, 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(35, 28, 20, 0.12), transparent 30%),
+    var(--bg);
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 1.75fr 1fr;
+  gap: 18px;
+  min-height: 100vh;
+  padding: 18px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 20px 40px rgba(35, 28, 20, 0.08);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 20px 12px;
+}
+
+.panel-header h1,
+.panel-header h2,
+.panel-header p {
+  margin: 0;
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mic-state {
+  color: var(--muted);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.mic-toggle,
+.state-toggle {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--ink);
+  padding: 10px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.state-toggle {
+  background: rgba(216, 212, 204, 0.9);
+}
+
+.message-list,
+.task-list {
+  flex: 1;
+  overflow: auto;
+  padding: 0 20px 20px;
+}
+
+.message {
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+}
+
+.message.user {
+  background: rgba(165, 82, 51, 0.08);
+}
+
+.message.assistant {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.message-role {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.message-text {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 16px 20px 20px;
+  border-top: 1px solid var(--line);
+}
+
+.composer textarea {
+  resize: none;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.8);
+  font: inherit;
+  color: var(--ink);
+}
+
+.composer button {
+  min-width: 96px;
+  border: 0;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: white;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 18px;
+}
+
+.task-card {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  margin-bottom: 12px;
+}
+
+.task-title,
+.task-status,
+.empty-state {
+  margin: 0;
+}
+
+.task-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.task-status,
+.empty-state {
+  color: var(--muted);
+}
+
+.briefing-panel {
+  padding: 0 20px 20px;
+  border-top: 1px solid var(--line);
+}
+
+.briefing-panel h3 {
+  margin: 16px 0 12px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.briefing-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.briefing-card {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+}
+
+.briefing-card.delivered {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.briefing-card.pending {
+  background: rgba(216, 212, 204, 0.5);
+}
+
+.briefing-label,
+.briefing-delivery {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.briefing-text {
+  margin: 8px 0;
+  line-height: 1.45;
+}
+
+@media (max-width: 960px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+}
