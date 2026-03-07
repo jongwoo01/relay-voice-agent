@@ -3,13 +3,18 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "packageManager": "npm@10.8.2",
+  "packageManager": "npm@11.9.0",
+  "engines": {
+    "node": ">=24.14.0 <25",
+    "npm": ">=11.9.0 <12"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "dev:live-text-session": "tsx scripts/dev-live-text-session.ts",
     "dev:text-session": "tsx scripts/dev-text-session.ts",
     "smoke:gemini": "node scripts/smoke-gemini-cli.mjs",
     "test": "vitest run",

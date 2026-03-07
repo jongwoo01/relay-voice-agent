@@ -1,4 +1,5 @@
 import type { Task } from "@agent/shared-types";
+import type { SqlClientLike } from "./postgres-client.js";
 
 export interface TaskRepository {
   listActiveByBrainSessionId(brainSessionId: string): Promise<Task[]>;
@@ -30,5 +31,94 @@ export class InMemoryTaskRepository implements TaskRepository {
       brainSessionId,
       task
     });
+  }
+}
+
+export class PostgresTaskRepository implements TaskRepository {
+  constructor(private readonly sql: SqlClientLike) {}
+
+  async listActiveByBrainSessionId(brainSessionId: string): Promise<Task[]> {
+    const result = await this.sql.query<{
+      id: string;
+      title: string;
+      normalized_goal: string;
+      status: Task["status"];
+      created_at: string;
+      updated_at: string;
+    }>(
+      `
+        select
+          id,
+          title,
+          normalized_goal,
+          status,
+          created_at,
+          updated_at
+        from tasks
+        where brain_session_id = $1
+          and status in ('created', 'queued', 'running', 'waiting_input')
+        order by updated_at desc
+      `,
+      [brainSessionId]
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      normalizedGoal: row.normalized_goal,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  }
+
+  async save(brainSessionId: string, task: Task): Promise<void> {
+    await this.sql.query(
+      `
+        insert into tasks (
+          id,
+          brain_session_id,
+          user_id,
+          title,
+          normalized_goal,
+          status,
+          created_at,
+          updated_at,
+          completed_at
+        )
+        select
+          $1,
+          $2,
+          bs.user_id,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          case
+            when $5 in ('completed', 'failed', 'cancelled') then $7
+            else null
+          end
+        from brain_sessions bs
+        where bs.id = $2
+        on conflict (id) do update
+        set
+          brain_session_id = excluded.brain_session_id,
+          title = excluded.title,
+          normalized_goal = excluded.normalized_goal,
+          status = excluded.status,
+          updated_at = excluded.updated_at,
+          completed_at = excluded.completed_at
+      `,
+      [
+        task.id,
+        brainSessionId,
+        task.title,
+        task.normalizedGoal,
+        task.status,
+        task.createdAt,
+        task.updatedAt
+      ]
+    );
   }
 }

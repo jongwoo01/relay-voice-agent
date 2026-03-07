@@ -9,21 +9,11 @@ import { ConversationOrchestrator } from "../conversation/conversation-orchestra
 import { BrainTurnService } from "../conversation/brain-turn-service.js";
 import { MockExecutor } from "../executor/mock-executor.js";
 import {
-  InMemoryConversationMessageRepository,
   type ConversationMessageRepository
 } from "../persistence/conversation-message-repository.js";
-import {
-  InMemoryTaskEventRepository,
-  type TaskEventRepository
-} from "../persistence/task-event-repository.js";
-import {
-  InMemoryTaskExecutorSessionRepository,
-  type TaskExecutorSessionRepository
-} from "../persistence/task-executor-session-repository.js";
-import {
-  InMemoryTaskRepository,
-  type TaskRepository
-} from "../persistence/task-repository.js";
+import { type TaskEventRepository } from "../persistence/task-event-repository.js";
+import { type TaskExecutorSessionRepository } from "../persistence/task-executor-session-repository.js";
+import { type TaskRepository } from "../persistence/task-repository.js";
 import {
   FinalizedUtteranceHandler,
   type FinalizedUtteranceHandled
@@ -31,6 +21,10 @@ import {
 import { RealtimeGatewayService } from "./realtime-gateway-service.js";
 import { TaskExecutionService } from "../tasks/task-execution-service.js";
 import { TaskRuntime } from "../tasks/task-runtime.js";
+import {
+  createInMemorySessionPersistence,
+  type SessionPersistence
+} from "../persistence/session-persistence.js";
 
 export interface HandleTurnInput {
   brainSessionId: string;
@@ -46,12 +40,15 @@ export class TextRealtimeSessionLoop {
   private readonly taskExecutionService: TaskExecutionService;
   private readonly gateway: RealtimeGatewayService;
 
-  constructor(executor: LocalExecutor = new MockExecutor()) {
-    this.conversationRepository = new InMemoryConversationMessageRepository();
-    this.taskRepository = new InMemoryTaskRepository();
-    this.taskEventRepository = new InMemoryTaskEventRepository();
+  constructor(
+    executor: LocalExecutor = new MockExecutor(),
+    persistence: SessionPersistence = createInMemorySessionPersistence()
+  ) {
+    this.conversationRepository = persistence.conversationRepository;
+    this.taskRepository = persistence.taskRepository;
+    this.taskEventRepository = persistence.taskEventRepository;
     this.taskExecutorSessionRepository =
-      new InMemoryTaskExecutorSessionRepository();
+      persistence.taskExecutorSessionRepository;
 
     this.taskExecutionService = new TaskExecutionService(
       new TaskRuntime(executor),

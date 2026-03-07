@@ -1,39 +1,19 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import type { FinalizedUtterance, IntentType } from "@agent/shared-types";
-import { GeminiCliExecutor, MockExecutor, TextRealtimeSessionLoop } from "../apps/agent-api/src/index.ts";
+import type { FinalizedUtterance } from "@agent/shared-types";
+import {
+  createPostgresSessionPersistence,
+  GeminiCliExecutor,
+  HeuristicIntentResolver,
+  MockExecutor,
+  TextRealtimeSessionLoop
+} from "../apps/agent-api/src/index.ts";
+const intentResolver = new HeuristicIntentResolver();
 
-function inferIntent(text: string): IntentType {
-  const normalized = text.trim().toLowerCase();
-
-  if (
-    normalized.includes("해줘") ||
-    normalized.includes("실행") ||
-    normalized.includes("정리") ||
-    normalized.includes("만들어") ||
-    normalized.includes("이어") ||
-    normalized.includes("continue") ||
-    normalized.includes("do ") ||
-    normalized.includes("run ")
-  ) {
-    return "task_request";
-  }
-
-  if (
-    normalized.includes("?") ||
-    normalized.startsWith("what") ||
-    normalized.startsWith("why") ||
-    normalized.startsWith("how") ||
-    normalized.startsWith("when") ||
-    normalized.startsWith("where")
-  ) {
-    return "question";
-  }
-
-  return "small_talk";
-}
-
-function parseUtterance(line: string, now: string): FinalizedUtterance | null {
+async function parseUtterance(
+  line: string,
+  now: string
+): Promise<FinalizedUtterance | null> {
   if (!line.trim()) {
     return null;
   }
@@ -72,7 +52,7 @@ function parseUtterance(line: string, now: string): FinalizedUtterance | null {
 
   return {
     text: line,
-    intent: inferIntent(line),
+    intent: await intentResolver.resolve(line),
     createdAt: now
   };
 }
@@ -90,15 +70,43 @@ function printHelp() {
   console.log("  /ask <text>           Force question intent");
   console.log("  /unclear <text>       Force unclear intent");
   console.log("  plain text            Auto-infer intent");
+  console.log("");
+  console.log("Options:");
+  console.log("  --gemini              Use Gemini CLI executor");
+  console.log("  --postgres            Use Postgres-backed persistence");
+  console.log("");
+  console.log("Environment for --postgres:");
+  console.log("  DATABASE_URL          Postgres connection string");
+  console.log("  DEV_USER_ID           Existing user id to own the brain session");
 }
 
 async function main() {
   const useGeminiExecutor =
     process.argv.includes("--gemini") || process.env.GEMINI_EXECUTOR === "1";
+  const usePostgresPersistence =
+    process.argv.includes("--postgres") || process.env.DEV_POSTGRES === "1";
   const executor = useGeminiExecutor ? new GeminiCliExecutor() : new MockExecutor();
-  const loop = new TextRealtimeSessionLoop(executor);
   const rl = createInterface({ input, output });
   const brainSessionId = `dev-session-${Date.now()}`;
+  const now = new Date().toISOString();
+
+  const persistence = usePostgresPersistence
+    ? await createPostgresSessionPersistence({
+        ensureBrainSession: {
+          brainSessionId,
+          userId:
+            process.env.DEV_USER_ID ??
+            (() => {
+              throw new Error(
+                "Set DEV_USER_ID when using --postgres for dev:text-session"
+              );
+            })(),
+          source: "text_dev",
+          now
+        }
+      })
+    : undefined;
+  const loop = new TextRealtimeSessionLoop(executor, persistence);
 
   const handleCommand = async (rawLine: string): Promise<boolean> => {
     const trimmed = rawLine.trim();
@@ -142,7 +150,7 @@ async function main() {
     }
 
     const now = new Date().toISOString();
-    const utterance = parseUtterance(trimmed, now);
+    const utterance = await parseUtterance(trimmed, now);
     if (!utterance) {
       return true;
     }
@@ -165,7 +173,7 @@ async function main() {
   };
 
   console.log(
-    `[dev] text session started (${useGeminiExecutor ? "gemini" : "mock"} executor)`
+    `[dev] text session started (${useGeminiExecutor ? "gemini" : "mock"} executor, ${usePostgresPersistence ? "postgres" : "in-memory"} persistence)`
   );
   console.log(`[dev] brainSessionId=${brainSessionId}`);
   printHelp();

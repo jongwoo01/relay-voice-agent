@@ -10,7 +10,10 @@
     "@agent/brain-domain": "file:../../packages/brain-domain",
     "@agent/gemini-cli-runner": "file:../../packages/gemini-cli-runner",
     "@agent/local-executor-protocol": "file:../../packages/local-executor-protocol",
-    "@agent/shared-types": "file:../../packages/shared-types"
+    "@agent/shared-types": "file:../../packages/shared-types",
+    "@google/genai": "^1.44.0",
+    "@types/pg": "^8.18.0",
+    "pg": "^8.20.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
