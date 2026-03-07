@@ -1,4 +1,5 @@
 import type {
+  AssistantNotification,
   ConversationMessage,
   FinalizedUtterance,
   Task,
@@ -25,12 +26,17 @@ import {
   createInMemorySessionPersistence,
   type SessionPersistence
 } from "../persistence/session-persistence.js";
+import { buildAssistantFollowUpMessage } from "../tasks/task-event-announcer.js";
 
 export interface HandleTurnInput {
   brainSessionId: string;
   utterance: FinalizedUtterance;
   now: string;
 }
+
+export type AssistantMessageListener = (
+  notification: AssistantNotification
+) => void | Promise<void>;
 
 export class TextRealtimeSessionLoop {
   private readonly conversationRepository: ConversationMessageRepository;
@@ -42,7 +48,8 @@ export class TextRealtimeSessionLoop {
 
   constructor(
     executor: LocalExecutor = new MockExecutor(),
-    persistence: SessionPersistence = createInMemorySessionPersistence()
+    persistence: SessionPersistence = createInMemorySessionPersistence(),
+    private readonly onAssistantMessage?: AssistantMessageListener
   ) {
     this.conversationRepository = persistence.conversationRepository;
     this.taskRepository = persistence.taskRepository;
@@ -54,7 +61,24 @@ export class TextRealtimeSessionLoop {
       new TaskRuntime(executor),
       this.taskExecutorSessionRepository,
       this.taskRepository,
-      this.taskEventRepository
+      this.taskEventRepository,
+      async (notification) => {
+        const followUpMessage = buildAssistantFollowUpMessage({
+          brainSessionId: notification.brainSessionId,
+          task: notification.task,
+          event: notification.terminalEvent
+        });
+
+        if (!followUpMessage) {
+          return;
+        }
+
+        await this.conversationRepository.save(followUpMessage.message);
+
+        if (this.onAssistantMessage) {
+          await this.onAssistantMessage(followUpMessage);
+        }
+      }
     );
 
     const handler = new FinalizedUtteranceHandler(

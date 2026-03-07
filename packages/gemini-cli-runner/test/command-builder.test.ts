@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildGeminiCliCommand } from "../src/command-builder.js";
 
 describe("buildGeminiCliCommand", () => {
-  it("builds a new task command with positional prompt and stream-json output", () => {
+  it("builds a new task command with explicit headless prompt mode", () => {
     const command = buildGeminiCliCommand({
       task: {
         id: "task-1",
@@ -19,7 +19,14 @@ describe("buildGeminiCliCommand", () => {
 
     expect(command).toEqual({
       command: "gemini",
-      args: ["Organize my browser tabs", "--output-format", "stream-json"],
+      args: [
+        "-p",
+        "Organize my browser tabs",
+        "--approval-mode",
+        "yolo",
+        "--output-format",
+        "stream-json"
+      ],
       cwd: "/tmp"
     });
   });
@@ -42,7 +49,10 @@ describe("buildGeminiCliCommand", () => {
     expect(command.args).toEqual([
       "-r",
       "session-123",
+      "-p",
       "Continue the tab cleanup",
+      "--approval-mode",
+      "yolo",
       "--output-format",
       "stream-json"
     ]);

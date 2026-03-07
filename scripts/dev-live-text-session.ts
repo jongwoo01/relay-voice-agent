@@ -4,8 +4,11 @@ import { Modality } from "@google/genai";
 import {
   DEFAULT_LIVE_MODEL,
   GoogleLiveApiTransport,
+  loadDotEnvFromRoot,
   type GoogleLiveTransportEvent
 } from "../apps/agent-api/src/index.ts";
+
+loadDotEnvFromRoot();
 
 function printHelp() {
   console.log("Commands:");

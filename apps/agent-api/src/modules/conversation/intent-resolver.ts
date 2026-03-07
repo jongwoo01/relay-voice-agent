@@ -51,10 +51,17 @@ export function inferIntentFromText(text: string): IntentType {
 
   if (
     normalized.includes("해줘") ||
+    normalized.includes("알려줘") ||
+    normalized.includes("보여줘") ||
+    normalized.includes("찾아줘") ||
+    normalized.includes("말해줘") ||
+    normalized.includes("말해라") ||
+    normalized.includes("말해") ||
     normalized.includes("실행") ||
     normalized.includes("정리") ||
     normalized.includes("만들어") ||
     normalized.includes("이어") ||
+    normalized.includes("알려") ||
     normalized.includes("continue") ||
     normalized.includes("do ") ||
     normalized.includes("run ") ||
@@ -115,7 +122,10 @@ export class GeminiIntentResolver implements IntentResolver {
         "Return JSON only in the form {\"intent\":\"...\"}.",
         "Allowed intents: small_talk, question, task_request, unclear.",
         "Use task_request for actionable requests that should trigger work.",
+        "Use task_request when answering requires inspecting local files, directories, apps, browser state, or running local tools/commands.",
+        "Requests like 'tell me the files on my desktop', 'show me folder names', 'count files', 'find X on this machine', or 'open Y' are task_request, not question.",
         "Use question for information-seeking questions.",
+        "Use question only when the answer can be produced directly without inspecting the local machine or performing work.",
         "Use small_talk for greetings, chit-chat, or acknowledgements.",
         "Use unclear when the request is too ambiguous to act on.",
         `Utterance: ${text}`

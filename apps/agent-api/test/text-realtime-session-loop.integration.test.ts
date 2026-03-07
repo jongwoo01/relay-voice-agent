@@ -5,7 +5,10 @@ import type {
   ExecutorRunResult,
   LocalExecutor
 } from "@agent/local-executor-protocol";
-import type { FinalizedUtterance } from "@agent/shared-types";
+import type {
+  AssistantNotification,
+  FinalizedUtterance
+} from "@agent/shared-types";
 import { TextRealtimeSessionLoop } from "../src/index.js";
 
 function utterance(text: string, intent: FinalizedUtterance["intent"]): FinalizedUtterance {
@@ -19,6 +22,7 @@ function utterance(text: string, intent: FinalizedUtterance["intent"]): Finalize
 describe("text-realtime-session-loop", () => {
   it("accepts a second conversational turn while a task is running in the background", async () => {
     let resolveExecution: (() => void) | undefined;
+    const notifications: AssistantNotification[] = [];
 
     class DeferredExecutor implements LocalExecutor {
       async run(
@@ -51,7 +55,13 @@ describe("text-realtime-session-loop", () => {
       }
     }
 
-    const loop = new TextRealtimeSessionLoop(new DeferredExecutor());
+    const loop = new TextRealtimeSessionLoop(
+      new DeferredExecutor(),
+      undefined,
+      async (notification) => {
+        notifications.push(notification);
+      }
+    );
 
     const firstTurn = await loop.handleTurn({
       brainSessionId: "brain-1",
@@ -99,6 +109,18 @@ describe("text-realtime-session-loop", () => {
 
     const activeTasksAfterCompletion = await loop.listActiveTasks("brain-1");
     expect(activeTasksAfterCompletion).toHaveLength(0);
+
+    const conversationAfterCompletion = await loop.listConversation("brain-1");
+    expect(conversationAfterCompletion.map((message) => message.text)).toContain(
+      "작업이 끝났어. 정리 완료"
+    );
+    expect(notifications).toEqual([
+      expect.objectContaining({
+        priority: "normal",
+        delivery: "next_turn",
+        reason: "task_completed"
+      })
+    ]);
 
     const taskEvents = await loop.listTaskEvents(firstTurn.task!.id);
     expect(taskEvents.map((event) => event.type)).toEqual([

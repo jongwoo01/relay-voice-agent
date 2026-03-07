@@ -21,3 +21,7 @@ Dev entrypoints:
 - `npm run dev:text-session`
 - `npm run dev:live-text-session`
 - `npm run smoke:gemini`
+
+Local environment:
+- copy `.env.example` to `.env`
+- set `GOOGLE_API_KEY` or `GEMINI_API_KEY` for dev intent resolution and Live API scripts

@@ -2,17 +2,21 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import type { FinalizedUtterance } from "@agent/shared-types";
 import {
+  createDefaultIntentResolver,
+  loadDotEnvFromRoot,
   createPostgresSessionPersistence,
   GeminiCliExecutor,
-  HeuristicIntentResolver,
   MockExecutor,
+  planAssistantNotificationDelivery,
   TextRealtimeSessionLoop
 } from "../apps/agent-api/src/index.ts";
-const intentResolver = new HeuristicIntentResolver();
+
+loadDotEnvFromRoot();
 
 async function parseUtterance(
   line: string,
-  now: string
+  now: string,
+  resolveIntent: (text: string) => Promise<FinalizedUtterance["intent"]>
 ): Promise<FinalizedUtterance | null> {
   if (!line.trim()) {
     return null;
@@ -52,7 +56,7 @@ async function parseUtterance(
 
   return {
     text: line,
-    intent: await intentResolver.resolve(line),
+    intent: await resolveIntent(line),
     createdAt: now
   };
 }
@@ -73,6 +77,7 @@ function printHelp() {
   console.log("");
   console.log("Options:");
   console.log("  --gemini              Use Gemini CLI executor");
+  console.log("  --raw-executor        Print raw Gemini CLI stream events");
   console.log("  --postgres            Use Postgres-backed persistence");
   console.log("");
   console.log("Environment for --postgres:");
@@ -83,9 +88,25 @@ function printHelp() {
 async function main() {
   const useGeminiExecutor =
     process.argv.includes("--gemini") || process.env.GEMINI_EXECUTOR === "1";
+  const showRawExecutor =
+    process.argv.includes("--raw-executor") ||
+    process.env.DEV_RAW_EXECUTOR === "1";
   const usePostgresPersistence =
     process.argv.includes("--postgres") || process.env.DEV_POSTGRES === "1";
-  const executor = useGeminiExecutor ? new GeminiCliExecutor() : new MockExecutor();
+  const hasIntentApiKey = Boolean(
+    process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY
+  );
+  const intentResolver = createDefaultIntentResolver();
+  const executor = useGeminiExecutor
+    ? new GeminiCliExecutor(
+        undefined,
+        showRawExecutor
+          ? async (event) => {
+              console.log(`[executor/raw] ${JSON.stringify(event)}`);
+            }
+          : undefined
+      )
+    : new MockExecutor();
   const rl = createInterface({ input, output });
   const brainSessionId = `dev-session-${Date.now()}`;
   const now = new Date().toISOString();
@@ -106,7 +127,19 @@ async function main() {
         }
       })
     : undefined;
-  const loop = new TextRealtimeSessionLoop(executor, persistence);
+  const loop = new TextRealtimeSessionLoop(
+    executor,
+    persistence,
+    async (notification) => {
+      const plan = planAssistantNotificationDelivery(notification, {
+        userSpeaking: false,
+        assistantSpeaking: false
+      });
+      console.log(
+        `[assistant/${notification.message.tone ?? "reply"}][${plan.delivery}] ${plan.speechText ?? plan.uiText}`
+      );
+    }
+  );
 
   const handleCommand = async (rawLine: string): Promise<boolean> => {
     const trimmed = rawLine.trim();
@@ -150,10 +183,16 @@ async function main() {
     }
 
     const now = new Date().toISOString();
-    const utterance = await parseUtterance(trimmed, now);
+    const utterance = await parseUtterance(
+      trimmed,
+      now,
+      (text) => intentResolver.resolve(text)
+    );
     if (!utterance) {
       return true;
     }
+
+    console.log(`[dev] resolved intent=${utterance.intent}`);
 
     const result = await loop.handleTurn({
       brainSessionId,
@@ -174,6 +213,9 @@ async function main() {
 
   console.log(
     `[dev] text session started (${useGeminiExecutor ? "gemini" : "mock"} executor, ${usePostgresPersistence ? "postgres" : "in-memory"} persistence)`
+  );
+  console.log(
+    `[dev] intent resolver=${hasIntentApiKey ? "gemini+fallback" : "heuristic"}`
   );
   console.log(`[dev] brainSessionId=${brainSessionId}`);
   printHelp();

@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import type {
   ExecutorRunRequest,
@@ -85,17 +86,24 @@ describe("task-execution-service", () => {
       now: "2026-03-08T00:01:00.000Z"
     });
 
+    expect(executor.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workingDirectory: homedir()
+      }),
+      undefined
+    );
+
     expect(result.executorSession).toEqual({
       taskId: "task-2",
       sessionId: "session-new",
-      workingDirectory: undefined,
+      workingDirectory: homedir(),
       updatedAt: "2026-03-08T00:01:00.000Z"
     });
 
     await expect(repository.getByTaskId("task-2")).resolves.toEqual({
       taskId: "task-2",
       sessionId: "session-new",
-      workingDirectory: undefined,
+      workingDirectory: homedir(),
       updatedAt: "2026-03-08T00:01:00.000Z"
     });
   });

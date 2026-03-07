@@ -64,7 +64,14 @@ describe("GeminiCliExecutor", () => {
 
     expect(exec).toHaveBeenCalledWith(
       "gemini",
-      ["Organize my browser tabs", "--output-format", "stream-json"],
+      [
+        "-p",
+        "Organize my browser tabs",
+        "--approval-mode",
+        "yolo",
+        "--output-format",
+        "stream-json"
+      ],
       expect.objectContaining({
         cwd: undefined,
         onStdoutLine: expect.any(Function)
@@ -124,11 +131,45 @@ describe("GeminiCliExecutor", () => {
 
     expect(exec).toHaveBeenCalledWith(
       "gemini",
-      ["-r", "session-999", "Continue cleanup", "--output-format", "stream-json"],
+      [
+        "-r",
+        "session-999",
+        "-p",
+        "Continue cleanup",
+        "--approval-mode",
+        "yolo",
+        "--output-format",
+        "stream-json"
+      ],
       expect.objectContaining({
         cwd: "/tmp/work",
         onStdoutLine: expect.any(Function)
       })
     );
+  });
+
+  it("fails when the process exits cleanly but produces no output", async () => {
+    const exec = vi.fn(async () => ({
+      stdout: "",
+      stderr: "",
+      exitCode: 0
+    }));
+
+    const executor = new GeminiCliExecutor(exec);
+
+    await expect(
+      executor.run({
+        task: {
+          id: "task-3",
+          title: "Inspect desktop folders",
+          normalizedGoal: "inspect desktop folders",
+          status: "queued",
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z"
+        },
+        now: "2026-03-08T00:00:00.000Z",
+        prompt: "List folders on the desktop"
+      })
+    ).rejects.toThrow("Gemini CLI output was empty");
   });
 });

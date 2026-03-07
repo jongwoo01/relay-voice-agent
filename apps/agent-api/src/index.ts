@@ -1,4 +1,8 @@
 export { ConversationOrchestrator } from "./modules/conversation/conversation-orchestrator.js";
+export {
+  loadDotEnvFromRoot,
+  parseDotEnv
+} from "./modules/config/env-loader.js";
 export { BrainTurnService, type BrainTurnResult } from "./modules/conversation/brain-turn-service.js";
 export { AccountBoundaryService, type AccountBoundaryResult, type GoogleIdentityInput } from "./modules/account/account-boundary-service.js";
 export {
@@ -82,6 +86,12 @@ export {
   type StoredEncryptedSecret,
   type WrappedKeyMaterial
 } from "./modules/security/secret-encryption.js";
+export type {
+  AssistantDeliveryPolicy,
+  AssistantNotification,
+  AssistantNotificationReason,
+  AssistantPriority
+} from "@agent/shared-types";
 export {
   FinalizedUtteranceHandler,
   type FinalizedUtteranceHandled
@@ -109,3 +119,8 @@ export { RealtimeGatewayService, type RealtimeGatewayResult } from "./modules/re
 export { TextRealtimeSessionLoop } from "./modules/realtime/text-realtime-session-loop.js";
 export { TaskExecutionService } from "./modules/tasks/task-execution-service.js";
 export { TaskRuntime } from "./modules/tasks/task-runtime.js";
+export {
+  buildAssistantFollowUpMessage,
+  type BuildAssistantFollowUpInput
+} from "./modules/tasks/task-event-announcer.js";
+export { planAssistantNotificationDelivery } from "./modules/tasks/task-notification-policy.js";

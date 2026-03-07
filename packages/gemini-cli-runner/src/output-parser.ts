@@ -83,7 +83,16 @@ function extractResultResponse(event: GeminiCliHeadlessEvent): string | undefine
 function extractErrorMessage(event: GeminiCliHeadlessEvent): string | undefined {
   return firstNonEmptyString([
     event.payload.message,
+    event.payload.output,
+    event.payload.result,
     isRecord(event.payload.error) ? event.payload.error.message : undefined
+  ]);
+}
+
+function extractToolResultStatus(event: GeminiCliHeadlessEvent): string | undefined {
+  return firstNonEmptyString([
+    event.payload.status,
+    isRecord(event.payload.result) ? event.payload.result.status : undefined
   ]);
 }
 
@@ -161,6 +170,7 @@ export async function buildExecutorResultFromGeminiCliOutput(
   const assistantMessages: string[] = [];
   let sessionId: string | undefined;
   let completionMessage: string | undefined;
+  let sawResult = false;
 
   for (const event of input.output.events) {
     sessionId ??= extractSessionId(event);
@@ -194,8 +204,20 @@ export async function buildExecutorResultFromGeminiCliOutput(
     }
 
     if (event.type === "result") {
+      sawResult = true;
       completionMessage = extractResultResponse(event);
     }
+
+    if (event.type === "tool_result" && extractToolResultStatus(event) === "error") {
+      const toolName = extractToolName(event) ?? "unknown_tool";
+      const errorMessage =
+        extractErrorMessage(event) ?? `Tool "${toolName}" failed during Gemini CLI execution`;
+      throw new Error(`Gemini CLI tool failure (${toolName}): ${errorMessage}`);
+    }
+  }
+
+  if (!sawResult) {
+    throw new Error("Gemini CLI output did not include a final result event");
   }
 
   const finalMessage =

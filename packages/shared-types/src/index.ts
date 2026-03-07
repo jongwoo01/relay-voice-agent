@@ -69,10 +69,42 @@ export interface AssistantEnvelope {
   tone: "reply" | "clarify" | "task_ack";
 }
 
+export type AssistantPriority = "normal" | "high" | "critical";
+
+export type AssistantDeliveryPolicy =
+  | "immediate"
+  | "interrupt_if_speaking"
+  | "next_turn"
+  | "ui_only";
+
+export type AssistantNotificationReason =
+  | "task_completed"
+  | "task_failed"
+  | "task_waiting_input"
+  | "approval_required";
+
 export interface ConversationMessage {
   brainSessionId: string;
   speaker: "user" | "assistant";
   text: string;
   createdAt: string;
   tone?: AssistantEnvelope["tone"];
+}
+
+export interface AssistantNotification {
+  message: ConversationMessage;
+  priority: AssistantPriority;
+  delivery: AssistantDeliveryPolicy;
+  reason: AssistantNotificationReason;
+}
+
+export interface InteractionActivityState {
+  userSpeaking: boolean;
+  assistantSpeaking: boolean;
+}
+
+export interface AssistantDeliveryPlan {
+  uiText: string;
+  speechText?: string;
+  delivery: AssistantDeliveryPolicy;
 }

@@ -13,6 +13,15 @@ describe("inferIntentFromText", () => {
     expect(inferIntentFromText("브라우저 탭 정리해줘")).toBe("task_request");
   });
 
+  it("classifies korean imperative information requests as task_request", () => {
+    expect(inferIntentFromText("내 바탕화면 폴더갯수랑 이름말해라")).toBe(
+      "task_request"
+    );
+    expect(inferIntentFromText("다운로드 폴더 파일 목록 알려줘")).toBe(
+      "task_request"
+    );
+  });
+
   it("classifies english imperative requests as task_request", () => {
     expect(inferIntentFromText("code something for me")).toBe("task_request");
     expect(inferIntentFromText("build a quick prototype")).toBe("task_request");

@@ -1,4 +1,11 @@
-import { completeTask, createTask, queueTask, reportTaskProgress } from "@agent/brain-domain";
+import { homedir } from "node:os";
+import {
+  completeTask,
+  createTask,
+  failTask,
+  queueTask,
+  reportTaskProgress
+} from "@agent/brain-domain";
 import type {
   ExecutorRunRequest,
   ExecutorRunResult,
@@ -31,7 +38,20 @@ export interface PreparedTaskRun {
 }
 
 export class TaskRuntime {
-  constructor(private readonly executor: LocalExecutor = new MockExecutor()) {}
+  private readonly defaultWorkingDirectory: string;
+
+  constructor(
+    private readonly executor: LocalExecutor = new MockExecutor(),
+    defaultWorkingDirectory: string = homedir()
+  ) {
+    this.defaultWorkingDirectory = defaultWorkingDirectory;
+  }
+
+  private resolveWorkingDirectory(
+    executorSession?: TaskExecutorSession
+  ): string {
+    return executorSession?.workingDirectory ?? this.defaultWorkingDirectory;
+  }
 
   prepare(input: TaskRunInput): PreparedTaskRun {
     if (input.existingTask) {
@@ -49,7 +69,7 @@ export class TaskRuntime {
           now: input.now,
           prompt: input.text,
           resumeSessionId: input.executorSession?.sessionId,
-          workingDirectory: input.executorSession?.workingDirectory
+          workingDirectory: this.resolveWorkingDirectory(input.executorSession)
         },
         priorExecutorSession: input.executorSession
       };
@@ -67,7 +87,7 @@ export class TaskRuntime {
         now: input.now,
         prompt: input.text,
         resumeSessionId: input.executorSession?.sessionId,
-        workingDirectory: input.executorSession?.workingDirectory
+        workingDirectory: this.resolveWorkingDirectory(input.executorSession)
       },
       priorExecutorSession: input.executorSession
     };
@@ -77,8 +97,12 @@ export class TaskRuntime {
     prepared: PreparedTaskRun,
     onProgress?: ExecutorProgressListener
   ): Promise<TaskRunResult> {
-    const execution = await this.executor.run(prepared.request, onProgress);
-    return this.applyExecutionResult(prepared, execution);
+    try {
+      const execution = await this.executor.run(prepared.request, onProgress);
+      return this.applyExecutionResult(prepared, execution);
+    } catch (error) {
+      return this.applyExecutionFailure(prepared, error);
+    }
   }
 
   applyExecutionResult(
@@ -120,6 +144,23 @@ export class TaskRuntime {
       task: completed.task,
       events,
       executorSession: nextExecutorSession
+    };
+  }
+
+  applyExecutionFailure(
+    prepared: PreparedTaskRun,
+    error: unknown
+  ): TaskRunResult {
+    const failed = failTask(
+      prepared.task,
+      prepared.request.now,
+      error instanceof Error ? error.message : "Task execution failed"
+    );
+
+    return {
+      task: failed.task,
+      events: [failed.event],
+      executorSession: prepared.priorExecutorSession
     };
   }
 

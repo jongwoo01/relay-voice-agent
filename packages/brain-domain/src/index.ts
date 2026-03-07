@@ -4,6 +4,7 @@ export { decideNextAction } from "./next-action.js";
 export {
   completeTask,
   createTask,
+  failTask,
   queueTask,
   reportTaskProgress,
   startTask

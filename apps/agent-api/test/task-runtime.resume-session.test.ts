@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import type {
   ExecutorRunRequest,
@@ -69,7 +70,7 @@ describe("task-runtime resume session", () => {
     expect(result.executorSession).toEqual({
       taskId: "task-4",
       sessionId: "new-session-123",
-      workingDirectory: undefined,
+      workingDirectory: homedir(),
       updatedAt: "2026-03-08T00:00:00.000Z"
     });
   });

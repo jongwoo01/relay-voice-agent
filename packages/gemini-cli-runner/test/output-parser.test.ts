@@ -91,4 +91,55 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
     expect(result.completionEvent.message).toBe("브라우저 탭 정리를 마쳤어요");
     expect(onProgress).toHaveBeenCalledTimes(2);
   });
+
+  it("throws when a tool_result reports error status", async () => {
+    const parsed = parseGeminiCliOutput(
+      [
+        JSON.stringify({
+          type: "tool_use",
+          tool_name: "list_directory"
+        }),
+        JSON.stringify({
+          type: "tool_result",
+          tool_name: "list_directory",
+          status: "error",
+          output: "Path not in workspace"
+        }),
+        JSON.stringify({
+          type: "result",
+          status: "success"
+        })
+      ].join("\n")
+    );
+
+    await expect(
+      buildExecutorResultFromGeminiCliOutput({
+        taskId: "task-2",
+        now: "2026-03-08T00:00:00.000Z",
+        output: parsed
+      })
+    ).rejects.toThrow(
+      "Gemini CLI tool failure (list_directory): Path not in workspace"
+    );
+  });
+
+  it("throws when no final result event is present", async () => {
+    const parsed = parseGeminiCliOutput(
+      [
+        JSON.stringify({
+          type: "message",
+          role: "assistant",
+          content: "partial response"
+        })
+      ].join("\n")
+    );
+
+    await expect(
+      buildExecutorResultFromGeminiCliOutput({
+        taskId: "task-3",
+        now: "2026-03-08T00:00:00.000Z",
+        output: parsed
+      })
+    ).rejects.toThrow("Gemini CLI output did not include a final result event");
+  });
 });

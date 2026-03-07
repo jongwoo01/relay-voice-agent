@@ -18,6 +18,10 @@ import {
   type GeminiCliHeadlessEvent
 } from "./output-parser.js";
 
+export type GeminiCliRawEventListener = (
+  event: GeminiCliHeadlessEvent
+) => void | Promise<void>;
+
 export interface ExecResult {
   stdout: string;
   stderr: string;
@@ -122,7 +126,10 @@ export function createSpawnRunner(
 export const defaultExecFile = createSpawnRunner();
 
 export class GeminiCliExecutor implements LocalExecutor {
-  constructor(private readonly exec: RunCommandLike = defaultExecFile) {}
+  constructor(
+    private readonly exec: RunCommandLike = defaultExecFile,
+    private readonly onRawEvent?: GeminiCliRawEventListener
+  ) {}
 
   async run(
     request: ExecutorRunRequest,
@@ -136,6 +143,7 @@ export class GeminiCliExecutor implements LocalExecutor {
       onStdoutLine: async (line) => {
         const event = parseGeminiCliEventLine(line);
         streamedEvents.push(event);
+        await this.onRawEvent?.(event);
 
         const progressEvent = toExecutorProgressEvent(
           request.task.id,

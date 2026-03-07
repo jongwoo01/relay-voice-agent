@@ -27,6 +27,17 @@ export interface ExecuteTaskResult {
   executorSession?: TaskExecutorSession;
 }
 
+export interface TaskTerminalNotification {
+  brainSessionId: string;
+  task: Task;
+  terminalEvent: TaskEvent;
+  executorSession?: TaskExecutorSession;
+}
+
+export type TaskTerminalNotifier = (
+  notification: TaskTerminalNotification
+) => void | Promise<void>;
+
 export class TaskExecutionService {
   private readonly inFlightExecutions = new Set<Promise<void>>();
 
@@ -34,7 +45,8 @@ export class TaskExecutionService {
     private readonly runtime: TaskRuntime = new TaskRuntime(),
     private readonly sessionRepository: TaskExecutorSessionRepository = new InMemoryTaskExecutorSessionRepository(),
     private readonly taskRepository: TaskRepository = new InMemoryTaskRepository(),
-    private readonly taskEventRepository: TaskEventRepository = new InMemoryTaskEventRepository()
+    private readonly taskEventRepository: TaskEventRepository = new InMemoryTaskEventRepository(),
+    private readonly notifyTerminalState?: TaskTerminalNotifier
   ) {}
 
   async execute(input: ExecuteTaskInput): Promise<ExecuteTaskResult> {
@@ -90,6 +102,23 @@ export class TaskExecutionService {
 
         if (result.executorSession) {
           await this.sessionRepository.save(result.executorSession);
+        }
+
+        const terminalEvent = [...result.events]
+          .reverse()
+          .find(
+            (event) =>
+              event.type === "executor_completed" ||
+              event.type === "executor_failed"
+          );
+
+        if (terminalEvent && this.notifyTerminalState) {
+          await this.notifyTerminalState({
+            brainSessionId: input.brainSessionId!,
+            task: result.task,
+            terminalEvent,
+            executorSession: result.executorSession
+          });
         }
       })
       .finally(() => {

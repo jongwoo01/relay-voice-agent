@@ -10,8 +10,24 @@ export function buildGeminiCliCommand(
   request: ExecutorRunRequest
 ): GeminiCliCommand {
   const args = request.resumeSessionId
-    ? ["-r", request.resumeSessionId, request.prompt, "--output-format", "stream-json"]
-    : [request.prompt, "--output-format", "stream-json"];
+    ? [
+        "-r",
+        request.resumeSessionId,
+        "-p",
+        request.prompt,
+        "--approval-mode",
+        "yolo",
+        "--output-format",
+        "stream-json"
+      ]
+    : [
+        "-p",
+        request.prompt,
+        "--approval-mode",
+        "yolo",
+        "--output-format",
+        "stream-json"
+      ];
 
   return {
     command: "gemini",

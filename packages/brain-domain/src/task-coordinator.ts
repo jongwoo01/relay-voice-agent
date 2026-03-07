@@ -103,3 +103,24 @@ export function completeTask(task: Task, now: string, message: string): TaskTran
     }
   };
 }
+
+export function failTask(task: Task, now: string, message: string): TaskTransitionResult {
+  const activeTask =
+    task.status === "running" || task.status === "waiting_input"
+      ? task
+      : startTask(task, now, "Task is running").task;
+
+  return {
+    task: {
+      ...activeTask,
+      status: reduceTaskStatus(activeTask.status, "failed"),
+      updatedAt: now
+    },
+    event: {
+      taskId: task.id,
+      type: "executor_failed",
+      message,
+      createdAt: now
+    }
+  };
+}
