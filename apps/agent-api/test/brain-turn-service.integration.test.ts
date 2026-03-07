@@ -1,0 +1,124 @@
+import { describe, expect, it, vi } from "vitest";
+import type { ExecutorRunRequest, ExecutorRunResult, LocalExecutor } from "@agent/local-executor-protocol";
+import type { FinalizedUtterance } from "@agent/shared-types";
+import {
+  BrainTurnService,
+  ConversationOrchestrator,
+  InMemoryTaskExecutorSessionRepository,
+  TaskExecutionService,
+  TaskRuntime
+} from "../src/index.js";
+
+class CapturingExecutor implements LocalExecutor {
+  public readonly run = vi.fn(
+    async (request: ExecutorRunRequest): Promise<ExecutorRunResult> => ({
+      progressEvents: [],
+      completionEvent: {
+        taskId: request.task.id,
+        type: "executor_completed",
+        message: "실행 완료",
+        createdAt: request.now
+      },
+      sessionId: request.resumeSessionId ?? "session-created"
+    })
+  );
+}
+
+function utterance(text: string, intent: FinalizedUtterance["intent"]): FinalizedUtterance {
+  return {
+    text,
+    intent,
+    createdAt: "2026-03-08T00:00:00.000Z"
+  };
+}
+
+describe("brain-turn-service", () => {
+  it("returns a direct reply action for small talk", async () => {
+    const service = new BrainTurnService();
+
+    const result = await service.handle({
+      brainSessionId: "brain-1",
+      utterance: utterance("안녕", "small_talk"),
+      activeTasks: [],
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    expect(result).toEqual({
+      action: { type: "reply" },
+      replyText: "메인 대화 레이어에서 바로 응답하면 됩니다."
+    });
+  });
+
+  it("runs a new task when the utterance is a fresh task request", async () => {
+    const executor = new CapturingExecutor();
+    const service = new BrainTurnService(
+      new ConversationOrchestrator(),
+      new TaskExecutionService(
+        new TaskRuntime(executor),
+        new InMemoryTaskExecutorSessionRepository()
+      ),
+      () => "task-new"
+    );
+
+    const result = await service.handle({
+      brainSessionId: "brain-1",
+      utterance: utterance("브라우저 탭 정리해줘", "task_request"),
+      activeTasks: [],
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    expect(result.action).toEqual({ type: "create_task" });
+    expect(result.task?.id).toBe("task-new");
+    expect(result.task?.status).toBe("running");
+    expect(executor.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "브라우저 탭 정리해줘",
+        resumeSessionId: undefined
+      })
+    );
+  });
+
+  it("resumes an existing task when the utterance points to active work", async () => {
+    const repository = new InMemoryTaskExecutorSessionRepository();
+    await repository.save({
+      taskId: "task-existing",
+      sessionId: "session-existing",
+      workingDirectory: "/tmp/browser",
+      updatedAt: "2026-03-08T00:00:00.000Z"
+    });
+
+    const executor = new CapturingExecutor();
+    const service = new BrainTurnService(
+      new ConversationOrchestrator(),
+      new TaskExecutionService(new TaskRuntime(executor), repository)
+    );
+
+    const result = await service.handle({
+      brainSessionId: "brain-1",
+      utterance: utterance("아까 하던 거 이어서 해", "task_request"),
+      activeTasks: [
+        {
+          id: "task-existing",
+          title: "브라우저 정리",
+          normalizedGoal: "browser cleanup",
+          status: "running",
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z"
+        }
+      ],
+      now: "2026-03-08T00:01:00.000Z"
+    });
+
+    expect(result.action).toEqual({
+      type: "resume_task",
+      taskId: "task-existing"
+    });
+    expect(result.task?.status).toBe("running");
+    expect(executor.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeSessionId: "session-existing",
+        workingDirectory: "/tmp/browser"
+      })
+    );
+  });
+});

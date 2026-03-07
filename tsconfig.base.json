@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "paths": {
+      "@agent/shared-types": ["packages/shared-types/src/index.ts"],
+      "@agent/brain-domain": ["packages/brain-domain/src/index.ts"],
+      "@agent/local-executor-protocol": ["packages/local-executor-protocol/src/index.ts"],
+      "@agent/gemini-cli-runner": ["packages/gemini-cli-runner/src/index.ts"],
+      "@agent/gemini-cli-runner/*": ["packages/gemini-cli-runner/src/*"]
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@agent/agent-api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@agent/brain-domain": "file:../../packages/brain-domain",
+    "@agent/gemini-cli-runner": "file:../../packages/gemini-cli-runner",
+    "@agent/local-executor-protocol": "file:../../packages/local-executor-protocol",
+    "@agent/shared-types": "file:../../packages/shared-types"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}
