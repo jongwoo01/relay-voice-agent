@@ -147,7 +147,7 @@ describe("live-voice-session", () => {
 
     await session.setMuted(false);
     session.sendAudioChunk("CCCC", "audio/pcm;rate=16000");
-    session.sendText("hello");
+    await session.sendText("hello");
 
     expect(sendRealtimeAudio).toHaveBeenCalledWith(
       "CCCC",
@@ -155,6 +155,15 @@ describe("live-voice-session", () => {
     );
     expect((await session.getState()).sentAudioChunkCount).toBe(1);
     expect(sendText).toHaveBeenCalledWith("hello", true);
+    expect((await session.getState()).liveMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "user",
+          text: "hello",
+          partial: false
+        })
+      ])
+    );
 
     await session.disconnect();
     expect(close).toHaveBeenCalled();

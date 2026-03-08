@@ -1,5 +1,6 @@
 import {
   createDefaultIntentResolver,
+  extractMemorySignals,
   planAssistantNotificationDelivery,
   TextRealtimeSessionLoop
 } from "@agent/agent-api";
@@ -26,6 +27,78 @@ function createInitialInputState() {
   };
 }
 
+function createInitialCanonicalTurnState() {
+  return [];
+}
+
+function deriveMainAvatarState({
+  activityState,
+  inputState,
+  notificationCenter,
+  memorySignals,
+  tasks
+}) {
+  const latestDelivered = notificationCenter.delivered.at(-1);
+  const hasBlockingTask = tasks.some(
+    (task) =>
+      task.status === "waiting_input" || task.status === "approval_required"
+  );
+
+  if (activityState.assistantSpeaking) {
+    return "speaking";
+  }
+
+  if (activityState.userSpeaking) {
+    return "listening";
+  }
+
+  if (hasBlockingTask) {
+    return "waiting_user";
+  }
+
+  if (
+    latestDelivered &&
+    (latestDelivered.reason === "approval_required" ||
+      latestDelivered.reason === "task_waiting_input")
+  ) {
+    return "waiting_user";
+  }
+
+  if (notificationCenter.pending.length > 0) {
+    return "briefing";
+  }
+
+  if (inputState.inFlight) {
+    return "thinking";
+  }
+
+  if (memorySignals.length > 0) {
+    return "reflecting";
+  }
+
+  return "idle";
+}
+
+function buildSubAvatarViewModels(tasks, taskTimelines) {
+  const latestEventByTaskId = new Map(
+    taskTimelines.map((timeline) => [timeline.taskId, timeline.events.at(-1)])
+  );
+
+  return tasks.map((task, index) => {
+    const latestEvent = latestEventByTaskId.get(task.id);
+    return {
+      taskId: task.id,
+      label: `Worker ${index + 1}`,
+      status: task.status,
+      progressSummary: latestEvent?.message,
+      blockingReason:
+        task.status === "waiting_input" || task.status === "approval_required"
+          ? latestEvent?.message
+          : undefined
+    };
+  });
+}
+
 export class DesktopSessionRuntime {
   constructor(options) {
     this.brainSessionId = options.brainSessionId;
@@ -38,6 +111,9 @@ export class DesktopSessionRuntime {
     this.notificationCenter =
       options.notificationCenter ?? createInitialNotificationCenterState();
     this.inputState = options.inputState ?? createInitialInputState();
+    this.canonicalTurns =
+      options.canonicalTurns ?? createInitialCanonicalTurnState();
+    this.memorySignals = options.memorySignals ?? [];
     this.pendingTurns = [];
     this.processingTurns = false;
   }
@@ -63,6 +139,9 @@ export class DesktopSessionRuntime {
         if (runtime && runtime.onStateChange) {
           await runtime.onStateChange(await runtime.collectState());
         }
+      },
+      {
+        persistDirectAssistantReplies: false
       }
     );
 
@@ -88,6 +167,14 @@ export class DesktopSessionRuntime {
         events: await this.loop.listTaskEvents(task.id)
       }))
     );
+    const subAvatars = buildSubAvatarViewModels(tasks, taskTimelines);
+    const mainAvatarState = deriveMainAvatarState({
+      activityState: this.activityState,
+      inputState: this.inputState,
+      notificationCenter: this.notificationCenter,
+      memorySignals: this.memorySignals,
+      tasks
+    });
 
     return {
       brainSessionId: this.brainSessionId,
@@ -100,6 +187,12 @@ export class DesktopSessionRuntime {
       messages,
       tasks,
       taskTimelines,
+      canonicalTurnStream: this.canonicalTurns,
+      memorySignals: this.memorySignals,
+      avatar: {
+        mainState: mainAvatarState,
+        subAvatars
+      },
       debug:
         this.execution.debug?.enabled
           ? {
@@ -118,45 +211,47 @@ export class DesktopSessionRuntime {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
-    await this.loop.waitForBackgroundWork();
+    await this.loop.waitForBackgroundWork?.();
     return this.collectState();
   }
 
   async sendText(text) {
-    const normalizedText = text.trim();
-    if (!normalizedText) {
-      return this.collectState();
-    }
-
-    return this.enqueueTurn({
-      text: normalizedText,
+    return this.submitCanonicalUserTurn({
+      text,
+      source: "typed",
       createdAt: new Date().toISOString()
     });
   }
 
   async handleVoiceTranscript(text) {
+    return this.submitCanonicalUserTurn({
+      text,
+      source: "voice",
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  async submitCanonicalUserTurn({ text, source, createdAt }) {
     const normalizedText = text.trim();
     if (!normalizedText) {
       return this.collectState();
     }
 
-    const activeTasks = await this.loop.listActiveTasks(this.brainSessionId);
-    if (activeTasks.length === 0) {
-      const intent = await this.intentResolver.resolve(normalizedText);
-      if (intent !== "task_request") {
-        return this.collectState();
-      }
-
-      return this.enqueueTurn({
+    const turnCreatedAt = createdAt ?? new Date().toISOString();
+    this.canonicalTurns = [
+      ...this.canonicalTurns,
+      {
+        source,
         text: normalizedText,
-        createdAt: new Date().toISOString(),
-        intent
-      });
-    }
+        createdAt: turnCreatedAt
+      }
+    ].slice(-20);
+    this.memorySignals = extractMemorySignals(normalizedText).slice(-6);
 
     return this.enqueueTurn({
       text: normalizedText,
-      createdAt: new Date().toISOString()
+      source,
+      createdAt: turnCreatedAt
     });
   }
 

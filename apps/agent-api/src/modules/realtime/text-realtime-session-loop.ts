@@ -38,6 +38,10 @@ export type AssistantMessageListener = (
   notification: AssistantNotification
 ) => void | Promise<void>;
 
+export interface TextRealtimeSessionLoopOptions {
+  persistDirectAssistantReplies?: boolean;
+}
+
 export class TextRealtimeSessionLoop {
   private readonly conversationRepository: ConversationMessageRepository;
   private readonly taskRepository: TaskRepository;
@@ -45,11 +49,13 @@ export class TextRealtimeSessionLoop {
   private readonly taskExecutorSessionRepository: TaskExecutorSessionRepository;
   private readonly taskExecutionService: TaskExecutionService;
   private readonly gateway: RealtimeGatewayService;
+  private readonly persistDirectAssistantReplies: boolean;
 
   constructor(
     executor: LocalExecutor = new MockExecutor(),
     persistence: SessionPersistence = createInMemorySessionPersistence(),
-    private readonly onAssistantMessage?: AssistantMessageListener
+    private readonly onAssistantMessage?: AssistantMessageListener,
+    options: TextRealtimeSessionLoopOptions = {}
   ) {
     this.conversationRepository = persistence.conversationRepository;
     this.taskRepository = persistence.taskRepository;
@@ -80,6 +86,8 @@ export class TextRealtimeSessionLoop {
         }
       }
     );
+    this.persistDirectAssistantReplies =
+      options.persistDirectAssistantReplies ?? true;
 
     const handler = new FinalizedUtteranceHandler(
       new BrainTurnService(
@@ -105,13 +113,15 @@ export class TextRealtimeSessionLoop {
       now: input.now
     });
 
-    await this.conversationRepository.save({
-      brainSessionId: input.brainSessionId,
-      speaker: "assistant",
-      text: result.assistant.text,
-      tone: result.assistant.tone,
-      createdAt: input.now
-    });
+    if (this.persistDirectAssistantReplies) {
+      await this.conversationRepository.save({
+        brainSessionId: input.brainSessionId,
+        speaker: "assistant",
+        text: result.assistant.text,
+        tone: result.assistant.tone,
+        createdAt: input.now
+      });
+    }
 
     return result;
   }

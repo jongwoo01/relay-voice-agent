@@ -243,9 +243,33 @@ export class LiveVoiceSession {
     return this.getState();
   }
 
-  sendText(text) {
-    this.session?.sendText(text, true);
-    void this.publishState();
+  async sendText(text) {
+    const normalizedText = text.trim();
+    if (!normalizedText || !this.session) {
+      return this.getState();
+    }
+
+    const eventAt = nowIso();
+    this.outputTranscriptChunks = [];
+    this.appendMetricEvent("typed turn sent", eventAt);
+    this.appendLiveMessage({
+      id: `typed-user-${eventAt}`,
+      role: "user",
+      text: normalizedText,
+      partial: false,
+      createdAt: eventAt
+    });
+    this.state = {
+      ...this.state,
+      status: "thinking",
+      inputPartial: "",
+      lastUserTranscript: normalizedText,
+      outputTranscript: "",
+      error: null
+    };
+    this.session.sendText(normalizedText, true);
+    await this.publishState();
+    return this.getState();
   }
 
   endAudioStream() {

@@ -55,7 +55,7 @@ function createWindow() {
       broadcastToWindow("session:state-updated", state);
     }
   });
-  const liveBrainBridge = createLiveBrainBridge({ runtime });
+  const liveBrainBridge = createLiveBrainBridge({ runtime, liveVoiceSession });
   liveVoiceSession = new LiveVoiceSession({
     onStateChange: async (state) => {
       broadcastToWindow("live:state-updated", state);
@@ -105,6 +105,10 @@ app.whenReady().then(() => {
     assertTrustedSender(_event);
     return runtime.sendText(text);
   });
+  ipcMain.handle("companion:send-typed-turn", async (event, text) => {
+    assertTrustedSender(event);
+    return liveBrainBridge.sendTypedTurn(text);
+  });
   ipcMain.handle("session:toggle-mic", async (event) => {
     assertTrustedSender(event);
     return runtime.toggleMic();
@@ -140,8 +144,7 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("live:send-text", async (event, text) => {
     assertTrustedSender(event);
-    liveVoiceSession.sendText(text);
-    return liveVoiceSession.getState();
+    return liveVoiceSession.sendText(text);
   });
   ipcMain.on("live:send-audio-chunk", (event, audioData, mimeType) => {
     assertTrustedSender(event);

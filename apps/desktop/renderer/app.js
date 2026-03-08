@@ -28,6 +28,9 @@ const liveDebugLogEl = document.getElementById("live-debug-log");
 const liveMessageListEl = document.getElementById("live-message-list");
 const voiceTaskSummaryEl = document.getElementById("voice-task-summary");
 const voiceBriefingSummaryEl = document.getElementById("voice-briefing-summary");
+const mainAvatarStateEl = document.getElementById("main-avatar-state");
+const memorySignalListEl = document.getElementById("memory-signal-list");
+const subAvatarListEl = document.getElementById("sub-avatar-list");
 
 let sessionState = null;
 let liveState = {
@@ -466,6 +469,77 @@ function renderVoiceTaskSummary(state) {
     : "voice-summary-text empty-state";
 }
 
+function renderMainAvatarState(state) {
+  const label = {
+    idle: "Idle",
+    listening: "Listening",
+    thinking: "Thinking",
+    speaking: "Speaking",
+    briefing: "Briefing",
+    waiting_user: "Waiting For You",
+    reflecting: "Reflecting"
+  }[state?.avatar?.mainState] ?? "Idle";
+
+  mainAvatarStateEl.textContent = label;
+  mainAvatarStateEl.className = state?.avatar?.mainState
+    ? "voice-summary-text"
+    : "voice-summary-text empty-state";
+}
+
+function renderMemorySignals(signals) {
+  memorySignalListEl.innerHTML = "";
+
+  if (!signals || signals.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "아직 기억 후보가 없습니다.";
+    memorySignalListEl.appendChild(empty);
+    return;
+  }
+
+  for (const signal of signals) {
+    const item = document.createElement("article");
+    item.className = "signal-card";
+    item.innerHTML = `
+      <p class="message-role"></p>
+      <p class="briefing-text"></p>
+      <p class="briefing-delivery"></p>
+    `;
+    item.querySelector(".message-role").textContent = signal.type;
+    item.querySelector(".briefing-text").textContent = signal.summary;
+    item.querySelector(".briefing-delivery").textContent = signal.policy;
+    memorySignalListEl.appendChild(item);
+  }
+}
+
+function renderSubAvatars(subAvatars) {
+  subAvatarListEl.innerHTML = "";
+
+  if (!subAvatars || subAvatars.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "아직 활성 worker가 없습니다.";
+    subAvatarListEl.appendChild(empty);
+    return;
+  }
+
+  for (const avatar of subAvatars) {
+    const item = document.createElement("article");
+    item.className = "briefing-card delivered";
+    item.innerHTML = `
+      <p class="briefing-label"></p>
+      <p class="briefing-text"></p>
+      <p class="briefing-delivery"></p>
+    `;
+    item.querySelector(".briefing-label").textContent = `${avatar.label} · ${avatar.status}`;
+    item.querySelector(".briefing-text").textContent =
+      avatar.progressSummary ?? "진행 상황을 기다리는 중입니다.";
+    item.querySelector(".briefing-delivery").textContent =
+      avatar.blockingReason ?? "running";
+    subAvatarListEl.appendChild(item);
+  }
+}
+
 function renderMessages(messages) {
   messagesEl.innerHTML = "";
 
@@ -561,6 +635,9 @@ function renderState(state) {
   renderTasks(state.tasks, state.taskTimelines ?? []);
   renderNotifications(state.notifications);
   renderVoiceTaskSummary(state);
+  renderMainAvatarState(state);
+  renderMemorySignals(state.memorySignals ?? []);
+  renderSubAvatars(state.avatar?.subAvatars ?? []);
   runtimeMetaEl.textContent = `session=${state.brainSessionId}`;
   executorBadgeEl.textContent = `executor=${state.executionMode}`;
   executorBadgeEl.className = `executor-badge ${state.executionMode}`;
@@ -650,7 +727,13 @@ composerEl.addEventListener("submit", async (event) => {
   try {
     promptEl.value = "";
     inputStatusEl.textContent = `working: ${text}`;
-    window.desktopSession.send(text).then(renderState).catch(showRuntimeError);
+    const result = await window.desktopCompanion.sendTypedTurn(text);
+    if (result?.sessionState) {
+      renderState(result.sessionState);
+    }
+    if (result?.liveState) {
+      renderLiveState(result.liveState);
+    }
   } catch (error) {
     showRuntimeError(error);
   }

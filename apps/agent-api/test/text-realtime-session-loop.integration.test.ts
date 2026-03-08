@@ -20,6 +20,38 @@ function utterance(text: string, intent: FinalizedUtterance["intent"]): Finalize
 }
 
 describe("text-realtime-session-loop", () => {
+  it("can suppress direct assistant reply persistence for companion-style surfaces", async () => {
+    class NoopExecutor implements LocalExecutor {
+      async run(): Promise<ExecutorRunResult> {
+        throw new Error("run should not be called for small talk");
+      }
+    }
+
+    const loop = new TextRealtimeSessionLoop(
+      new NoopExecutor(),
+      undefined,
+      undefined,
+      {
+        persistDirectAssistantReplies: false
+      }
+    );
+
+    const turn = await loop.handleTurn({
+      brainSessionId: "brain-suppress",
+      utterance: utterance("안녕", "small_talk"),
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    expect(turn.assistant.tone).toBe("reply");
+    const conversation = await loop.listConversation("brain-suppress");
+    expect(conversation).toEqual([
+      expect.objectContaining({
+        speaker: "user",
+        text: "안녕"
+      })
+    ]);
+  });
+
   it("accepts a second conversational turn while a task is running in the background", async () => {
     let resolveExecution: (() => void) | undefined;
     const notifications: AssistantNotification[] = [];

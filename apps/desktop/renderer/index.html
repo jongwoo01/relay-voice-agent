@@ -48,6 +48,20 @@
             </select>
           </div>
           <p id="live-status-text" class="runtime-meta">voice preview is idle</p>
+          <div class="avatar-stream-grid">
+            <article class="voice-summary-card">
+              <p class="message-role">Main Avatar</p>
+              <p id="main-avatar-state" class="voice-summary-text empty-state">
+                아직 상태 정보가 없습니다.
+              </p>
+            </article>
+            <article class="voice-summary-card">
+              <p class="message-role">Memory Signals</p>
+              <div id="memory-signal-list" class="signal-list">
+                <p class="empty-state">아직 기억 후보가 없습니다.</p>
+              </div>
+            </article>
+          </div>
           <div class="voice-transcript-grid">
             <article class="voice-transcript-card">
               <p class="message-role">You&apos;re Saying</p>
@@ -82,7 +96,6 @@
             <pre id="live-debug-log" class="executor-debug-log"></pre>
           </details>
         </section>
-        <div id="messages" class="message-list"></div>
         <form id="composer" class="composer">
           <textarea
             id="prompt"
@@ -91,6 +104,10 @@
           ></textarea>
           <button type="submit">Send</button>
         </form>
+        <details class="secondary-log">
+          <summary>Canonical Log</summary>
+          <div id="messages" class="message-list secondary-message-list"></div>
+        </details>
       </section>
 
       <aside class="panel task-panel">
@@ -101,6 +118,10 @@
           </div>
           <span id="pending-briefings-count" class="pending-count">pending briefing 0</span>
         </header>
+        <section class="briefing-panel">
+          <h3>Sub Agents</h3>
+          <div id="sub-avatar-list" class="briefing-list"></div>
+        </section>
         <div id="tasks" class="task-list"></div>
         <section class="briefing-panel">
           <h3>Briefings</h3>

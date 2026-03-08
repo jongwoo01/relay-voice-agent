@@ -109,3 +109,37 @@ export interface AssistantDeliveryPlan {
   speechText?: string;
   delivery: AssistantDeliveryPolicy;
 }
+
+export type MemoryItemType =
+  | "profile"
+  | "preferences"
+  | "routines"
+  | "dated_life_log"
+  | "task_history"
+  | "open_loops";
+
+export type MemoryWritePolicy = "immediate" | "background";
+
+export interface MemorySignal {
+  type: MemoryItemType;
+  summary: string;
+  policy: MemoryWritePolicy;
+  confidence?: number;
+}
+
+export type MainAvatarState =
+  | "idle"
+  | "listening"
+  | "thinking"
+  | "speaking"
+  | "briefing"
+  | "waiting_user"
+  | "reflecting";
+
+export interface SubAvatarViewModel {
+  taskId: string;
+  label: string;
+  status: TaskStatus;
+  progressSummary?: string;
+  blockingReason?: string;
+}

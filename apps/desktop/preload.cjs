@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld("desktopSession", {
   }
 });
 
+contextBridge.exposeInMainWorld("desktopCompanion", {
+  sendTypedTurn: (text) => ipcRenderer.invoke("companion:send-typed-turn", text)
+});
+
 contextBridge.exposeInMainWorld("desktopLive", {
   init: () => ipcRenderer.invoke("live:init"),
   connect: () => ipcRenderer.invoke("live:connect"),

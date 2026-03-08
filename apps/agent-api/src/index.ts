@@ -21,6 +21,7 @@ export {
   PostgresConversationMessageRepository,
   type ConversationMessageRepository
 } from "./modules/persistence/conversation-message-repository.js";
+export { extractMemorySignals } from "./modules/memory/memory-signal-extractor.js";
 export {
   InMemoryTaskRepository,
   PostgresTaskRepository,
