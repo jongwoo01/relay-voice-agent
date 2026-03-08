@@ -49,6 +49,20 @@ describe("live-voice-session", () => {
     expect(state.connected).toBe(true);
     expect(state.lastUserTranscript).toBe("안녕하세요");
     expect(state.outputTranscript).toBe("반가워요");
+    expect(state.liveMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "user",
+          text: "안녕하세요",
+          partial: false
+        }),
+        expect.objectContaining({
+          role: "assistant",
+          text: "반가워요",
+          partial: false
+        })
+      ])
+    );
     expect(state.metrics.connectedAt).toEqual(expect.any(String));
     expect(state.metrics.firstInputPartialAt).toEqual(expect.any(String));
     expect(state.metrics.firstInputFinalAt).toEqual(expect.any(String));

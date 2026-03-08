@@ -28,6 +28,7 @@ const liveInputPartialEl = document.getElementById("live-input-partial");
 const liveInputFinalEl = document.getElementById("live-input-final");
 const liveOutputTranscriptEl = document.getElementById("live-output-transcript");
 const liveDebugLogEl = document.getElementById("live-debug-log");
+const liveMessageListEl = document.getElementById("live-message-list");
 
 let liveState = {
   connected: false,
@@ -270,9 +271,7 @@ async function startVoiceCapture() {
       pcm16[index] = value * 32768;
     }
 
-    void window.desktopSession.setUserSpeaking(true);
     liveLastProducedAudioAt = new Date().toISOString();
-    renderLiveState(liveState);
     window.desktopLive.sendAudioChunk(
       arrayBufferToBase64(pcm16.buffer),
       "audio/pcm;rate=16000"
@@ -318,7 +317,6 @@ function renderLiveState(state) {
   const metrics = state.metrics ?? {};
   liveDebugLogEl.textContent = [
     `last local audio chunk: ${liveLastProducedAudioAt ?? "n/a"}`,
-    `main audio chunks sent: ${state.sentAudioChunkCount ?? 0}`,
     `session open: ${metrics.connectedAt ?? "n/a"}`,
     `local -> input partial: ${formatLatency(liveLastProducedAudioAt, metrics.firstInputPartialAt)}`,
     `local -> input final: ${formatLatency(liveLastProducedAudioAt, metrics.firstInputFinalAt)}`,
@@ -328,6 +326,49 @@ function renderLiveState(state) {
     "[Summary Events]",
     ...(metrics.rawEvents ?? [])
   ].join("\n");
+  renderLiveMessages(state.liveMessages ?? []);
+}
+
+function renderLiveMessages(messages) {
+  liveMessageListEl.innerHTML = "";
+
+  if (messages.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "아직 live 대화가 없습니다.";
+    liveMessageListEl.appendChild(empty);
+    return;
+  }
+
+  for (const message of messages) {
+    const item = document.createElement("article");
+    item.className =
+      message.role === "system"
+        ? "briefing-card pending"
+        : `message ${message.role}`;
+
+    if (message.role === "system") {
+      item.innerHTML = `
+        <p class="briefing-label">Live Event</p>
+        <p class="briefing-text"></p>
+      `;
+      item.querySelector(".briefing-text").textContent = message.text;
+      liveMessageListEl.appendChild(item);
+      continue;
+    }
+
+    item.innerHTML = `
+      <p class="message-role"></p>
+      <p class="message-text"></p>
+    `;
+    item.querySelector(".message-role").textContent = message.partial
+      ? `${message.role} (typing)`
+      : message.role;
+    item.querySelector(".message-text").textContent = message.text;
+    liveMessageListEl.appendChild(item);
+  }
+
+  liveMessageListEl.scrollTop = liveMessageListEl.scrollHeight;
 }
 
 function renderMessages(messages) {

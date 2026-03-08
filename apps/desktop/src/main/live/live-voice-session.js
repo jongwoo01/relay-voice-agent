@@ -33,6 +33,7 @@ function createInitialState() {
     outputTranscript: "",
     error: null,
     sentAudioChunkCount: 0,
+    liveMessages: [],
     metrics: createMetrics()
   };
 }
@@ -54,6 +55,58 @@ export class LiveVoiceSession {
     this.session = null;
     this.brainSessionId = null;
     this.outputTranscriptChunks = [];
+  }
+
+  appendLiveMessage(message) {
+    this.state = {
+      ...this.state,
+      liveMessages: [...this.state.liveMessages, message].slice(-30)
+    };
+  }
+
+  upsertLiveMessage(id, patch) {
+    const existingIndex = this.state.liveMessages.findIndex(
+      (message) => message.id === id
+    );
+
+    if (existingIndex === -1) {
+      this.appendLiveMessage({
+        id,
+        createdAt: nowIso(),
+        ...patch
+      });
+      return;
+    }
+
+    const nextMessages = [...this.state.liveMessages];
+    nextMessages[existingIndex] = {
+      ...nextMessages[existingIndex],
+      ...patch
+    };
+    this.state = {
+      ...this.state,
+      liveMessages: nextMessages
+    };
+  }
+
+  finalizeLiveMessage(id, patch = {}) {
+    const existingIndex = this.state.liveMessages.findIndex(
+      (message) => message.id === id
+    );
+    if (existingIndex === -1) {
+      return;
+    }
+
+    const nextMessages = [...this.state.liveMessages];
+    nextMessages[existingIndex] = {
+      ...nextMessages[existingIndex],
+      partial: false,
+      ...patch
+    };
+    this.state = {
+      ...this.state,
+      liveMessages: nextMessages
+    };
   }
 
   updateMetrics(patch) {
@@ -208,8 +261,8 @@ export class LiveVoiceSession {
     });
     if (this.state.sentAudioChunkCount === 1) {
       this.appendMetricEvent("audio chunk stream started", sentAt);
+      void this.publishState();
     }
-    void this.publishState();
   }
 
   async handleOpen() {
@@ -270,6 +323,11 @@ export class LiveVoiceSession {
             lastInputPartialAt: eventAt
           });
           this.appendMetricEvent("input transcription partial", eventAt);
+          this.upsertLiveMessage("user-current", {
+            role: "user",
+            text: event.text,
+            partial: true
+          });
         }
         this.state = {
           ...this.state,
@@ -286,6 +344,16 @@ export class LiveVoiceSession {
             lastInputFinalAt: eventAt
           });
           this.appendMetricEvent("input transcription final", eventAt);
+          this.upsertLiveMessage("user-current", {
+            role: "user",
+            text: event.text,
+            partial: false
+          });
+          this.finalizeLiveMessage("user-current", {
+            id: `user-${eventAt}`,
+            role: "user",
+            text: event.text
+          });
         }
         this.state = {
           ...this.state,
@@ -318,11 +386,24 @@ export class LiveVoiceSession {
             event.text
           ];
         }
+        const assistantTranscript = event.finished
+          ? event.text
+          : this.outputTranscriptChunks.join(" ");
+        this.upsertLiveMessage("assistant-current", {
+          role: "assistant",
+          text: assistantTranscript,
+          partial: !event.finished
+        });
+        if (event.finished) {
+          this.finalizeLiveMessage("assistant-current", {
+            id: `assistant-${nowIso()}`,
+            role: "assistant",
+            text: event.text
+          });
+        }
         this.state = {
           ...this.state,
-          outputTranscript: event.finished
-            ? event.text
-            : this.outputTranscriptChunks.join(" "),
+          outputTranscript: assistantTranscript,
           error: null
         };
         await this.publishState();
@@ -340,6 +421,12 @@ export class LiveVoiceSession {
         return;
       case "interrupted":
         this.appendMetricEvent("turn interrupted");
+        this.appendLiveMessage({
+          id: `system-${nowIso()}`,
+          role: "system",
+          text: "응답이 중단되었습니다.",
+          partial: false
+        });
         this.state = {
           ...this.state,
           status: "interrupted"
@@ -362,6 +449,7 @@ export class LiveVoiceSession {
           });
           this.appendMetricEvent("turn complete", eventAt);
         }
+        this.finalizeLiveMessage("assistant-current");
         this.state = {
           ...this.state,
           status: "live"
