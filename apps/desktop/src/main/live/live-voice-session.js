@@ -1,7 +1,7 @@
 import {
   GoogleLiveApiTransport
 } from "@agent/agent-api";
-import { Modality } from "@google/genai";
+import { ActivityHandling, Modality } from "@google/genai";
 
 const SUPPORTED_LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025";
 
@@ -38,6 +38,18 @@ function createInitialState() {
   };
 }
 
+function createPersonaInstruction() {
+  return [
+    "You are Desktop Companion, a lively desktop voice assistant.",
+    "Keep responses short, playful, and helpful.",
+    "Most replies should be one sentence, and never exceed two short sentences.",
+    "React with quick confidence first, then add one useful detail if needed.",
+    "If the user interrupts, stop cleanly and pivot to the new request immediately.",
+    "For task acknowledgements, sound upbeat and brief.",
+    "For task completion, say what finished, the result in one line, and one suggested next step."
+  ].join(" ");
+}
+
 function normalizeError(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -51,6 +63,7 @@ export class LiveVoiceSession {
     this.transport = options.transport ?? new GoogleLiveApiTransport();
     this.onStateChange = options.onStateChange;
     this.onAudioChunk = options.onAudioChunk;
+    this.onUserTranscriptFinal = options.onUserTranscriptFinal;
     this.state = options.state ?? createInitialState();
     this.session = null;
     this.brainSessionId = null;
@@ -156,6 +169,7 @@ export class LiveVoiceSession {
             thinkingBudget: 0
           },
           realtimeInputConfig: {
+            activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
             automaticActivityDetection: {
               disabled: false,
               startOfSpeechSensitivity: "START_SENSITIVITY_LOW",
@@ -171,8 +185,7 @@ export class LiveVoiceSession {
               }
             }
           },
-          systemInstruction:
-            "You are a concise live desktop voice preview. Keep answers short, natural, and conversational."
+          systemInstruction: createPersonaInstruction()
         },
         callbacks: {
           onopen: () => {
@@ -235,6 +248,36 @@ export class LiveVoiceSession {
     void this.publishState();
   }
 
+  endAudioStream() {
+    this.session?.sendAudioStreamEnd?.();
+    this.appendMetricEvent("audio stream end sent");
+  }
+
+  async applyServerInterrupt() {
+    const interruptedAt = nowIso();
+    this.outputTranscriptChunks = [];
+    this.finalizeLiveMessage("assistant-current", {
+      status: "interrupted"
+    });
+    this.appendLiveMessage({
+      id: `system-${interruptedAt}`,
+      role: "system",
+      text: "새 발화가 감지되어 응답을 멈췄습니다.",
+      partial: false,
+      status: "interrupted",
+      createdAt: interruptedAt
+    });
+    this.appendMetricEvent("server interrupt", interruptedAt);
+    this.state = {
+      ...this.state,
+      status: "interrupted",
+      outputTranscript: "",
+      error: null
+    };
+    await this.publishState();
+    return this.getState();
+  }
+
   sendAudioChunk(audioData, mimeType = "audio/pcm;rate=16000") {
     if (!this.session || this.state.muted) {
       return;
@@ -271,7 +314,7 @@ export class LiveVoiceSession {
       ...this.state,
       connected: true,
       connecting: false,
-      status: "live",
+      status: "listening",
       error: null
     };
     this.updateMetrics({
@@ -331,7 +374,9 @@ export class LiveVoiceSession {
         }
         this.state = {
           ...this.state,
+          status: "listening",
           inputPartial: event.text,
+          outputTranscript: "",
           error: null
         };
         await this.publishState();
@@ -357,10 +402,13 @@ export class LiveVoiceSession {
         }
         this.state = {
           ...this.state,
+          status: "thinking",
           inputPartial: "",
           lastUserTranscript: event.text,
+          outputTranscript: "",
           error: null
         };
+        void this.onUserTranscriptFinal?.(event.text);
         await this.publishState();
         return;
       case "output_transcription":
@@ -403,7 +451,8 @@ export class LiveVoiceSession {
         }
         this.state = {
           ...this.state,
-          outputTranscript: assistantTranscript,
+          status: event.finished ? this.state.status : "thinking",
+          outputTranscript: event.finished ? "" : assistantTranscript,
           error: null
         };
         await this.publishState();
@@ -417,21 +466,16 @@ export class LiveVoiceSession {
           });
           this.appendMetricEvent("output audio chunk", eventAt);
         }
+        this.state = {
+          ...this.state,
+          status: "speaking",
+          error: null
+        };
+        await this.publishState();
         await this.onAudioChunk?.(event);
         return;
       case "interrupted":
-        this.appendMetricEvent("turn interrupted");
-        this.appendLiveMessage({
-          id: `system-${nowIso()}`,
-          role: "system",
-          text: "응답이 중단되었습니다.",
-          partial: false
-        });
-        this.state = {
-          ...this.state,
-          status: "interrupted"
-        };
-        await this.publishState();
+        await this.applyServerInterrupt();
         return;
       case "waiting_for_input":
         this.appendMetricEvent("waiting for input");
@@ -452,7 +496,7 @@ export class LiveVoiceSession {
         this.finalizeLiveMessage("assistant-current");
         this.state = {
           ...this.state,
-          status: "live"
+          status: "listening"
         };
         await this.publishState();
         return;

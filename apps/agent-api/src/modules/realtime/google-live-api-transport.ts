@@ -55,6 +55,9 @@ export interface GoogleLiveSessionTransport {
   sendText(text: string, turnComplete?: boolean): void;
   sendRealtimeText(text: string): void;
   sendRealtimeAudio(audioData: string, mimeType?: string): void;
+  sendActivityStart(): void;
+  sendActivityEnd(): void;
+  sendAudioStreamEnd(): void;
   close(): void;
 }
 
@@ -64,6 +67,8 @@ export interface GoogleLiveSdkSessionLike {
     text?: string;
     audio?: { data: string; mimeType: string };
     media?: { data: string; mimeType: string };
+    activityStart?: Record<string, never>;
+    activityEnd?: Record<string, never>;
     audioStreamEnd?: boolean;
   }): void;
   close(): void;
@@ -223,6 +228,21 @@ export class GoogleLiveApiTransport {
             data: audioData,
             mimeType
           }
+        });
+      },
+      sendActivityStart() {
+        session.sendRealtimeInput({
+          activityStart: {}
+        });
+      },
+      sendActivityEnd() {
+        session.sendRealtimeInput({
+          activityEnd: {}
+        });
+      },
+      sendAudioStreamEnd() {
+        session.sendRealtimeInput({
+          audioStreamEnd: true
         });
       },
       close() {

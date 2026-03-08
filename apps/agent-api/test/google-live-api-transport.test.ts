@@ -213,6 +213,9 @@ describe("google-live-api-transport", () => {
     session.sendText("안녕", false);
     session.sendRealtimeText("실시간 텍스트");
     session.sendRealtimeAudio("QUJD", "audio/pcm;rate=16000");
+    session.sendActivityStart();
+    session.sendActivityEnd();
+    session.sendAudioStreamEnd();
     session.close();
 
     expect(sendClientContent).toHaveBeenCalledWith({
@@ -232,6 +235,15 @@ describe("google-live-api-transport", () => {
         data: "QUJD",
         mimeType: "audio/pcm;rate=16000"
       }
+    });
+    expect(sendRealtimeInput).toHaveBeenCalledWith({
+      activityStart: {}
+    });
+    expect(sendRealtimeInput).toHaveBeenCalledWith({
+      activityEnd: {}
+    });
+    expect(sendRealtimeInput).toHaveBeenCalledWith({
+      audioStreamEnd: true
     });
     expect(close).toHaveBeenCalled();
   });
