@@ -16,7 +16,6 @@ export {
   type IntentModelClientLike,
   type IntentResolver
 } from "./modules/conversation/intent-resolver.js";
-export { GeminiCliExecutor, MockExecutor } from "./modules/executor/index.js";
 export {
   InMemoryConversationMessageRepository,
   PostgresConversationMessageRepository,
@@ -100,12 +99,12 @@ export {
   LiveTranscriptAdapter,
   type LiveTranscriptInput,
   type LiveTranscriptResult
-} from "./modules/realtime/live-transcript-adapter.js";
+} from "./modules/live/live-transcript-adapter.js";
 export {
   LiveSessionController,
   type LiveSessionTurnResult,
   type LiveTranscriptChunk
-} from "./modules/realtime/live-session-controller.js";
+} from "./modules/live/live-session-controller.js";
 export {
   DEFAULT_LIVE_MODEL,
   GoogleLiveApiTransport,
@@ -114,7 +113,7 @@ export {
   type GoogleLiveApiTransportConnectInput,
   type GoogleLiveSessionTransport,
   type GoogleLiveTransportEvent
-} from "./modules/realtime/google-live-api-transport.js";
+} from "./modules/live/google-live-api-transport.js";
 export { RealtimeGatewayService, type RealtimeGatewayResult } from "./modules/realtime/realtime-gateway-service.js";
 export { TextRealtimeSessionLoop } from "./modules/realtime/text-realtime-session-loop.js";
 export { TaskExecutionService } from "./modules/tasks/task-execution-service.js";

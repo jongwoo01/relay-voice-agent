@@ -10,7 +10,7 @@ import {
   createDefaultIntentResolver,
   type IntentResolver
 } from "../conversation/intent-resolver.js";
-import { RealtimeGatewayService } from "./realtime-gateway-service.js";
+import { RealtimeGatewayService } from "../realtime/realtime-gateway-service.js";
 
 export interface LiveTranscriptInput {
   brainSessionId: string;
