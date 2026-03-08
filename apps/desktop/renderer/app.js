@@ -4,11 +4,20 @@ const composerEl = document.getElementById("composer");
 const promptEl = document.getElementById("prompt");
 const micStateEl = document.getElementById("mic-state");
 const micToggleEl = document.getElementById("mic-toggle");
+const runtimeMetaEl = document.getElementById("runtime-meta");
+const executorBadgeEl = document.getElementById("executor-badge");
+const runtimeErrorEl = document.getElementById("runtime-error");
+const inputStatusEl = document.getElementById("input-status");
 const userSpeakingToggleEl = document.getElementById("user-speaking-toggle");
 const assistantSpeakingToggleEl = document.getElementById(
   "assistant-speaking-toggle"
 );
 const notificationsEl = document.getElementById("notifications");
+const pendingBriefingsCountEl = document.getElementById(
+  "pending-briefings-count"
+);
+const executorDebugPanelEl = document.getElementById("executor-debug-panel");
+const executorDebugLogEl = document.getElementById("executor-debug-log");
 
 function renderMessages(messages) {
   messagesEl.innerHTML = "";
@@ -27,8 +36,11 @@ function renderMessages(messages) {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function renderTasks(tasks) {
+function renderTasks(tasks, timelines) {
   tasksEl.innerHTML = "";
+  const timelineByTaskId = new Map(
+    timelines.map((timeline) => [timeline.taskId, timeline.events])
+  );
 
   if (tasks.length === 0) {
     const empty = document.createElement("p");
@@ -39,14 +51,20 @@ function renderTasks(tasks) {
   }
 
   for (const task of tasks) {
+    const events = timelineByTaskId.get(task.id) ?? [];
+    const latestEvent = events.at(-1);
     const item = document.createElement("article");
     item.className = "task-card";
     item.innerHTML = `
       <p class="task-title"></p>
       <p class="task-status"></p>
+      <p class="task-event"></p>
     `;
     item.querySelector(".task-title").textContent = task.title;
     item.querySelector(".task-status").textContent = task.status;
+    item.querySelector(".task-event").textContent = latestEvent
+      ? `${latestEvent.type}: ${latestEvent.message}`
+      : "이벤트 없음";
     tasksEl.appendChild(item);
   }
 }
@@ -90,9 +108,17 @@ function renderNotifications(notifications) {
 }
 
 function renderState(state) {
+  hideRuntimeError();
   renderMessages(state.messages);
-  renderTasks(state.tasks);
+  renderTasks(state.tasks, state.taskTimelines ?? []);
   renderNotifications(state.notifications);
+  runtimeMetaEl.textContent = `session=${state.brainSessionId}`;
+  executorBadgeEl.textContent = `executor=${state.executionMode}`;
+  executorBadgeEl.className = `executor-badge ${state.executionMode}`;
+  pendingBriefingsCountEl.textContent = `pending briefing ${state.pendingBriefingCount}`;
+  inputStatusEl.textContent = state.input.inFlight
+    ? `working: ${state.input.activeText ?? state.input.lastSubmittedText ?? ""}`
+    : "idle";
   micStateEl.textContent = state.mic.mode;
   micToggleEl.textContent = state.mic.enabled ? "Mic On" : "Mic Off";
   userSpeakingToggleEl.textContent = state.activity.userSpeaking
@@ -101,9 +127,44 @@ function renderState(state) {
   assistantSpeakingToggleEl.textContent = state.activity.assistantSpeaking
     ? "Assistant Speaking"
     : "Assistant Idle";
+
+  if (state.input.lastError) {
+    showRuntimeError(state.input.lastError);
+  }
+
+  renderDebug(state.debug);
+}
+
+function renderDebug(debug) {
+  const events = debug?.rawExecutorEvents ?? [];
+  if (events.length === 0) {
+    executorDebugPanelEl.hidden = true;
+    executorDebugLogEl.textContent = "";
+    return;
+  }
+
+  executorDebugPanelEl.hidden = false;
+  executorDebugLogEl.textContent = events
+    .map((event) => JSON.stringify(event))
+    .join("\n");
+}
+
+function showRuntimeError(error) {
+  runtimeErrorEl.hidden = false;
+  runtimeErrorEl.textContent =
+    error instanceof Error ? error.message : String(error);
+}
+
+function hideRuntimeError() {
+  runtimeErrorEl.hidden = true;
+  runtimeErrorEl.textContent = "";
 }
 
 async function bootstrap() {
+  if (!window.desktopSession || typeof window.desktopSession.init !== "function") {
+    throw new Error("desktopSession bridge is not available. Check preload setup.");
+  }
+
   const state = await window.desktopSession.init();
   renderState(state);
 
@@ -119,28 +180,52 @@ composerEl.addEventListener("submit", async (event) => {
     return;
   }
 
-  promptEl.value = "";
-  const state = await window.desktopSession.send(text);
-  renderState(state);
+  try {
+    promptEl.value = "";
+    inputStatusEl.textContent = `working: ${text}`;
+    window.desktopSession.send(text).then(renderState).catch(showRuntimeError);
+  } catch (error) {
+    showRuntimeError(error);
+  }
 });
 
 micToggleEl.addEventListener("click", async () => {
-  const state = await window.desktopSession.toggleMic();
-  renderState(state);
+  try {
+    const state = await window.desktopSession.toggleMic();
+    renderState(state);
+  } catch (error) {
+    showRuntimeError(error);
+  }
 });
 
 userSpeakingToggleEl.addEventListener("click", async () => {
   const next = userSpeakingToggleEl.textContent !== "User Speaking";
-  const state = await window.desktopSession.setUserSpeaking(next);
-  renderState(state);
+  try {
+    const state = await window.desktopSession.setUserSpeaking(next);
+    renderState(state);
+  } catch (error) {
+    showRuntimeError(error);
+  }
 });
 
 assistantSpeakingToggleEl.addEventListener("click", async () => {
   const next = assistantSpeakingToggleEl.textContent !== "Assistant Speaking";
-  const state = await window.desktopSession.setAssistantSpeaking(next);
-  renderState(state);
+  try {
+    const state = await window.desktopSession.setAssistantSpeaking(next);
+    renderState(state);
+  } catch (error) {
+    showRuntimeError(error);
+  }
+});
+
+promptEl.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    composerEl.requestSubmit();
+  }
 });
 
 bootstrap().catch((error) => {
   console.error(error);
+  showRuntimeError(error);
 });

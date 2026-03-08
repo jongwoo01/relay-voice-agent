@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { createLocalExecutionLayer } from "../src/main/execution/local-execution-layer.js";
+import {
+  createLocalExecutionLayer,
+  resolveExecutionMode
+} from "../src/main/execution/local-execution-layer.js";
 
 describe("local-execution-layer", () => {
-  it("defaults to mock execution mode", () => {
+  it("defaults to gemini execution mode", () => {
     const layer = createLocalExecutionLayer();
 
-    expect(layer.mode).toBe("mock");
+    expect(layer.mode).toBe("gemini");
+    expect(layer.debug.enabled).toBe(true);
+    expect(layer.debug.rawEvents).toEqual([]);
     expect(layer.executor).toBeDefined();
   });
 
@@ -14,5 +19,22 @@ describe("local-execution-layer", () => {
 
     expect(layer.mode).toBe("gemini");
     expect(layer.executor).toBeDefined();
+  });
+
+  it("uses mock mode when requested", () => {
+    const layer = createLocalExecutionLayer({ mode: "mock" });
+
+    expect(layer.mode).toBe("mock");
+    expect(layer.executor).toBeDefined();
+  });
+
+  it("falls back to gemini for unknown mode", () => {
+    expect(resolveExecutionMode("invalid")).toBe("gemini");
+    expect(resolveExecutionMode(undefined)).toBe("gemini");
+  });
+
+  it("can disable debug raw event capture", () => {
+    const layer = createLocalExecutionLayer({ debugEnabled: false });
+    expect(layer.debug.enabled).toBe(false);
   });
 });

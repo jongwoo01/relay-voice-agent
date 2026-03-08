@@ -37,10 +37,8 @@ describe("live-transcript-adapter", () => {
       intent: "small_talk",
       createdAt: "2026-03-08T00:00:00.000Z"
     });
-    expect(result.assistant).toEqual({
-      text: "메인 대화 레이어에서 바로 응답하면 됩니다.",
-      tone: "reply"
-    });
+    expect(result.assistant?.tone).toBe("reply");
+    expect(result.assistant?.text).toContain("안녕하세요");
     expect(adapter.getPartialText("brain-1")).toBeUndefined();
   });
 

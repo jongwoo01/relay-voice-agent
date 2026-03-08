@@ -26,6 +26,13 @@ describe("next-action", () => {
     });
   });
 
+  it("resumes a running task for short follow-up utterances", () => {
+    expect(decideNextAction(utterance("줘", "small_talk"), [activeTask])).toEqual({
+      type: "resume_task",
+      taskId: "task-1"
+    });
+  });
+
   it("clarifies when the intent is unclear", () => {
     expect(decideNextAction(utterance("음...", "unclear"), [])).toEqual({
       type: "clarify"

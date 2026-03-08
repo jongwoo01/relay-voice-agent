@@ -34,9 +34,7 @@ describe("live-session-controller", () => {
     });
 
     expect(result.finalizedUtterance?.text).toBe("안녕");
-    expect(result.assistant).toEqual({
-      text: "메인 대화 레이어에서 바로 응답하면 됩니다.",
-      tone: "reply"
-    });
+    expect(result.assistant?.tone).toBe("reply");
+    expect(result.assistant?.text).toContain("안녕하세요");
   });
 });

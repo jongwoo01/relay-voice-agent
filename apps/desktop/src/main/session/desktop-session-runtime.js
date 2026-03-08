@@ -16,6 +16,16 @@ import {
 } from "../../shared/notification-center.js";
 import { createLocalExecutionLayer } from "../execution/local-execution-layer.js";
 
+function createInitialInputState() {
+  return {
+    inFlight: false,
+    queueSize: 0,
+    activeText: null,
+    lastSubmittedText: null,
+    lastError: null
+  };
+}
+
 export class DesktopSessionRuntime {
   constructor(options) {
     this.brainSessionId = options.brainSessionId;
@@ -27,6 +37,9 @@ export class DesktopSessionRuntime {
       options.activityState ?? createInitialInteractionActivityState();
     this.notificationCenter =
       options.notificationCenter ?? createInitialNotificationCenterState();
+    this.inputState = options.inputState ?? createInitialInputState();
+    this.pendingTurns = [];
+    this.processingTurns = false;
   }
 
   static create(options = {}) {
@@ -63,14 +76,34 @@ export class DesktopSessionRuntime {
   }
 
   async collectState() {
+    const [messages, tasks] = await Promise.all([
+      this.loop.listConversation(this.brainSessionId),
+      this.loop.listActiveTasks(this.brainSessionId)
+    ]);
+    const taskTimelines = await Promise.all(
+      tasks.map(async (task) => ({
+        taskId: task.id,
+        events: await this.loop.listTaskEvents(task.id)
+      }))
+    );
+
     return {
       brainSessionId: this.brainSessionId,
       executionMode: this.execution.mode,
       mic: this.micState,
       activity: this.activityState,
+      input: this.inputState,
       notifications: this.notificationCenter,
-      messages: await this.loop.listConversation(this.brainSessionId),
-      tasks: await this.loop.listActiveTasks(this.brainSessionId)
+      pendingBriefingCount: this.notificationCenter.pending.length,
+      messages,
+      tasks,
+      taskTimelines,
+      debug:
+        this.execution.debug?.enabled
+          ? {
+              rawExecutorEvents: this.execution.debug.rawEvents.slice(-20)
+            }
+          : null
     };
   }
 
@@ -79,18 +112,26 @@ export class DesktopSessionRuntime {
   }
 
   async sendText(text) {
-    const now = new Date().toISOString();
-    const intent = await this.intentResolver.resolve(text);
+    const normalizedText = text.trim();
+    if (!normalizedText) {
+      return this.collectState();
+    }
 
-    await this.loop.handleTurn({
-      brainSessionId: this.brainSessionId,
-      utterance: {
-        text,
-        intent,
-        createdAt: now
-      },
-      now
+    const now = new Date().toISOString();
+    this.pendingTurns.push({
+      text: normalizedText,
+      createdAt: now
     });
+    this.inputState = {
+      ...this.inputState,
+      inFlight: true,
+      queueSize: this.pendingTurns.length,
+      lastSubmittedText: normalizedText,
+      lastError: null
+    };
+
+    await this.publishState();
+    void this.processTurnQueue();
 
     return this.collectState();
   }
@@ -152,5 +193,61 @@ export class DesktopSessionRuntime {
     }
 
     return state;
+  }
+
+  async processTurnQueue() {
+    if (this.processingTurns) {
+      return;
+    }
+
+    this.processingTurns = true;
+    try {
+      while (this.pendingTurns.length > 0) {
+        const turn = this.pendingTurns.shift();
+        if (!turn) {
+          continue;
+        }
+
+        this.inputState = {
+          ...this.inputState,
+          inFlight: true,
+          activeText: turn.text,
+          queueSize: this.pendingTurns.length,
+          lastError: null
+        };
+        await this.publishState();
+
+        try {
+          const intent = await this.intentResolver.resolve(turn.text);
+          await this.loop.handleTurn({
+            brainSessionId: this.brainSessionId,
+            utterance: {
+              text: turn.text,
+              intent,
+              createdAt: turn.createdAt
+            },
+            now: turn.createdAt
+          });
+        } catch (error) {
+          this.inputState = {
+            ...this.inputState,
+            lastError: error instanceof Error ? error.message : String(error)
+          };
+        } finally {
+          this.inputState = {
+            ...this.inputState,
+            inFlight: this.pendingTurns.length > 0,
+            queueSize: this.pendingTurns.length,
+            activeText: null
+          };
+          await this.publishState();
+        }
+      }
+    } finally {
+      this.processingTurns = false;
+      if (this.pendingTurns.length > 0) {
+        void this.processTurnQueue();
+      }
+    }
   }
 }

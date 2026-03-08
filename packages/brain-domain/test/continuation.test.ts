@@ -16,6 +16,11 @@ describe("continuation", () => {
     expect(selectContinuationTask("아까 하던 거 계속해", [activeTask])).toEqual(activeTask);
   });
 
+  it("selects the current task for short follow-up cues", () => {
+    expect(selectContinuationTask("줘", [activeTask])).toEqual(activeTask);
+    expect(selectContinuationTask("결과 알려줘", [activeTask])).toEqual(activeTask);
+  });
+
   it("returns null when there is no active task match", () => {
     expect(selectContinuationTask("오늘 일정 알려줘", [activeTask])).toBeNull();
   });

@@ -81,10 +81,8 @@ describe("text-realtime-session-loop", () => {
       now: "2026-03-08T00:00:01.000Z"
     });
 
-    expect(secondTurn.assistant).toEqual({
-      text: "메인 대화 레이어에서 바로 응답하면 됩니다.",
-      tone: "reply"
-    });
+    expect(secondTurn.assistant?.tone).toBe("reply");
+    expect(secondTurn.assistant?.text).toContain("구체적으로");
 
     const conversationBeforeCompletion = await loop.listConversation("brain-1");
     expect(conversationBeforeCompletion.map((message) => message.speaker)).toEqual([

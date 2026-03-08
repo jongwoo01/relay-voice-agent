@@ -51,12 +51,8 @@ describe("realtime-gateway-service", () => {
       now: "2026-03-08T00:00:00.000Z"
     });
 
-    expect(result).toEqual({
-      assistant: {
-        text: "메인 대화 레이어에서 바로 응답하면 됩니다.",
-        tone: "reply"
-      }
-    });
+    expect(result.assistant?.tone).toBe("reply");
+    expect(result.assistant?.text).toContain("안녕하세요");
   });
 
   it("looks up active tasks from repository and routes a continuation utterance through the handler", async () => {

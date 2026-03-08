@@ -7,6 +7,7 @@ function createRuntime() {
     loop: {
       listConversation: async () => [],
       listActiveTasks: async () => [],
+      listTaskEvents: async () => [],
       handleTurn: async () => undefined
     },
     intentResolver: {
@@ -17,6 +18,18 @@ function createRuntime() {
 
   runtime.execution = { mode: "mock" };
   return runtime;
+}
+
+function createDeferred() {
+  let resolve = () => undefined;
+  const promise = new Promise<void>((res) => {
+    resolve = res;
+  });
+
+  return {
+    promise,
+    resolve
+  };
 }
 
 describe("desktop-session-runtime", () => {
@@ -67,5 +80,35 @@ describe("desktop-session-runtime", () => {
     expect(state.notifications.delivered).toHaveLength(1);
     expect(state.notifications.pending).toHaveLength(0);
     expect(state.notifications.delivered[0].delivery).toBe("immediate");
+  });
+
+  it("sets in-flight state immediately and clears it after turn is processed", async () => {
+    const deferred = createDeferred();
+    const runtime = new DesktopSessionRuntime({
+      brainSessionId: "desktop-session-test",
+      loop: {
+        listConversation: async () => [],
+        listActiveTasks: async () => [],
+        listTaskEvents: async () => [],
+        handleTurn: async () => {
+          await deferred.promise;
+        }
+      },
+      intentResolver: {
+        resolve: async () => "task_request"
+      }
+    });
+    runtime.execution = { mode: "gemini" };
+
+    const immediateState = await runtime.sendText("바탕화면 폴더 알려줘");
+    expect(immediateState.input.inFlight).toBe(true);
+    expect(immediateState.input.lastSubmittedText).toBe("바탕화면 폴더 알려줘");
+
+    deferred.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const finalState = await runtime.collectState();
+    expect(finalState.input.inFlight).toBe(false);
+    expect(finalState.input.queueSize).toBe(0);
   });
 });

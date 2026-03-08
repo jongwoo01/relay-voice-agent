@@ -64,11 +64,47 @@ body {
   margin-bottom: 8px;
 }
 
+.runtime-meta {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.input-status {
+  margin: 6px 0 0;
+  color: var(--accent-strong);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .header-actions {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.executor-badge,
+.pending-count {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--ink);
+}
+
+.executor-badge.mock {
+  background: rgba(124, 53, 27, 0.16);
+  color: #7c351b;
+}
+
+.executor-badge.gemini {
+  background: rgba(42, 96, 156, 0.16);
+  color: #15487a;
 }
 
 .mic-state {
@@ -98,6 +134,17 @@ body {
   flex: 1;
   overflow: auto;
   padding: 0 20px 20px;
+}
+
+.runtime-error {
+  margin: 0 20px 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(124, 53, 27, 0.12);
+  border: 1px solid rgba(124, 53, 27, 0.24);
+  color: #7c351b;
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .message {
@@ -168,6 +215,7 @@ body {
 
 .task-title,
 .task-status,
+.task-event,
 .empty-state {
   margin: 0;
 }
@@ -180,6 +228,13 @@ body {
 .task-status,
 .empty-state {
   color: var(--muted);
+}
+
+.task-event {
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .briefing-panel {
@@ -199,6 +254,18 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.executor-debug-log {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.4;
+  font-size: 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
 }
 
 .briefing-card {

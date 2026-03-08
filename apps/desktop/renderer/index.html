@@ -13,20 +13,24 @@
           <div>
             <p class="eyebrow">Conversation</p>
             <h1>Desktop Agent</h1>
+            <p id="runtime-meta" class="runtime-meta">shell booting...</p>
+            <p id="input-status" class="input-status">idle</p>
           </div>
           <div class="header-actions">
+            <span id="executor-badge" class="executor-badge">executor: unknown</span>
             <span id="mic-state" class="mic-state">idle</span>
             <button id="mic-toggle" type="button" class="mic-toggle">Mic On</button>
             <button id="user-speaking-toggle" type="button" class="state-toggle">User Idle</button>
             <button id="assistant-speaking-toggle" type="button" class="state-toggle">Assistant Idle</button>
           </div>
         </header>
+        <p id="runtime-error" class="runtime-error" hidden></p>
         <div id="messages" class="message-list"></div>
         <form id="composer" class="composer">
           <textarea
             id="prompt"
             rows="3"
-            placeholder="메시지를 입력하세요"
+            placeholder="메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"
           ></textarea>
           <button type="submit">Send</button>
         </form>
@@ -34,13 +38,20 @@
 
       <aside class="panel task-panel">
         <header class="panel-header">
-          <p class="eyebrow">Tasks</p>
-          <h2>Background Work</h2>
+          <div>
+            <p class="eyebrow">Tasks</p>
+            <h2>Background Work</h2>
+          </div>
+          <span id="pending-briefings-count" class="pending-count">pending briefing 0</span>
         </header>
         <div id="tasks" class="task-list"></div>
         <section class="briefing-panel">
           <h3>Briefings</h3>
           <div id="notifications" class="briefing-list"></div>
+        </section>
+        <section id="executor-debug-panel" class="briefing-panel" hidden>
+          <h3>Executor Raw Events (dev)</h3>
+          <pre id="executor-debug-log" class="executor-debug-log"></pre>
         </section>
       </aside>
     </main>
