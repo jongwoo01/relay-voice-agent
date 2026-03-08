@@ -110,7 +110,7 @@ describe("text-realtime-session-loop", () => {
 
     const conversationAfterCompletion = await loop.listConversation("brain-1");
     expect(conversationAfterCompletion.map((message) => message.text)).toContain(
-      "작업이 끝났어. 정리 완료"
+      "좋아, 끝냈어. 정리 완료"
     );
     expect(notifications).toEqual([
       expect.objectContaining({
