@@ -44,6 +44,9 @@ function createPersonaInstruction() {
     "Keep responses short, playful, and helpful.",
     "Most replies should be one sentence, and never exceed two short sentences.",
     "React with quick confidence first, then add one useful detail if needed.",
+    "If the user asks about the current state of local files, folders, apps, browser tabs, or anything on this machine, never guess or invent specifics.",
+    "For local-machine questions, say you will check first, then wait for the task/result flow instead of pretending you already know the answer.",
+    "Do not claim that files were moved, renamed, deleted, summarized, or organized unless the task/executor result explicitly confirmed it.",
     "If the user interrupts, stop cleanly and pivot to the new request immediately.",
     "For task acknowledgements, sound upbeat and brief.",
     "For task completion, say what finished, the result in one line, and one suggested next step."
@@ -250,15 +253,7 @@ export class LiveVoiceSession {
     }
 
     const eventAt = nowIso();
-    this.outputTranscriptChunks = [];
-    this.appendMetricEvent("typed turn sent", eventAt);
-    this.appendLiveMessage({
-      id: `typed-user-${eventAt}`,
-      role: "user",
-      text: normalizedText,
-      partial: false,
-      createdAt: eventAt
-    });
+    await this.recordExternalUserTurn(normalizedText, eventAt);
     this.state = {
       ...this.state,
       status: "thinking",
@@ -268,6 +263,42 @@ export class LiveVoiceSession {
       error: null
     };
     this.session.sendText(normalizedText, true);
+    await this.publishState();
+    return this.getState();
+  }
+
+  async recordExternalUserTurn(text, createdAt = nowIso()) {
+    this.outputTranscriptChunks = [];
+    this.appendMetricEvent("typed turn sent", createdAt);
+    this.appendLiveMessage({
+      id: `typed-user-${createdAt}`,
+      role: "user",
+      text,
+      partial: false,
+      createdAt
+    });
+    await this.publishState();
+    return this.getState();
+  }
+
+  async injectAssistantMessage(text, tone = "reply") {
+    const eventAt = nowIso();
+    this.outputTranscriptChunks = [];
+    this.appendMetricEvent(`assistant injected (${tone})`, eventAt);
+    this.appendLiveMessage({
+      id: `assistant-injected-${eventAt}`,
+      role: "assistant",
+      text,
+      partial: false,
+      status: tone,
+      createdAt: eventAt
+    });
+    this.state = {
+      ...this.state,
+      status: tone === "clarify" ? "waiting_user" : "listening",
+      outputTranscript: "",
+      error: null
+    };
     await this.publishState();
     return this.getState();
   }

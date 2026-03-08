@@ -13,6 +13,42 @@ const ENGLISH_TASK_PREFIXES = [
   "summarize "
 ];
 
+const LOCAL_DOMAIN_HINTS = [
+  "바탕화면",
+  "데스크톱",
+  "다운로드",
+  "폴더",
+  "파일",
+  "workspace",
+  "프로젝트",
+  "브라우저",
+  "탭",
+  "앱",
+  "로컬",
+  "이 컴퓨터",
+  "이 기기",
+  "내 컴퓨터",
+  "desktop",
+  "downloads",
+  "folder",
+  "file"
+];
+
+const LOCAL_INSPECTION_QUESTION_HINTS = [
+  "보이니",
+  "보여",
+  "있니",
+  "뭐가",
+  "무슨",
+  "개수",
+  "갯수",
+  "몇 개",
+  "얼마나",
+  "이름",
+  "목록",
+  "뭐 있"
+];
+
 const INTENT_LABELS = [
   "small_talk",
   "question",
@@ -48,6 +84,13 @@ function parseIntentFromModelText(text: string): IntentType {
 
 export function inferIntentFromText(text: string): IntentType {
   const normalized = text.trim().toLowerCase();
+  const hasLocalDomainHint = LOCAL_DOMAIN_HINTS.some((hint) =>
+    normalized.includes(hint)
+  );
+  const looksLikeLocalInspectionQuestion =
+    hasLocalDomainHint &&
+    (LOCAL_INSPECTION_QUESTION_HINTS.some((hint) => normalized.includes(hint)) ||
+      normalized.includes("?"));
 
   if (
     normalized.includes("해줘") ||
@@ -65,6 +108,7 @@ export function inferIntentFromText(text: string): IntentType {
     normalized.includes("continue") ||
     normalized.includes("do ") ||
     normalized.includes("run ") ||
+    looksLikeLocalInspectionQuestion ||
     ENGLISH_TASK_PREFIXES.some((prefix) => normalized.startsWith(prefix))
   ) {
     return "task_request";
@@ -124,6 +168,7 @@ export class GeminiIntentResolver implements IntentResolver {
         "Use task_request for actionable requests that should trigger work.",
         "Use task_request when answering requires inspecting local files, directories, apps, browser state, or running local tools/commands.",
         "Requests like 'tell me the files on my desktop', 'show me folder names', 'count files', 'find X on this machine', or 'open Y' are task_request, not question.",
+        "Questions like '내 바탕화면에 뭐가 있니?', '다운로드 폴더에 파일이 몇 개 있니?', or '보이니?' are task_request if they refer to local machine state.",
         "Use question for information-seeking questions.",
         "Use question only when the answer can be produced directly without inspecting the local machine or performing work.",
         "Use small_talk for greetings, chit-chat, or acknowledgements.",

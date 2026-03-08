@@ -1,4 +1,5 @@
 import {
+  createDefaultTaskIntakeResolver,
   createDefaultIntentResolver,
   extractMemorySignals,
   planAssistantNotificationDelivery,
@@ -16,6 +17,7 @@ import {
   setInteractionSpeaking
 } from "../../shared/notification-center.js";
 import { createLocalExecutionLayer } from "../execution/local-execution-layer.js";
+import { logDesktop } from "../debug/desktop-log.js";
 
 function createInitialInputState() {
   return {
@@ -29,6 +31,14 @@ function createInitialInputState() {
 
 function createInitialCanonicalTurnState() {
   return [];
+}
+
+function createInitialDecisionTrace() {
+  return [];
+}
+
+function createInitialLastAssistantEnvelope() {
+  return null;
 }
 
 function deriveMainAvatarState({
@@ -118,7 +128,10 @@ export class DesktopSessionRuntime {
     this.inputState = options.inputState ?? createInitialInputState();
     this.canonicalTurns =
       options.canonicalTurns ?? createInitialCanonicalTurnState();
+    this.decisionTrace = options.decisionTrace ?? createInitialDecisionTrace();
     this.memorySignals = options.memorySignals ?? [];
+    this.lastAssistantEnvelope =
+      options.lastAssistantEnvelope ?? createInitialLastAssistantEnvelope();
     this.pendingTurns = [];
     this.processingTurns = false;
   }
@@ -132,6 +145,8 @@ export class DesktopSessionRuntime {
     });
     const intentResolver =
       options.intentResolver ?? createDefaultIntentResolver();
+    const taskIntakeResolver =
+      options.taskIntakeResolver ?? createDefaultTaskIntakeResolver();
 
     const loop = new TextRealtimeSessionLoop(
       execution.executor,
@@ -146,7 +161,8 @@ export class DesktopSessionRuntime {
         }
       },
       {
-        persistDirectAssistantReplies: false
+        persistDirectAssistantReplies: false,
+        taskIntakeResolver
       }
     );
 
@@ -162,15 +178,16 @@ export class DesktopSessionRuntime {
   }
 
   async collectState() {
-  const [messages, tasks] = await Promise.all([
+  const [messages, tasks, recentTasks] = await Promise.all([
       this.loop.listConversation(this.brainSessionId),
-      this.loop.listActiveTasks(this.brainSessionId)
+      this.loop.listActiveTasks(this.brainSessionId),
+      this.loop.listRecentTasks(this.brainSessionId, 5)
     ]);
     const intakeSession = await this.loop.getActiveTaskIntake(
       this.brainSessionId
     );
     const taskTimelines = await Promise.all(
-      tasks.map(async (task) => ({
+      recentTasks.map(async (task) => ({
         taskId: task.id,
         events: await this.loop.listTaskEvents(task.id)
       }))
@@ -208,9 +225,11 @@ export class DesktopSessionRuntime {
       pendingBriefingCount: this.notificationCenter.pending.length,
       messages,
       tasks,
+      recentTasks,
       taskTimelines,
       canonicalTurnStream: this.canonicalTurns,
       memorySignals: this.memorySignals,
+      lastAssistantEnvelope: this.lastAssistantEnvelope,
       intake,
       avatar: {
         mainState: mainAvatarState,
@@ -219,10 +238,18 @@ export class DesktopSessionRuntime {
       debug:
         this.execution.debug?.enabled
           ? {
-              rawExecutorEvents: this.execution.debug.rawEvents.slice(-20)
+              rawExecutorEvents: this.execution.debug.rawEvents.slice(-20),
+              decisionTrace: this.decisionTrace
             }
           : null
     };
+  }
+
+  appendDecisionTrace(label, details) {
+    const at = new Date().toISOString();
+    const line = details ? `${at} ${label}: ${details}` : `${at} ${label}`;
+    this.decisionTrace = [...this.decisionTrace, line].slice(-30);
+    logDesktop(`[desktop-runtime] ${line}`);
   }
 
   async init() {
@@ -254,10 +281,14 @@ export class DesktopSessionRuntime {
     });
   }
 
-  async submitCanonicalUserTurn({ text, source, createdAt }) {
+  async resolveIntent(text) {
+    return this.intentResolver.resolve(text.trim());
+  }
+
+  recordCanonicalTurn({ text, source, createdAt }) {
     const normalizedText = text.trim();
     if (!normalizedText) {
-      return this.collectState();
+      return null;
     }
 
     const turnCreatedAt = createdAt ?? new Date().toISOString();
@@ -270,12 +301,56 @@ export class DesktopSessionRuntime {
       }
     ].slice(-20);
     this.memorySignals = extractMemorySignals(normalizedText).slice(-6);
+    this.appendDecisionTrace(
+      "canonical turn",
+      `${source} · ${normalizedText}`
+    );
 
-    return this.enqueueTurn({
+    return {
       text: normalizedText,
       source,
       createdAt: turnCreatedAt
+    };
+  }
+
+  async submitCanonicalUserTurn({ text, source, createdAt, intent }) {
+    const canonicalTurn = this.recordCanonicalTurn({
+      text,
+      source,
+      createdAt
     });
+    if (!canonicalTurn) {
+      return this.collectState();
+    }
+
+    return this.enqueueTurn({
+      ...canonicalTurn,
+      intent
+    });
+  }
+
+  async submitCanonicalUserTurnForDecision({ text, source, createdAt, intent }) {
+    const canonicalTurn = this.recordCanonicalTurn({
+      text,
+      source,
+      createdAt
+    });
+    if (!canonicalTurn) {
+      return {
+        handled: null,
+        state: await this.collectState()
+      };
+    }
+
+    const handled = await this.enqueueTurnAndWaitForDecision({
+      ...canonicalTurn,
+      intent
+    });
+
+    return {
+      handled,
+      state: await this.collectState()
+    };
   }
 
   async enqueueTurn(turn) {
@@ -296,6 +371,30 @@ export class DesktopSessionRuntime {
     void this.processTurnQueue();
 
     return this.collectState();
+  }
+
+  async enqueueTurnAndWaitForDecision(turn) {
+    const now = new Date().toISOString();
+    return new Promise(async (resolve, reject) => {
+      this.pendingTurns.push({
+        ...turn,
+        createdAt: turn.createdAt ?? now,
+        decisionDeferred: {
+          resolve,
+          reject
+        }
+      });
+      this.inputState = {
+        ...this.inputState,
+        inFlight: true,
+        queueSize: this.pendingTurns.length,
+        lastSubmittedText: turn.text,
+        lastError: null
+      };
+
+      await this.publishState();
+      void this.processTurnQueue();
+    });
   }
 
   async toggleMic() {
@@ -369,6 +468,7 @@ export class DesktopSessionRuntime {
         if (!turn) {
           continue;
         }
+        let handled;
 
         this.inputState = {
           ...this.inputState,
@@ -381,7 +481,11 @@ export class DesktopSessionRuntime {
 
         try {
           const intent = turn.intent ?? (await this.intentResolver.resolve(turn.text));
-          await this.loop.handleTurn({
+          this.appendDecisionTrace(
+            "intent resolved",
+            `${intent} · ${turn.text}`
+          );
+          handled = await this.loop.handleTurn({
             brainSessionId: this.brainSessionId,
             utterance: {
               text: turn.text,
@@ -390,7 +494,20 @@ export class DesktopSessionRuntime {
             },
             now: turn.createdAt
           });
+          this.appendDecisionTrace(
+            "loop result",
+            `${handled.assistant.tone}${handled.task ? ` · task:${handled.task.status}` : ""} · ${handled.assistant.text}`
+          );
+          this.lastAssistantEnvelope = {
+            text: handled.assistant.text,
+            tone: handled.assistant.tone,
+            createdAt: turn.createdAt
+          };
         } catch (error) {
+          this.appendDecisionTrace(
+            "loop error",
+            error instanceof Error ? error.message : String(error)
+          );
           this.inputState = {
             ...this.inputState,
             lastError: error instanceof Error ? error.message : String(error)
@@ -403,6 +520,13 @@ export class DesktopSessionRuntime {
             activeText: null
           };
           await this.publishState();
+          if (turn.decisionDeferred) {
+            if (this.inputState.lastError) {
+              turn.decisionDeferred.reject(new Error(this.inputState.lastError));
+            } else {
+              turn.decisionDeferred.resolve(handled);
+            }
+          }
         }
       }
     } finally {

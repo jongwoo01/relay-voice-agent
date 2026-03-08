@@ -7,6 +7,7 @@ function createRuntime() {
       loop: {
         listConversation: async () => [],
         listActiveTasks: async () => [],
+        listRecentTasks: async () => [],
         getActiveTaskIntake: async () => null,
         listTaskEvents: async () => [],
         handleTurn: async () => undefined
@@ -90,6 +91,7 @@ describe("desktop-session-runtime", () => {
       loop: {
         listConversation: async () => [],
         listActiveTasks: async () => [],
+        listRecentTasks: async () => [],
         getActiveTaskIntake: async () => null,
         listTaskEvents: async () => [],
         handleTurn: async () => {
@@ -122,6 +124,7 @@ describe("desktop-session-runtime", () => {
       loop: {
         listConversation: async () => [],
         listActiveTasks: async () => [],
+        listRecentTasks: async () => [],
         getActiveTaskIntake: async () => null,
         listTaskEvents: async () => [],
         handleTurn: async () => {
@@ -159,6 +162,7 @@ describe("desktop-session-runtime", () => {
       loop: {
         listConversation: async () => [],
         listActiveTasks: async () => [],
+        listRecentTasks: async () => [],
         getActiveTaskIntake: async () => null,
         listTaskEvents: async () => [],
         handleTurn: async (turn) => {
@@ -222,6 +226,17 @@ describe("desktop-session-runtime", () => {
             updatedAt: "2026-03-08T00:00:00.000Z"
           }
         ],
+        listRecentTasks: async () => [
+          {
+            id: "task-1",
+            title: "브라우저 정리",
+            normalizedGoal: "브라우저 정리",
+            status: "approval_required",
+            brainSessionId: "desktop-session-test",
+            createdAt: "2026-03-08T00:00:00.000Z",
+            updatedAt: "2026-03-08T00:00:01.000Z"
+          }
+        ],
         getActiveTaskIntake: async () => null,
         listTaskEvents: async () => [
           {
@@ -269,6 +284,7 @@ describe("desktop-session-runtime", () => {
       loop: {
         listConversation: async () => [],
         listActiveTasks: async () => [],
+        listRecentTasks: async () => [],
         getActiveTaskIntake: async () => ({
           brainSessionId: "desktop-session-test",
           status: "collecting",

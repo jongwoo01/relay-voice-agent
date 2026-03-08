@@ -6,6 +6,7 @@ import { DesktopSessionRuntime } from "./src/main/session/desktop-session-runtim
 import { assertTrustedSenderUrl } from "./src/main/ipc/sender-guard.js";
 import { LiveVoiceSession } from "./src/main/live/live-voice-session.js";
 import { createLiveBrainBridge } from "./src/main/integration/live-brain-bridge.js";
+import { clearDesktopLog, logDesktop } from "./src/main/debug/desktop-log.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,8 +14,10 @@ const __dirname = path.dirname(__filename);
 let mainWindow;
 let runtime;
 let liveVoiceSession;
+let liveBrainBridge;
 
 loadDotEnvFromRoot(path.resolve(__dirname, "..", ".."));
+clearDesktopLog();
 
 const rendererEntry = path.join(__dirname, "renderer", "index.html");
 const rendererEntryUrl = pathToFileURL(rendererEntry).toString();
@@ -55,7 +58,6 @@ function createWindow() {
       broadcastToWindow("session:state-updated", state);
     }
   });
-  const liveBrainBridge = createLiveBrainBridge({ runtime, liveVoiceSession });
   liveVoiceSession = new LiveVoiceSession({
     onStateChange: async (state) => {
       broadcastToWindow("live:state-updated", state);
@@ -64,9 +66,11 @@ function createWindow() {
       broadcastToWindow("live:audio-chunk", event);
     },
     onUserTranscriptFinal: async (text) => {
+      logDesktop(`[desktop-main] live final transcript: ${text}`);
       await liveBrainBridge.handleFinalTranscript(text);
     }
   });
+  liveBrainBridge = createLiveBrainBridge({ runtime, liveVoiceSession });
 
   mainWindow.once("ready-to-show", () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
@@ -81,6 +85,7 @@ function createWindow() {
     mainWindow = undefined;
     runtime = undefined;
     liveVoiceSession = undefined;
+    liveBrainBridge = undefined;
   });
 
   mainWindow.loadFile(rendererEntry);
@@ -103,10 +108,12 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("session:send", async (_event, text) => {
     assertTrustedSender(_event);
+    logDesktop(`[desktop-main] session:send ${text}`);
     return runtime.sendText(text);
   });
   ipcMain.handle("companion:send-typed-turn", async (event, text) => {
     assertTrustedSender(event);
+    logDesktop(`[desktop-main] companion:send-typed-turn ${text}`);
     return liveBrainBridge.sendTypedTurn(text);
   });
   ipcMain.handle("session:toggle-mic", async (event) => {

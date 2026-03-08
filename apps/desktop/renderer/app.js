@@ -388,6 +388,7 @@ function renderLiveState(state) {
     ? "voice-transcript-text"
     : "voice-transcript-text empty-state";
   const metrics = state.metrics ?? {};
+  const decisionTrace = sessionState?.debug?.decisionTrace ?? [];
   liveDebugLogEl.textContent = [
     `last local audio chunk: ${liveLastProducedAudioAt ?? "n/a"}`,
     `session open: ${metrics.connectedAt ?? "n/a"}`,
@@ -395,6 +396,9 @@ function renderLiveState(state) {
     `local -> input final: ${formatLatency(liveLastProducedAudioAt, metrics.firstInputFinalAt)}`,
     `local -> first assistant transcript: ${formatLatency(liveLastProducedAudioAt, metrics.firstOutputTranscriptAt)}`,
     `local -> first assistant audio: ${formatLatency(liveLastProducedAudioAt, metrics.firstOutputAudioAt)}`,
+    "",
+    "[Canonical Decision Trace]",
+    ...(decisionTrace.length > 0 ? decisionTrace : ["n/a"]),
     "",
     "[Summary Events]",
     ...(metrics.rawEvents ?? [])
@@ -575,21 +579,29 @@ function renderMessages(messages) {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function renderTasks(tasks, timelines) {
+function renderTasks(tasks, recentTasks, timelines) {
   tasksEl.innerHTML = "";
   const timelineByTaskId = new Map(
     timelines.map((timeline) => [timeline.taskId, timeline.events])
   );
+  const visibleTasks = tasks.length > 0 ? tasks : recentTasks ?? [];
 
-  if (tasks.length === 0) {
+  if (visibleTasks.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = "현재 진행 중인 task가 없습니다.";
+    empty.textContent = "아직 실행된 task가 없습니다.";
     tasksEl.appendChild(empty);
     return;
   }
 
-  for (const task of tasks) {
+  if (tasks.length === 0 && visibleTasks.length > 0) {
+    const label = document.createElement("p");
+    label.className = "empty-state";
+    label.textContent = "최근 task";
+    tasksEl.appendChild(label);
+  }
+
+  for (const task of visibleTasks) {
     const events = timelineByTaskId.get(task.id) ?? [];
     const latestEvent = events.at(-1);
     const item = document.createElement("article");
@@ -650,7 +662,7 @@ function renderState(state) {
   sessionState = state;
   hideRuntimeError();
   renderMessages(state.messages);
-  renderTasks(state.tasks, state.taskTimelines ?? []);
+  renderTasks(state.tasks, state.recentTasks ?? [], state.taskTimelines ?? []);
   renderNotifications(state.notifications);
   renderVoiceTaskSummary(state);
   renderTaskIntake(state.intake);

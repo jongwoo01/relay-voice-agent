@@ -20,6 +20,9 @@ describe("inferIntentFromText", () => {
     expect(inferIntentFromText("다운로드 폴더 파일 목록 알려줘")).toBe(
       "task_request"
     );
+    expect(inferIntentFromText("내 바탕화면에 무슨 폴더나 파일이 있는지 보이니?")).toBe(
+      "task_request"
+    );
   });
 
   it("classifies english imperative requests as task_request", () => {

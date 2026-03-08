@@ -260,4 +260,89 @@ describe("text-realtime-session-loop", () => {
       })
     );
   });
+
+  it("runs a desktop file summary task immediately when the scope is already clear", async () => {
+    class CapturingExecutor implements LocalExecutor {
+      public lastPrompt = "";
+
+      async run(
+        request: ExecutorRunRequest
+      ): Promise<ExecutorRunResult> {
+        this.lastPrompt = request.prompt;
+        return {
+          progressEvents: [],
+          completionEvent: {
+            taskId: request.task.id,
+            type: "executor_completed",
+            message: "바탕화면 파일 요약 완료",
+            createdAt: request.now
+          }
+        };
+      }
+    }
+
+    const executor = new CapturingExecutor();
+    const loop = new TextRealtimeSessionLoop(executor);
+
+    const turn = await loop.handleTurn({
+      brainSessionId: "brain-5",
+      utterance: utterance("바탕화면 파일들을 종류별로 요약해줘", "task_request"),
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    expect(turn.assistant.tone).toBe("task_ack");
+    expect(executor.lastPrompt).toBe("바탕화면 파일들을 종류별로 요약해줘");
+    await expect(loop.getActiveTaskIntake("brain-5")).resolves.toBeNull();
+  });
+
+  it("asks for an organizing rule before cleaning the downloads folder and runs once answered", async () => {
+    class CapturingExecutor implements LocalExecutor {
+      public lastPrompt = "";
+
+      async run(
+        request: ExecutorRunRequest
+      ): Promise<ExecutorRunResult> {
+        this.lastPrompt = request.prompt;
+        return {
+          progressEvents: [],
+          completionEvent: {
+            taskId: request.task.id,
+            type: "executor_completed",
+            message: "다운로드 폴더 정리 완료",
+            createdAt: request.now
+          }
+        };
+      }
+    }
+
+    const executor = new CapturingExecutor();
+    const loop = new TextRealtimeSessionLoop(executor);
+
+    const firstTurn = await loop.handleTurn({
+      brainSessionId: "brain-6",
+      utterance: utterance("다운로드 폴더 파일 정리해줘", "task_request"),
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    expect(firstTurn.assistant.tone).toBe("clarify");
+    expect(firstTurn.assistant.text).toContain("어떤 기준으로");
+    await expect(loop.getActiveTaskIntake("brain-6")).resolves.toEqual(
+      expect.objectContaining({
+        sourceText: "다운로드 폴더 파일 정리해줘",
+        missingSlots: ["scope"]
+      })
+    );
+
+    const secondTurn = await loop.handleTurn({
+      brainSessionId: "brain-6",
+      utterance: utterance("종류별로 정리해줘", "small_talk"),
+      now: "2026-03-08T00:00:01.000Z"
+    });
+
+    expect(secondTurn.assistant.tone).toBe("task_ack");
+    expect(executor.lastPrompt).toBe(
+      "다운로드 폴더 파일 정리해줘 종류별로 정리해줘"
+    );
+    await expect(loop.getActiveTaskIntake("brain-6")).resolves.toBeNull();
+  });
 });

@@ -29,6 +29,7 @@ import {
 } from "../persistence/session-persistence.js";
 import { buildAssistantFollowUpMessage } from "../tasks/task-event-announcer.js";
 import { TaskIntakeService } from "../conversation/task-intake-service.js";
+import type { TaskIntakeResolver } from "../conversation/task-intake-resolver.js";
 
 export interface HandleTurnInput {
   brainSessionId: string;
@@ -42,6 +43,7 @@ export type AssistantMessageListener = (
 
 export interface TextRealtimeSessionLoopOptions {
   persistDirectAssistantReplies?: boolean;
+  taskIntakeResolver?: TaskIntakeResolver;
 }
 
 export class TextRealtimeSessionLoop {
@@ -62,9 +64,13 @@ export class TextRealtimeSessionLoop {
   ) {
     this.conversationRepository = persistence.conversationRepository;
     this.taskRepository = persistence.taskRepository;
-    this.taskIntakeService = new TaskIntakeService(
-      persistence.taskIntakeRepository
-    );
+    this.taskIntakeService = options.taskIntakeResolver
+      ? new TaskIntakeService(
+          persistence.taskIntakeRepository,
+          undefined,
+          options.taskIntakeResolver
+        )
+      : new TaskIntakeService(persistence.taskIntakeRepository);
     this.taskEventRepository = persistence.taskEventRepository;
     this.taskExecutorSessionRepository =
       persistence.taskExecutorSessionRepository;
@@ -185,6 +191,10 @@ export class TextRealtimeSessionLoop {
 
   async listActiveTasks(brainSessionId: string): Promise<Task[]> {
     return this.taskRepository.listActiveByBrainSessionId(brainSessionId);
+  }
+
+  async listRecentTasks(brainSessionId: string, limit = 5): Promise<Task[]> {
+    return this.taskRepository.listRecentByBrainSessionId(brainSessionId, limit);
   }
 
   async listTaskEvents(taskId: string): Promise<TaskEvent[]> {
