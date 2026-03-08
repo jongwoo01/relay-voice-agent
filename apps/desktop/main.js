@@ -5,6 +5,7 @@ import { loadDotEnvFromRoot } from "@agent/agent-api";
 import { DesktopSessionRuntime } from "./src/main/session/desktop-session-runtime.js";
 import { assertTrustedSenderUrl } from "./src/main/ipc/sender-guard.js";
 import { LiveVoiceSession } from "./src/main/live/live-voice-session.js";
+import { createLiveBrainBridge } from "./src/main/integration/live-brain-bridge.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,6 +55,7 @@ function createWindow() {
       broadcastToWindow("session:state-updated", state);
     }
   });
+  const liveBrainBridge = createLiveBrainBridge({ runtime });
   liveVoiceSession = new LiveVoiceSession({
     onStateChange: async (state) => {
       broadcastToWindow("live:state-updated", state);
@@ -62,7 +64,7 @@ function createWindow() {
       broadcastToWindow("live:audio-chunk", event);
     },
     onUserTranscriptFinal: async (text) => {
-      await runtime.handleVoiceTranscript(text);
+      await liveBrainBridge.handleFinalTranscript(text);
     }
   });
 
