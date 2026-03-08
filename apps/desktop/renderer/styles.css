@@ -229,7 +229,7 @@ body {
 
 .avatar-stream-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 14px;
 }
@@ -273,6 +273,18 @@ body {
   background: rgba(255, 255, 255, 0.72);
   padding: 14px 16px;
   min-height: 92px;
+  min-width: 0;
+}
+
+.flow-trace-card {
+  margin-top: 14px;
+}
+
+.flow-trace-log {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
 }
 
 .signal-list {

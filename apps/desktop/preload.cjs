@@ -22,6 +22,17 @@ contextBridge.exposeInMainWorld("desktopCompanion", {
   sendTypedTurn: (text) => ipcRenderer.invoke("companion:send-typed-turn", text)
 });
 
+contextBridge.exposeInMainWorld("desktopDebug", {
+  onLog: (listener) => {
+    const wrapped = (_event, line) => listener(line);
+    ipcRenderer.on("desktop:log", wrapped);
+
+    return () => {
+      ipcRenderer.removeListener("desktop:log", wrapped);
+    };
+  }
+});
+
 contextBridge.exposeInMainWorld("desktopLive", {
   init: () => ipcRenderer.invoke("live:init"),
   connect: () => ipcRenderer.invoke("live:connect"),

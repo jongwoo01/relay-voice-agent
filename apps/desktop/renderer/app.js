@@ -30,8 +30,12 @@ const voiceTaskSummaryEl = document.getElementById("voice-task-summary");
 const voiceBriefingSummaryEl = document.getElementById("voice-briefing-summary");
 const voiceIntakeSummaryEl = document.getElementById("voice-intake-summary");
 const mainAvatarStateEl = document.getElementById("main-avatar-state");
+const liveRouteSummaryEl = document.getElementById("live-route-summary");
+const liveRouteDetailEl = document.getElementById("live-route-detail");
+const flowTraceLogEl = document.getElementById("flow-trace-log");
 const memorySignalListEl = document.getElementById("memory-signal-list");
 const subAvatarListEl = document.getElementById("sub-avatar-list");
+let desktopLogLines = [];
 
 let sessionState = null;
 let liveState = {
@@ -42,7 +46,12 @@ let liveState = {
   inputPartial: "",
   lastUserTranscript: "",
   outputTranscript: "",
-  error: null
+  error: null,
+  routing: {
+    mode: "idle",
+    summary: "아직 확인 중인 요청이 없습니다.",
+    detail: ""
+  }
 };
 let liveAudioContext;
 let liveRecorderContext;
@@ -405,6 +414,8 @@ function renderLiveState(state) {
   ].join("\n");
   renderVoiceTaskSummary(sessionState);
   renderLiveMessages(state.liveMessages ?? []);
+  renderLiveRouting(state);
+  renderFlowTrace(sessionState, state);
 }
 
 function renderLiveMessages(messages) {
@@ -491,6 +502,24 @@ function renderMainAvatarState(state) {
     : "voice-summary-text empty-state";
 }
 
+function renderLiveRouting(state) {
+  const routing = state?.routing;
+  const summary = routing?.summary ?? "아직 확인 중인 요청이 없습니다.";
+  const detail = routing?.detail ?? "";
+
+  liveRouteSummaryEl.textContent = summary;
+  liveRouteSummaryEl.className =
+    routing?.mode && routing.mode !== "idle"
+      ? "voice-summary-text"
+      : "voice-summary-text empty-state";
+
+  liveRouteDetailEl.textContent = detail;
+  liveRouteDetailEl.className =
+    detail && detail.trim().length > 0
+      ? "briefing-delivery"
+      : "briefing-delivery empty-state";
+}
+
 function renderTaskIntake(intake) {
   if (!intake?.active) {
     voiceIntakeSummaryEl.textContent = "지금 보충 질문 중인 작업이 없습니다.";
@@ -506,6 +535,19 @@ function renderTaskIntake(intake) {
     ? `waiting for: ${missing}${question}`
     : `ready to run · ${intake.workingText}`;
   voiceIntakeSummaryEl.className = "voice-summary-text";
+}
+
+function renderFlowTrace(session, live) {
+  const lines = desktopLogLines.slice(-120);
+
+  flowTraceLogEl.textContent =
+    lines.length > 0
+      ? lines.join("\n")
+      : "아직 흐름 로그가 없습니다.";
+  flowTraceLogEl.className =
+    lines.length > 0
+      ? "executor-debug-log flow-trace-log"
+      : "executor-debug-log flow-trace-log empty-state";
 }
 
 function renderMemorySignals(signals) {
@@ -737,6 +779,10 @@ async function bootstrap() {
   });
   window.desktopLive.onStateUpdated((nextState) => {
     renderLiveState(nextState);
+  });
+  window.desktopDebug?.onLog?.((line) => {
+    desktopLogLines = [...desktopLogLines, line].slice(-80);
+    renderFlowTrace(sessionState, liveState);
   });
   window.desktopLive.onAudioChunk((chunk) => {
     void handleAudioChunk(chunk);

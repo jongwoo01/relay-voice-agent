@@ -56,6 +56,13 @@
               </p>
             </article>
             <article class="voice-summary-card">
+              <p class="message-role">Action Path</p>
+              <p id="live-route-summary" class="voice-summary-text empty-state">
+                아직 확인 중인 요청이 없습니다.
+              </p>
+              <p id="live-route-detail" class="briefing-delivery"></p>
+            </article>
+            <article class="voice-summary-card">
               <p class="message-role">Memory Signals</p>
               <div id="memory-signal-list" class="signal-list">
                 <p class="empty-state">아직 기억 후보가 없습니다.</p>
@@ -96,6 +103,10 @@
             <p id="voice-intake-summary" class="voice-summary-text empty-state">
               지금 보충 질문 중인 작업이 없습니다.
             </p>
+          </article>
+          <article class="voice-summary-card flow-trace-card">
+            <p class="message-role">Flow Trace</p>
+            <pre id="flow-trace-log" class="executor-debug-log flow-trace-log"></pre>
           </article>
           <details class="debug-panel">
             <summary>Debug Telemetry</summary>
