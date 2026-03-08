@@ -148,4 +148,48 @@ describe("desktop-session-runtime", () => {
     expect(finalState.input.inFlight).toBe(false);
     expect(finalState.input.queueSize).toBe(0);
   });
+
+  it("ignores small talk voice transcripts until there is an active task", async () => {
+    const handledTurns = [];
+    let activeTasks = [];
+    const runtime = new DesktopSessionRuntime({
+      brainSessionId: "desktop-session-test",
+      loop: {
+        listConversation: async () => [],
+        listActiveTasks: async () => activeTasks,
+        listTaskEvents: async () => [],
+        handleTurn: async (turn) => {
+          handledTurns.push(turn);
+        },
+        waitForBackgroundWork: async () => undefined
+      },
+      intentResolver: {
+        resolve: async (text) =>
+          text.includes("정리") ? "task_request" : "small_talk"
+      }
+    });
+    runtime.execution = { mode: "mock" };
+
+    await runtime.handleVoiceTranscript("안녕");
+    expect(handledTurns).toHaveLength(0);
+
+    await runtime.handleVoiceTranscript("바탕화면 정리해줘");
+    await runtime.waitForIdle();
+    expect(handledTurns).toHaveLength(1);
+
+    activeTasks = [
+      {
+        id: "task-1",
+        title: "정리",
+        normalizedGoal: "정리",
+        status: "running",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z"
+      }
+    ];
+
+    await runtime.handleVoiceTranscript("완료되면 알려줘");
+    await runtime.waitForIdle();
+    expect(handledTurns).toHaveLength(2);
+  });
 });

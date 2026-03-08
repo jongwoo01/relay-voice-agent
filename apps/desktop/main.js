@@ -60,6 +60,9 @@ function createWindow() {
     },
     onAudioChunk: async (event) => {
       broadcastToWindow("live:audio-chunk", event);
+    },
+    onUserTranscriptFinal: async (text) => {
+      await runtime.handleVoiceTranscript(text);
     }
   });
 

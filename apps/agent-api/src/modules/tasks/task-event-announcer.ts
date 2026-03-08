@@ -18,7 +18,7 @@ export function buildAssistantFollowUpMessage(
       message: {
         brainSessionId: input.brainSessionId,
         speaker: "assistant",
-        text: `작업이 끝났어. ${input.event.message}`,
+        text: `좋아, 끝냈어. ${input.event.message}`,
         tone: "reply",
         createdAt: input.event.createdAt
       },
@@ -33,7 +33,7 @@ export function buildAssistantFollowUpMessage(
       message: {
         brainSessionId: input.brainSessionId,
         speaker: "assistant",
-        text: `작업이 중단되거나 실패했어. ${input.event.message}`,
+        text: `앗, 여기서 막혔어. ${input.event.message}`,
         tone: "reply",
         createdAt: input.event.createdAt
       },

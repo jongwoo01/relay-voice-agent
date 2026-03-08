@@ -25,7 +25,7 @@ describe("task-event-announcer", () => {
       message: {
         brainSessionId: "brain-1",
         speaker: "assistant",
-        text: "작업이 끝났어. 정리 완료",
+        text: "좋아, 끝냈어. 정리 완료",
         tone: "reply",
         createdAt: "2026-03-08T00:00:01.000Z"
       },
@@ -58,7 +58,7 @@ describe("task-event-announcer", () => {
       message: {
         brainSessionId: "brain-1",
         speaker: "assistant",
-        text: "작업이 중단되거나 실패했어. 권한 요청으로 중단됨",
+        text: "앗, 여기서 막혔어. 권한 요청으로 중단됨",
         tone: "reply",
         createdAt: "2026-03-08T00:00:01.000Z"
       },

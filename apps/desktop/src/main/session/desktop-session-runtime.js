@@ -128,16 +128,49 @@ export class DesktopSessionRuntime {
       return this.collectState();
     }
 
+    return this.enqueueTurn({
+      text: normalizedText,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  async handleVoiceTranscript(text) {
+    const normalizedText = text.trim();
+    if (!normalizedText) {
+      return this.collectState();
+    }
+
+    const activeTasks = await this.loop.listActiveTasks(this.brainSessionId);
+    if (activeTasks.length === 0) {
+      const intent = await this.intentResolver.resolve(normalizedText);
+      if (intent !== "task_request") {
+        return this.collectState();
+      }
+
+      return this.enqueueTurn({
+        text: normalizedText,
+        createdAt: new Date().toISOString(),
+        intent
+      });
+    }
+
+    return this.enqueueTurn({
+      text: normalizedText,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  async enqueueTurn(turn) {
     const now = new Date().toISOString();
     this.pendingTurns.push({
-      text: normalizedText,
-      createdAt: now
+      ...turn,
+      createdAt: turn.createdAt ?? now
     });
     this.inputState = {
       ...this.inputState,
       inFlight: true,
       queueSize: this.pendingTurns.length,
-      lastSubmittedText: normalizedText,
+      lastSubmittedText: turn.text,
       lastError: null
     };
 
@@ -229,7 +262,7 @@ export class DesktopSessionRuntime {
         await this.publishState();
 
         try {
-          const intent = await this.intentResolver.resolve(turn.text);
+          const intent = turn.intent ?? (await this.intentResolver.resolve(turn.text));
           await this.loop.handleTurn({
             brainSessionId: this.brainSessionId,
             utterance: {

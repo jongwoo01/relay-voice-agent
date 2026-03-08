@@ -46,14 +46,14 @@ export function planAssistantNotificationDelivery(
     if (hasActiveSpeech(state)) {
       return {
         uiText: notification.message.text,
-        speechText: `오, 태스크가 완료됐네요. ${notification.message.text}`,
+        speechText: `좋아, 마무리됐어. ${notification.message.text}`,
         delivery: "next_turn"
       };
     }
 
     return {
       uiText: notification.message.text,
-      speechText: `보고드릴게요. ${notification.message.text}`,
+      speechText: `짧게 보고할게. ${notification.message.text}`,
       delivery: "immediate"
     };
   }
