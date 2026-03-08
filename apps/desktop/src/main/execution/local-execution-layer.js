@@ -1,4 +1,4 @@
-import { GeminiCliExecutor, MockExecutor } from "@agent/agent-api";
+import { GeminiCliExecutor, MockExecutor } from "@agent/gemini-cli-runner";
 
 export function resolveExecutionMode(input) {
   if (typeof input !== "string") {

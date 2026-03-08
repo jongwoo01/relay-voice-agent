@@ -6,6 +6,7 @@ import {
   queueTask,
   reportTaskProgress
 } from "@agent/brain-domain";
+import { MockExecutor } from "@agent/gemini-cli-runner";
 import type {
   ExecutorRunRequest,
   ExecutorRunResult,
@@ -13,7 +14,6 @@ import type {
   LocalExecutor
 } from "@agent/local-executor-protocol";
 import type { Task, TaskEvent, TaskExecutorSession } from "@agent/shared-types";
-import { MockExecutor } from "../executor/mock-executor.js";
 import { startTask } from "@agent/brain-domain";
 
 export interface TaskRunInput {

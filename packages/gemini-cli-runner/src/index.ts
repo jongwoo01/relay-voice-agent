@@ -20,3 +20,4 @@ export {
   type RunCommandOptions,
   type SpawnLike
 } from "./subprocess-executor.js";
+export { MockExecutor } from "./mock-executor.js";

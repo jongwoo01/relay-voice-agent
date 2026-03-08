@@ -1,15 +1,15 @@
 import type {
-  ExecutorRunResult,
   ExecutorProgressListener,
+  ExecutorRunResult,
   LocalExecutor
 } from "@agent/local-executor-protocol";
+import type { Task } from "@agent/shared-types";
 import {
   buildExecutorResultFromGeminiCliOutput,
   createMockGeminiCliOutput,
   createToolResultEvent,
   createToolUseEvent
-} from "@agent/gemini-cli-runner";
-import type { Task } from "@agent/shared-types";
+} from "./output-parser.js";
 
 export class MockExecutor implements LocalExecutor {
   async run(

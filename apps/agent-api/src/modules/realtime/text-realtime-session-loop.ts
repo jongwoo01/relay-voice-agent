@@ -6,9 +6,9 @@ import type {
   TaskEvent
 } from "@agent/shared-types";
 import type { LocalExecutor } from "@agent/local-executor-protocol";
+import { MockExecutor } from "@agent/gemini-cli-runner";
 import { ConversationOrchestrator } from "../conversation/conversation-orchestrator.js";
 import { BrainTurnService } from "../conversation/brain-turn-service.js";
-import { MockExecutor } from "../executor/mock-executor.js";
 import {
   type ConversationMessageRepository
 } from "../persistence/conversation-message-repository.js";
