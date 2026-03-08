@@ -4,12 +4,13 @@ import { DesktopSessionRuntime } from "../src/main/session/desktop-session-runti
 function createRuntime() {
   const runtime = new DesktopSessionRuntime({
     brainSessionId: "desktop-session-test",
-    loop: {
-      listConversation: async () => [],
-      listActiveTasks: async () => [],
-      listTaskEvents: async () => [],
-      handleTurn: async () => undefined
-    },
+      loop: {
+        listConversation: async () => [],
+        listActiveTasks: async () => [],
+        getActiveTaskIntake: async () => null,
+        listTaskEvents: async () => [],
+        handleTurn: async () => undefined
+      },
     intentResolver: {
       resolve: async () => "task_request"
     },
@@ -89,6 +90,7 @@ describe("desktop-session-runtime", () => {
       loop: {
         listConversation: async () => [],
         listActiveTasks: async () => [],
+        getActiveTaskIntake: async () => null,
         listTaskEvents: async () => [],
         handleTurn: async () => {
           await deferred.promise;
@@ -120,6 +122,7 @@ describe("desktop-session-runtime", () => {
       loop: {
         listConversation: async () => [],
         listActiveTasks: async () => [],
+        getActiveTaskIntake: async () => null,
         listTaskEvents: async () => [],
         handleTurn: async () => {
           handledTurns += 1;
@@ -156,6 +159,7 @@ describe("desktop-session-runtime", () => {
       loop: {
         listConversation: async () => [],
         listActiveTasks: async () => [],
+        getActiveTaskIntake: async () => null,
         listTaskEvents: async () => [],
         handleTurn: async (turn) => {
           handledTurns.push(turn);
@@ -218,6 +222,7 @@ describe("desktop-session-runtime", () => {
             updatedAt: "2026-03-08T00:00:00.000Z"
           }
         ],
+        getActiveTaskIntake: async () => null,
         listTaskEvents: async () => [
           {
             taskId: "task-1",
@@ -256,5 +261,44 @@ describe("desktop-session-runtime", () => {
         blockingReason: "이 탭들을 닫아도 될지 확인해줘"
       })
     ]);
+  });
+
+  it("surfaces active task intake before a task is created", async () => {
+    const runtime = new DesktopSessionRuntime({
+      brainSessionId: "desktop-session-test",
+      loop: {
+        listConversation: async () => [],
+        listActiveTasks: async () => [],
+        getActiveTaskIntake: async () => ({
+          brainSessionId: "desktop-session-test",
+          status: "collecting",
+          sourceText: "메일 보내줘",
+          workingText: "메일 보내줘",
+          requiredSlots: ["target"],
+          filledSlots: {},
+          missingSlots: ["target"],
+          lastQuestion: "누구에게 할지 알려줘.",
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z"
+        }),
+        listTaskEvents: async () => [],
+        handleTurn: async () => undefined
+      },
+      intentResolver: {
+        resolve: async () => "task_request"
+      }
+    });
+    runtime.execution = { mode: "mock" };
+
+    const state = await runtime.collectState();
+    expect(state.avatar.mainState).toBe("waiting_user");
+    expect(state.intake).toEqual(
+      expect.objectContaining({
+        active: true,
+        missingSlots: ["target"],
+        lastQuestion: "누구에게 할지 알려줘."
+      })
+    );
+    expect(state.avatar.subAvatars).toEqual([]);
   });
 });

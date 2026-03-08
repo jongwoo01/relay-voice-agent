@@ -34,6 +34,7 @@ function createInitialCanonicalTurnState() {
 function deriveMainAvatarState({
   activityState,
   inputState,
+  intake,
   notificationCenter,
   memorySignals,
   tasks
@@ -53,6 +54,10 @@ function deriveMainAvatarState({
   }
 
   if (hasBlockingTask) {
+    return "waiting_user";
+  }
+
+  if (intake?.active && intake.missingSlots.length > 0) {
     return "waiting_user";
   }
 
@@ -157,10 +162,13 @@ export class DesktopSessionRuntime {
   }
 
   async collectState() {
-    const [messages, tasks] = await Promise.all([
+  const [messages, tasks] = await Promise.all([
       this.loop.listConversation(this.brainSessionId),
       this.loop.listActiveTasks(this.brainSessionId)
     ]);
+    const intakeSession = await this.loop.getActiveTaskIntake(
+      this.brainSessionId
+    );
     const taskTimelines = await Promise.all(
       tasks.map(async (task) => ({
         taskId: task.id,
@@ -168,9 +176,23 @@ export class DesktopSessionRuntime {
       }))
     );
     const subAvatars = buildSubAvatarViewModels(tasks, taskTimelines);
+    const intake = intakeSession
+      ? {
+          active: true,
+          missingSlots: intakeSession.missingSlots,
+          lastQuestion: intakeSession.lastQuestion,
+          workingText: intakeSession.workingText
+        }
+      : {
+          active: false,
+          missingSlots: [],
+          lastQuestion: null,
+          workingText: ""
+        };
     const mainAvatarState = deriveMainAvatarState({
       activityState: this.activityState,
       inputState: this.inputState,
+      intake,
       notificationCenter: this.notificationCenter,
       memorySignals: this.memorySignals,
       tasks
@@ -189,6 +211,7 @@ export class DesktopSessionRuntime {
       taskTimelines,
       canonicalTurnStream: this.canonicalTurns,
       memorySignals: this.memorySignals,
+      intake,
       avatar: {
         mainState: mainAvatarState,
         subAvatars

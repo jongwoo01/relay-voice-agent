@@ -28,6 +28,7 @@ const liveDebugLogEl = document.getElementById("live-debug-log");
 const liveMessageListEl = document.getElementById("live-message-list");
 const voiceTaskSummaryEl = document.getElementById("voice-task-summary");
 const voiceBriefingSummaryEl = document.getElementById("voice-briefing-summary");
+const voiceIntakeSummaryEl = document.getElementById("voice-intake-summary");
 const mainAvatarStateEl = document.getElementById("main-avatar-state");
 const memorySignalListEl = document.getElementById("memory-signal-list");
 const subAvatarListEl = document.getElementById("sub-avatar-list");
@@ -486,6 +487,23 @@ function renderMainAvatarState(state) {
     : "voice-summary-text empty-state";
 }
 
+function renderTaskIntake(intake) {
+  if (!intake?.active) {
+    voiceIntakeSummaryEl.textContent = "지금 보충 질문 중인 작업이 없습니다.";
+    voiceIntakeSummaryEl.className = "voice-summary-text empty-state";
+    return;
+  }
+
+  const missing = (intake.missingSlots ?? []).join(", ");
+  const question = intake.lastQuestion
+    ? ` · ${intake.lastQuestion}`
+    : "";
+  voiceIntakeSummaryEl.textContent = missing
+    ? `waiting for: ${missing}${question}`
+    : `ready to run · ${intake.workingText}`;
+  voiceIntakeSummaryEl.className = "voice-summary-text";
+}
+
 function renderMemorySignals(signals) {
   memorySignalListEl.innerHTML = "";
 
@@ -635,6 +653,7 @@ function renderState(state) {
   renderTasks(state.tasks, state.taskTimelines ?? []);
   renderNotifications(state.notifications);
   renderVoiceTaskSummary(state);
+  renderTaskIntake(state.intake);
   renderMainAvatarState(state);
   renderMemorySignals(state.memorySignals ?? []);
   renderSubAvatars(state.avatar?.subAvatars ?? []);
