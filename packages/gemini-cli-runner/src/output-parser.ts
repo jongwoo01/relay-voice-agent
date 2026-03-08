@@ -1,4 +1,5 @@
 import type {
+  ExecutorCompletionReport,
   ExecutorOutcome,
   ExecutorProgressListener,
   ExecutorRunResult
@@ -20,6 +21,63 @@ export interface GeminiCliHeadlessEvent {
 
 export interface ParsedGeminiCliOutput {
   events: GeminiCliHeadlessEvent[];
+}
+
+function parseJsonObjectString(value: string): Record<string, unknown> | null {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const withoutFences = trimmed
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  try {
+    const parsed = JSON.parse(withoutFences);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractStructuredCompletionReport(
+  value: string | undefined
+): ExecutorCompletionReport | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = parseJsonObjectString(value);
+  if (!parsed) {
+    return undefined;
+  }
+
+  const summary = firstNonEmptyString([parsed.summary]);
+  const verification =
+    parsed.verification === "verified" || parsed.verification === "uncertain"
+      ? parsed.verification
+      : undefined;
+
+  if (!summary || !verification) {
+    return undefined;
+  }
+
+  const changes = Array.isArray(parsed.changes)
+    ? parsed.changes.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+
+  const question = firstNonEmptyString([parsed.question]);
+
+  return {
+    summary,
+    verification,
+    changes,
+    question
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -181,6 +239,7 @@ export async function buildExecutorResultFromGeminiCliOutput(
   const assistantMessages: string[] = [];
   let sessionId: string | undefined;
   let completionMessage: string | undefined;
+  let completionReport: ExecutorCompletionReport | undefined;
   let outcome: ExecutorOutcome = "completed";
   let sawResult = false;
 
@@ -218,6 +277,7 @@ export async function buildExecutorResultFromGeminiCliOutput(
     if (event.type === "result") {
       sawResult = true;
       completionMessage = extractResultResponse(event);
+      completionReport = extractStructuredCompletionReport(completionMessage);
       const status = extractResultStatus(event);
       if (status === "waiting_input") {
         outcome = "waiting_input";
@@ -239,9 +299,16 @@ export async function buildExecutorResultFromGeminiCliOutput(
   }
 
   const finalMessage =
-    completionMessage ??
-    firstNonEmptyString([assistantMessages.join("").trim()]) ??
-    "Gemini CLI completed without a final response message";
+    outcome === "waiting_input" || outcome === "approval_required"
+      ? completionReport?.question ??
+        completionReport?.summary ??
+        completionMessage ??
+        "작업을 이어가려면 답이 하나 더 필요해."
+      : completionReport
+        ? completionReport.verification === "verified"
+          ? completionReport.summary
+          : `작업은 끝났지만 실제 변경 근거는 더 확인이 필요해. ${completionReport.summary}`
+        : "작업은 끝났지만 구조화된 결과 보고가 없어서 실제 변경 사항 확인이 더 필요해.";
 
   return {
     progressEvents,
@@ -257,7 +324,8 @@ export async function buildExecutorResultFromGeminiCliOutput(
       createdAt: input.now
     },
     outcome,
-    sessionId
+    sessionId,
+    report: completionReport
   };
 }
 

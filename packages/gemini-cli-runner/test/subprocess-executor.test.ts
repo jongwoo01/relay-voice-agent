@@ -19,7 +19,12 @@ describe("GeminiCliExecutor", () => {
       await options?.onStdoutLine?.(
         JSON.stringify({
           type: "result",
-          response: "브라우저 탭 정리를 마쳤어요"
+          response: JSON.stringify({
+            summary: "브라우저 탭 3개를 닫고 2개를 고정했어.",
+            verification: "verified",
+            changes: ["닫은 탭 3개", "고정한 탭 2개"],
+            question: ""
+          })
         })
       );
 
@@ -35,7 +40,12 @@ describe("GeminiCliExecutor", () => {
           }),
           JSON.stringify({
             type: "result",
-            response: "브라우저 탭 정리를 마쳤어요"
+            response: JSON.stringify({
+              summary: "브라우저 탭 3개를 닫고 2개를 고정했어.",
+              verification: "verified",
+              changes: ["닫은 탭 3개", "고정한 탭 2개"],
+              question: ""
+            })
           })
         ].join("\n"),
         stderr: "",
@@ -66,7 +76,7 @@ describe("GeminiCliExecutor", () => {
       "gemini",
       [
         "-p",
-        "Organize my browser tabs",
+        expect.stringContaining("User task:\nOrganize my browser tabs"),
         "--approval-mode",
         "yolo",
         "--output-format",
@@ -89,10 +99,17 @@ describe("GeminiCliExecutor", () => {
       completionEvent: {
         taskId: "task-1",
         type: "executor_completed",
-        message: "브라우저 탭 정리를 마쳤어요",
+        message: "브라우저 탭 3개를 닫고 2개를 고정했어.",
         createdAt: "2026-03-08T00:00:00.000Z"
       },
-      sessionId: "session-123"
+      sessionId: "session-123",
+      outcome: "completed",
+      report: {
+        summary: "브라우저 탭 3개를 닫고 2개를 고정했어.",
+        verification: "verified",
+        changes: ["닫은 탭 3개", "고정한 탭 2개"],
+        question: undefined
+      }
     });
     expect(onProgress).toHaveBeenCalledWith({
       taskId: "task-1",
@@ -106,7 +123,12 @@ describe("GeminiCliExecutor", () => {
     const exec = vi.fn(async () => ({
       stdout: JSON.stringify({
         type: "result",
-        response: "이어서 완료했어요"
+        response: JSON.stringify({
+          summary: "이어서 정리 작업을 끝냈어.",
+          verification: "verified",
+          changes: ["정리 완료"],
+          question: ""
+        })
       }),
       stderr: "",
       exitCode: 0
@@ -135,7 +157,7 @@ describe("GeminiCliExecutor", () => {
         "-r",
         "session-999",
         "-p",
-        "Continue cleanup",
+        expect.stringContaining("User task:\nContinue cleanup"),
         "--approval-mode",
         "yolo",
         "--output-format",
@@ -171,5 +193,36 @@ describe("GeminiCliExecutor", () => {
         prompt: "List folders on the desktop"
       })
     ).rejects.toThrow("Gemini CLI output was empty");
+  });
+
+  it("falls back to a conservative completion message when the final response is not structured JSON", async () => {
+    const exec = vi.fn(async () => ({
+      stdout: JSON.stringify({
+        type: "result",
+        response: "문서, 이미지, 기타 세 폴더로 분류했습니다. 확인해 보세요!"
+      }),
+      stderr: "",
+      exitCode: 0
+    }));
+
+    const executor = new GeminiCliExecutor(exec);
+
+    const result = await executor.run({
+      task: {
+        id: "task-4",
+        title: "Organize downloads",
+        normalizedGoal: "organize downloads",
+        status: "queued",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z"
+      },
+      now: "2026-03-08T00:00:00.000Z",
+      prompt: "Organize my downloads"
+    });
+
+    expect(result.completionEvent.message).toBe(
+      "작업은 끝났지만 구조화된 결과 보고가 없어서 실제 변경 사항 확인이 더 필요해."
+    );
+    expect(result.report).toBeUndefined();
   });
 });

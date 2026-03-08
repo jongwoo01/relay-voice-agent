@@ -8,6 +8,13 @@ export interface ExecutorRunRequest {
   resumeSessionId?: string;
 }
 
+export interface ExecutorCompletionReport {
+  summary: string;
+  verification: "verified" | "uncertain";
+  changes: string[];
+  question?: string;
+}
+
 export type ExecutorProgressListener = (
   event: TaskEvent
 ) => void | Promise<void>;
@@ -22,6 +29,7 @@ export interface ExecutorRunResult {
   completionEvent: TaskEvent;
   outcome?: ExecutorOutcome;
   sessionId?: string;
+  report?: ExecutorCompletionReport;
 }
 
 export interface LocalExecutor {
