@@ -4,8 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./dist/index.js"
   },
+  "types": "./dist/index.d.ts",
   "dependencies": {
     "@agent/brain-domain": "file:../../packages/brain-domain",
     "@agent/gemini-cli-runner": "file:../../packages/gemini-cli-runner",
@@ -16,7 +17,7 @@
     "pg": "^8.20.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json"
   }
 }

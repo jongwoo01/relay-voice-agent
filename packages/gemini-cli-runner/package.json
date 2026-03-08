@@ -4,14 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./dist/index.js"
   },
+  "types": "./dist/index.d.ts",
   "dependencies": {
     "@agent/local-executor-protocol": "file:../local-executor-protocol",
     "@agent/shared-types": "file:../shared-types"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json"
   }
 }

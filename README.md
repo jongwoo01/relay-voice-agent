@@ -20,7 +20,14 @@ Next steps:
 Dev entrypoints:
 - `npm run dev:text-session`
 - `npm run dev:live-text-session`
+- `npm run dev:desktop`
+- `npm run dev:desktop:prepare`
 - `npm run smoke:gemini`
+
+Desktop executor mode:
+- `DESKTOP_EXECUTOR=gemini` (default)
+- `DESKTOP_EXECUTOR=mock`
+- unknown/empty values fallback to `gemini`
 
 Local environment:
 - copy `.env.example` to `.env`

@@ -14,7 +14,9 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "build:runtimes": "npm run build --workspace @agent/shared-types && npm run build --workspace @agent/local-executor-protocol && npm run build --workspace @agent/brain-domain && npm run build --workspace @agent/gemini-cli-runner && npm run build --workspace @agent/agent-api",
     "dev:desktop": "npm run dev --workspace @agent/desktop",
+    "dev:desktop:prepare": "npm run build:runtimes",
     "dev:live-text-session": "tsx scripts/dev-live-text-session.ts",
     "dev:text-session": "tsx scripts/dev-text-session.ts",
     "smoke:gemini": "node scripts/smoke-gemini-cli.mjs",
