@@ -8,6 +8,11 @@ function isContinuationCue(text: string): boolean {
   return /아까|이어서|계속|하던|그거|저거|continue|resume/i.test(text);
 }
 
+export function isCompletionNotificationRequest(text: string): boolean {
+  const normalized = normalize(text);
+  return /(완료|끝|끝나|되면).*(알려|말해|보고)/.test(normalized);
+}
+
 function isShortFollowUpCue(normalizedText: string): boolean {
   if (!normalizedText) {
     return false;

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { selectContinuationTask } from "../src/continuation.js";
+import {
+  isCompletionNotificationRequest,
+  selectContinuationTask
+} from "../src/continuation.js";
 import type { Task } from "@agent/shared-types";
 
 const activeTask: Task = {
@@ -23,5 +26,11 @@ describe("continuation", () => {
 
   it("returns null when there is no active task match", () => {
     expect(selectContinuationTask("오늘 일정 알려줘", [activeTask])).toBeNull();
+  });
+
+  it("detects completion notification preference utterances", () => {
+    expect(isCompletionNotificationRequest("완료되면 알려줘")).toBe(true);
+    expect(isCompletionNotificationRequest("끝나면 보고해")).toBe(true);
+    expect(isCompletionNotificationRequest("지금 상태 알려줘")).toBe(false);
   });
 });

@@ -33,6 +33,15 @@ describe("next-action", () => {
     });
   });
 
+  it("sets completion notification preference for completion notice utterances", () => {
+    expect(
+      decideNextAction(utterance("완료되면 알려줘", "task_request"), [activeTask])
+    ).toEqual({
+      type: "set_completion_notification",
+      taskId: "task-1"
+    });
+  });
+
   it("clarifies when the intent is unclear", () => {
     expect(decideNextAction(utterance("음...", "unclear"), [])).toEqual({
       type: "clarify"

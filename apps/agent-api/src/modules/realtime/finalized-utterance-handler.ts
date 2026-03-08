@@ -40,6 +40,15 @@ export class FinalizedUtteranceHandler {
       };
     }
 
+    if (result.action.type === "set_completion_notification") {
+      return {
+        assistant: {
+          text: result.replyText ?? "작업이 끝나면 바로 알려드릴게요.",
+          tone: "reply"
+        }
+      };
+    }
+
     return {
       assistant: {
         text:

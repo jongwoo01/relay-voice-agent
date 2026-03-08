@@ -20,20 +20,11 @@ function normalizeText(text: string): string {
   return text.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function isCompletionNoticeRequest(text: string): boolean {
-  const normalized = normalizeText(text);
-  return /(완료|끝|끝나|되면).*(알려|말해|보고)/.test(normalized);
-}
-
 function buildDirectReplyText(
   utteranceText: string,
   activeTasks: Task[]
 ): string {
   const normalized = normalizeText(utteranceText);
-
-  if (activeTasks.length > 0 && isCompletionNoticeRequest(normalized)) {
-    return "네, 지금 진행 중인 작업이 끝나면 바로 알려드릴게요.";
-  }
 
   if (/^(ㅎㅇ|안녕|hello|hi)$/.test(normalized)) {
     return "안녕하세요. 필요한 작업을 말해주시면 바로 진행할게요.";
@@ -54,14 +45,14 @@ export class BrainTurnService {
   ) {}
 
   async handle(input: BrainTurnInput): Promise<BrainTurnResult> {
-    if (input.activeTasks.length > 0 && isCompletionNoticeRequest(input.utterance.text)) {
+    const action = this.orchestrator.decide(input.utterance, input.activeTasks);
+
+    if (action.type === "set_completion_notification") {
       return {
-        action: { type: "reply" },
+        action,
         replyText: "네, 지금 진행 중인 작업이 끝나면 바로 알려드릴게요."
       };
     }
-
-    const action = this.orchestrator.decide(input.utterance, input.activeTasks);
 
     if (action.type === "reply") {
       return {

@@ -21,7 +21,8 @@ export type NextAction =
   | { type: "reply" }
   | { type: "clarify" }
   | { type: "create_task" }
-  | { type: "resume_task"; taskId: string };
+  | { type: "resume_task"; taskId: string }
+  | { type: "set_completion_notification"; taskId: string };
 
 export interface Task {
   id: string;

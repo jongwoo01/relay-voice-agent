@@ -150,7 +150,10 @@ describe("brain-turn-service", () => {
       now: "2026-03-08T00:02:00.000Z"
     });
 
-    expect(result.action).toEqual({ type: "reply" });
+    expect(result.action).toEqual({
+      type: "set_completion_notification",
+      taskId: "task-existing"
+    });
     expect(result.replyText).toContain("끝나면 바로 알려드릴게요");
     expect(executor.run).not.toHaveBeenCalled();
   });

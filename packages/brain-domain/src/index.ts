@@ -1,5 +1,8 @@
 export { canTransitionTask, reduceTaskStatus } from "./task-state.js";
-export { selectContinuationTask } from "./continuation.js";
+export {
+  isCompletionNotificationRequest,
+  selectContinuationTask
+} from "./continuation.js";
 export { decideNextAction } from "./next-action.js";
 export {
   completeTask,
