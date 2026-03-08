@@ -79,7 +79,7 @@ describe("brain-turn-service", () => {
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("브라우저 탭 정리해줘", "task_request"),
+      utterance: utterance("브라우저 탭에서 오래된 탭만 정리해줘", "task_request"),
       activeTasks: [],
       now: "2026-03-08T00:00:00.000Z"
     });
@@ -89,7 +89,7 @@ describe("brain-turn-service", () => {
     expect(result.task?.status).toBe("running");
     expect(executor.run).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: "브라우저 탭 정리해줘",
+        prompt: "브라우저 탭에서 오래된 탭만 정리해줘",
         resumeSessionId: undefined
       }),
       expect.any(Function)

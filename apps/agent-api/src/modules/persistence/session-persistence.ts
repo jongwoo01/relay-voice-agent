@@ -14,6 +14,11 @@ import {
   InMemoryTaskRepository,
   type TaskRepository
 } from "./task-repository.js";
+import {
+  InMemoryTaskIntakeRepository,
+  PostgresTaskIntakeRepository,
+  type TaskIntakeRepository
+} from "./task-intake-repository.js";
 import { PostgresBrainSessionRepository } from "./brain-session-repository.js";
 import { PostgresConversationMessageRepository } from "./conversation-message-repository.js";
 import { createPostgresPool, type SqlClientLike } from "./postgres-client.js";
@@ -23,6 +28,7 @@ import { PostgresTaskRepository } from "./task-repository.js";
 
 export interface SessionPersistence {
   taskRepository: TaskRepository;
+  taskIntakeRepository: TaskIntakeRepository;
   taskEventRepository: TaskEventRepository;
   taskExecutorSessionRepository: TaskExecutorSessionRepository;
   conversationRepository: ConversationMessageRepository;
@@ -32,6 +38,7 @@ export function createInMemorySessionPersistence(): SessionPersistence {
   return {
     conversationRepository: new InMemoryConversationMessageRepository(),
     taskRepository: new InMemoryTaskRepository(),
+    taskIntakeRepository: new InMemoryTaskIntakeRepository(),
     taskEventRepository: new InMemoryTaskEventRepository(),
     taskExecutorSessionRepository: new InMemoryTaskExecutorSessionRepository()
   };
@@ -68,6 +75,7 @@ export async function createPostgresSessionPersistence(input: {
   return {
     conversationRepository: new PostgresConversationMessageRepository(sql),
     taskRepository: new PostgresTaskRepository(sql),
+    taskIntakeRepository: new PostgresTaskIntakeRepository(sql),
     taskEventRepository: new PostgresTaskEventRepository(sql),
     taskExecutorSessionRepository: new PostgresTaskExecutorSessionRepository(sql)
   };

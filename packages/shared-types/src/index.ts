@@ -27,6 +27,21 @@ export type TaskIntakeSlot =
   | "location"
   | "risk_ack";
 
+export type TaskIntakeStatus = "collecting" | "ready" | "cancelled";
+
+export interface TaskIntakeSession {
+  brainSessionId: string;
+  status: TaskIntakeStatus;
+  sourceText: string;
+  workingText: string;
+  requiredSlots: TaskIntakeSlot[];
+  filledSlots: Partial<Record<TaskIntakeSlot, string>>;
+  missingSlots: TaskIntakeSlot[];
+  lastQuestion?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type NextAction =
   | { type: "reply" }
   | { type: "clarify" }

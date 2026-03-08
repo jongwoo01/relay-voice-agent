@@ -22,11 +22,17 @@ export {
   type ConversationMessageRepository
 } from "./modules/persistence/conversation-message-repository.js";
 export { extractMemorySignals } from "./modules/memory/memory-signal-extractor.js";
+export { TaskIntakeService } from "./modules/conversation/task-intake-service.js";
 export {
   InMemoryTaskRepository,
   PostgresTaskRepository,
   type TaskRepository
 } from "./modules/persistence/task-repository.js";
+export {
+  InMemoryTaskIntakeRepository,
+  PostgresTaskIntakeRepository,
+  type TaskIntakeRepository
+} from "./modules/persistence/task-intake-repository.js";
 export {
   InMemoryTaskEventRepository,
   PostgresTaskEventRepository,

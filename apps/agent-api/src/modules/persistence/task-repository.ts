@@ -22,7 +22,8 @@ export class InMemoryTaskRepository implements TaskRepository {
         task.status === "created" ||
         task.status === "queued" ||
         task.status === "running" ||
-        task.status === "waiting_input"
+        task.status === "waiting_input" ||
+        task.status === "approval_required"
       );
   }
 
@@ -56,7 +57,7 @@ export class PostgresTaskRepository implements TaskRepository {
           updated_at
         from tasks
         where brain_session_id = $1
-          and status in ('created', 'queued', 'running', 'waiting_input')
+          and status in ('created', 'queued', 'running', 'waiting_input', 'approval_required')
         order by updated_at desc
       `,
       [brainSessionId]

@@ -4,7 +4,16 @@ export {
   selectContinuationTask
 } from "./continuation.js";
 export { decideNextAction } from "./next-action.js";
-export { findMissingTaskSlots } from "./task-intake.js";
+export {
+  buildExecutableTaskText,
+  buildTaskIntakeSession,
+  extractFilledSlots,
+  findMissingTaskSlots,
+  inferRequiredSlots,
+  isTaskIntakeReady,
+  looksLikeStandaloneTaskRequest,
+  mergeTaskIntakeAnswer
+} from "./task-intake.js";
 export {
   completeTask,
   createTask,

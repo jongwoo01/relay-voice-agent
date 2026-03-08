@@ -70,14 +70,20 @@ describe("next-action", () => {
   });
 
   it("creates a new task when no continuation is found", () => {
-    expect(decideNextAction(utterance("새로 폴더 정리해줘", "task_request"), [activeTask])).toEqual({
-      type: "create_task"
-    });
+    expect(
+      decideNextAction(
+        utterance("새로 폴더에서 중복 파일만 정리해줘", "task_request"),
+        [activeTask]
+      )
+    ).toEqual({ type: "create_task" });
   });
 
   it("creates a task immediately when the cleanup scope is already clear", () => {
-    expect(decideNextAction(utterance("다운로드 폴더 정리해줘", "task_request"), [])).toEqual({
-      type: "create_task"
-    });
+    expect(
+      decideNextAction(
+        utterance("다운로드 폴더에서 중복 파일만 정리해줘", "task_request"),
+        []
+      )
+    ).toEqual({ type: "create_task" });
   });
 });

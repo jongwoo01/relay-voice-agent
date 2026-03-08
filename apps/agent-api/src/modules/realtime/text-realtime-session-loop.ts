@@ -2,6 +2,7 @@ import type {
   AssistantNotification,
   ConversationMessage,
   FinalizedUtterance,
+  TaskIntakeSession,
   Task,
   TaskEvent
 } from "@agent/shared-types";
@@ -27,6 +28,7 @@ import {
   type SessionPersistence
 } from "../persistence/session-persistence.js";
 import { buildAssistantFollowUpMessage } from "../tasks/task-event-announcer.js";
+import { TaskIntakeService } from "../conversation/task-intake-service.js";
 
 export interface HandleTurnInput {
   brainSessionId: string;
@@ -45,6 +47,7 @@ export interface TextRealtimeSessionLoopOptions {
 export class TextRealtimeSessionLoop {
   private readonly conversationRepository: ConversationMessageRepository;
   private readonly taskRepository: TaskRepository;
+  private readonly taskIntakeService: TaskIntakeService;
   private readonly taskEventRepository: TaskEventRepository;
   private readonly taskExecutorSessionRepository: TaskExecutorSessionRepository;
   private readonly taskExecutionService: TaskExecutionService;
@@ -59,6 +62,9 @@ export class TextRealtimeSessionLoop {
   ) {
     this.conversationRepository = persistence.conversationRepository;
     this.taskRepository = persistence.taskRepository;
+    this.taskIntakeService = new TaskIntakeService(
+      persistence.taskIntakeRepository
+    );
     this.taskEventRepository = persistence.taskEventRepository;
     this.taskExecutorSessionRepository =
       persistence.taskExecutorSessionRepository;
@@ -107,11 +113,56 @@ export class TextRealtimeSessionLoop {
       createdAt: input.now
     });
 
-    const result = await this.gateway.handleFinalizedUtterance({
+    const activeTasks = await this.taskRepository.listActiveByBrainSessionId(
+      input.brainSessionId
+    );
+    const intakeResolution = await this.taskIntakeService.handleTurn({
       brainSessionId: input.brainSessionId,
       utterance: input.utterance,
+      activeTasks,
       now: input.now
     });
+
+    if (intakeResolution.kind === "clarify") {
+      if (this.persistDirectAssistantReplies) {
+        await this.conversationRepository.save({
+          brainSessionId: input.brainSessionId,
+          speaker: "assistant",
+          text: intakeResolution.replyText,
+          tone: "clarify",
+          createdAt: input.now
+        });
+      }
+
+      return {
+        assistant: {
+          text: intakeResolution.replyText,
+          tone: "clarify"
+        }
+      };
+    }
+
+    const gatewayInput =
+      intakeResolution.kind === "ready"
+        ? {
+            ...input,
+            utterance: {
+            ...input.utterance,
+            text: intakeResolution.executableText,
+            intent: "task_request" as const
+          }
+        }
+        : input;
+
+    const result = await this.gateway.handleFinalizedUtterance({
+      brainSessionId: gatewayInput.brainSessionId,
+      utterance: gatewayInput.utterance,
+      now: gatewayInput.now
+    });
+
+    if (intakeResolution.kind === "ready" && result.task) {
+      await this.taskIntakeService.clear(input.brainSessionId);
+    }
 
     if (this.persistDirectAssistantReplies) {
       await this.conversationRepository.save({
@@ -138,6 +189,12 @@ export class TextRealtimeSessionLoop {
 
   async listTaskEvents(taskId: string): Promise<TaskEvent[]> {
     return this.taskEventRepository.listByTaskId(taskId);
+  }
+
+  async getActiveTaskIntake(
+    brainSessionId: string
+  ): Promise<TaskIntakeSession | null> {
+    return this.taskIntakeService.getActive(brainSessionId);
   }
 
   async waitForBackgroundWork(): Promise<void> {

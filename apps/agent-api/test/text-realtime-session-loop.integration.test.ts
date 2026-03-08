@@ -97,7 +97,7 @@ describe("text-realtime-session-loop", () => {
 
     const firstTurn = await loop.handleTurn({
       brainSessionId: "brain-1",
-      utterance: utterance("브라우저 탭 정리해줘", "task_request"),
+      utterance: utterance("브라우저 탭에서 오래된 탭만 정리해줘", "task_request"),
       now: "2026-03-08T00:00:00.000Z"
     });
 
@@ -180,5 +180,84 @@ describe("text-realtime-session-loop", () => {
     expect(turn.assistant.tone).toBe("clarify");
     expect(turn.assistant.text).toContain("언제 할지");
     await expect(loop.listActiveTasks("brain-2")).resolves.toEqual([]);
+    await expect(loop.getActiveTaskIntake("brain-2")).resolves.toEqual(
+      expect.objectContaining({
+        sourceText: "일정 잡아줘",
+        missingSlots: ["time"]
+      })
+    );
+  });
+
+  it("merges a follow-up answer into the active intake and dispatches immediately", async () => {
+    class CapturingExecutor implements LocalExecutor {
+      public lastPrompt = "";
+
+      async run(
+        request: ExecutorRunRequest
+      ): Promise<ExecutorRunResult> {
+        this.lastPrompt = request.prompt;
+        return {
+          progressEvents: [],
+          completionEvent: {
+            taskId: request.task.id,
+            type: "executor_completed",
+            message: "보냈어",
+            createdAt: request.now
+          }
+        };
+      }
+    }
+
+    const executor = new CapturingExecutor();
+    const loop = new TextRealtimeSessionLoop(executor);
+
+    const firstTurn = await loop.handleTurn({
+      brainSessionId: "brain-3",
+      utterance: utterance("메일 보내줘", "task_request"),
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    expect(firstTurn.assistant.tone).toBe("clarify");
+
+    const secondTurn = await loop.handleTurn({
+      brainSessionId: "brain-3",
+      utterance: utterance("민수한테", "small_talk"),
+      now: "2026-03-08T00:00:01.000Z"
+    });
+
+    expect(secondTurn.assistant.tone).toBe("task_ack");
+    expect(executor.lastPrompt).toBe("메일 보내줘 민수한테");
+    await expect(loop.getActiveTaskIntake("brain-3")).resolves.toBeNull();
+  });
+
+  it("replaces an active intake when a new standalone task request arrives", async () => {
+    class NoopExecutor implements LocalExecutor {
+      async run(): Promise<ExecutorRunResult> {
+        throw new Error("run should not be called for task intake clarify");
+      }
+    }
+
+    const loop = new TextRealtimeSessionLoop(new NoopExecutor());
+
+    await loop.handleTurn({
+      brainSessionId: "brain-4",
+      utterance: utterance("메일 보내줘", "task_request"),
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    const replacementTurn = await loop.handleTurn({
+      brainSessionId: "brain-4",
+      utterance: utterance("일정 잡아줘", "task_request"),
+      now: "2026-03-08T00:00:01.000Z"
+    });
+
+    expect(replacementTurn.assistant.tone).toBe("clarify");
+    expect(replacementTurn.assistant.text).toContain("언제 할지");
+    await expect(loop.getActiveTaskIntake("brain-4")).resolves.toEqual(
+      expect.objectContaining({
+        sourceText: "일정 잡아줘",
+        missingSlots: ["time"]
+      })
+    );
   });
 });
