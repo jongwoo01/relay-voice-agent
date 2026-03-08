@@ -131,6 +131,11 @@ app.whenReady().then(() => {
     assertTrustedSender(event);
     return liveVoiceSession.setMuted(muted);
   });
+  ipcMain.handle("live:end-audio-stream", async (event) => {
+    assertTrustedSender(event);
+    liveVoiceSession.endAudioStream();
+    return liveVoiceSession.getState();
+  });
   ipcMain.handle("live:send-text", async (event, text) => {
     assertTrustedSender(event);
     liveVoiceSession.sendText(text);

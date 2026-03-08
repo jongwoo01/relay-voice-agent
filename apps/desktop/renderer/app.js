@@ -8,10 +8,8 @@ const runtimeMetaEl = document.getElementById("runtime-meta");
 const executorBadgeEl = document.getElementById("executor-badge");
 const runtimeErrorEl = document.getElementById("runtime-error");
 const inputStatusEl = document.getElementById("input-status");
-const userSpeakingToggleEl = document.getElementById("user-speaking-toggle");
-const assistantSpeakingToggleEl = document.getElementById(
-  "assistant-speaking-toggle"
-);
+const userSpeakingStateEl = document.getElementById("user-speaking-state");
+const assistantSpeakingStateEl = document.getElementById("assistant-speaking-state");
 const notificationsEl = document.getElementById("notifications");
 const pendingBriefingsCountEl = document.getElementById(
   "pending-briefings-count"
@@ -25,11 +23,13 @@ const liveMuteButtonEl = document.getElementById("live-mute-button");
 const liveHangupButtonEl = document.getElementById("live-hangup-button");
 const liveMicSelectEl = document.getElementById("live-mic-select");
 const liveInputPartialEl = document.getElementById("live-input-partial");
-const liveInputFinalEl = document.getElementById("live-input-final");
 const liveOutputTranscriptEl = document.getElementById("live-output-transcript");
 const liveDebugLogEl = document.getElementById("live-debug-log");
 const liveMessageListEl = document.getElementById("live-message-list");
+const voiceTaskSummaryEl = document.getElementById("voice-task-summary");
+const voiceBriefingSummaryEl = document.getElementById("voice-briefing-summary");
 
+let sessionState = null;
 let liveState = {
   connected: false,
   connecting: false,
@@ -51,8 +51,14 @@ let liveAudioQueue = [];
 let liveAudioQueueProcessing = false;
 let liveAudioNextStartTime = 0;
 let liveLastProducedAudioAt = null;
+let liveUserSpeakingTimer;
+let liveUserSpeakingActive = false;
+let liveSpeechCandidateStartAt = 0;
 const activeAudioSources = [];
 const LIVE_INPUT_BUFFER_SIZE = 512;
+const LIVE_SPEECH_ACTIVITY_THRESHOLD = 0.03;
+const LIVE_SPEECH_IDLE_MS = 320;
+const LIVE_BARGE_IN_CONFIRM_MS = 140;
 
 function formatLatency(fromIso, toIso) {
   if (!fromIso || !toIso) {
@@ -111,6 +117,56 @@ function stopPlayback() {
   liveAudioQueueProcessing = false;
 }
 
+async function setRuntimeUserSpeaking(speaking) {
+  if (sessionState?.activity?.userSpeaking === speaking) {
+    return;
+  }
+
+  const state = await window.desktopSession.setUserSpeaking(speaking);
+  renderState(state);
+}
+
+async function setRuntimeAssistantSpeaking(speaking) {
+  if (sessionState?.activity?.assistantSpeaking === speaking) {
+    return;
+  }
+
+  const state = await window.desktopSession.setAssistantSpeaking(speaking);
+  renderState(state);
+}
+
+function scheduleUserSpeakingReset() {
+  clearTimeout(liveUserSpeakingTimer);
+  liveUserSpeakingTimer = setTimeout(() => {
+    liveUserSpeakingActive = false;
+    liveSpeechCandidateStartAt = 0;
+    void setRuntimeUserSpeaking(false).catch(showRuntimeError);
+  }, LIVE_SPEECH_IDLE_MS);
+}
+
+function handleLiveUserAudioActivity(peak) {
+  if (peak < LIVE_SPEECH_ACTIVITY_THRESHOLD) {
+    liveSpeechCandidateStartAt = 0;
+    return;
+  }
+
+  const now = Date.now();
+  if (!liveSpeechCandidateStartAt) {
+    liveSpeechCandidateStartAt = now;
+  }
+
+  if (now - liveSpeechCandidateStartAt < LIVE_BARGE_IN_CONFIRM_MS) {
+    return;
+  }
+
+  if (!liveUserSpeakingActive) {
+    liveUserSpeakingActive = true;
+    void setRuntimeUserSpeaking(true).catch(showRuntimeError);
+  }
+
+  scheduleUserSpeakingReset();
+}
+
 async function ensurePlaybackContext() {
   if (!liveAudioContext || liveAudioContext.state === "closed") {
     liveAudioContext = new AudioContext();
@@ -131,7 +187,7 @@ async function playQueuedAudio() {
 
   try {
     await ensurePlaybackContext();
-    await window.desktopSession.setAssistantSpeaking(true);
+    await setRuntimeAssistantSpeaking(true);
 
     while (liveAudioQueue.length > 0) {
       const chunk = liveAudioQueue.shift();
@@ -175,7 +231,7 @@ async function playQueuedAudio() {
       return;
     }
 
-    await window.desktopSession.setAssistantSpeaking(false);
+    await setRuntimeAssistantSpeaking(false);
   }
 }
 
@@ -211,6 +267,10 @@ async function populateMicrophones() {
 }
 
 async function stopVoiceCapture() {
+  clearTimeout(liveUserSpeakingTimer);
+  await window.desktopLive.endAudioStream().catch(() => undefined);
+  liveUserSpeakingActive = false;
+  liveSpeechCandidateStartAt = 0;
   liveRecorderNode?.disconnect();
   liveRecorderFallbackNode?.disconnect();
   liveRecorderGainNode?.disconnect();
@@ -227,7 +287,7 @@ async function stopVoiceCapture() {
   }
   liveRecorderContext = undefined;
   liveLastProducedAudioAt = null;
-  await window.desktopSession.setUserSpeaking(false);
+  await setRuntimeUserSpeaking(false);
 }
 
 async function startVoiceCapture() {
@@ -272,6 +332,7 @@ async function startVoiceCapture() {
     }
 
     liveLastProducedAudioAt = new Date().toISOString();
+    handleLiveUserAudioActivity(peak);
     window.desktopLive.sendAudioChunk(
       arrayBufferToBase64(pcm16.buffer),
       "audio/pcm;rate=16000"
@@ -288,15 +349,24 @@ async function startVoiceCapture() {
 
 function renderLiveState(state) {
   liveState = state;
-  liveStatusBadgeEl.textContent = `voice: ${state.status}`;
+  const statusLabel = {
+    idle: "Idle",
+    listening: "Listening",
+    thinking: "Thinking",
+    speaking: "Speaking",
+    interrupted: "Interrupted",
+    error: "Error",
+    connecting: "Connecting"
+  }[state.status] ?? state.status;
+  liveStatusBadgeEl.textContent = statusLabel;
   liveStatusBadgeEl.className = `executor-badge ${state.connected ? "gemini" : ""}`;
   liveStatusTextEl.textContent = state.error
     ? `voice error: ${state.error}`
     : state.connecting
-      ? "connecting to Gemini Live..."
+      ? "Gemini Live에 연결 중입니다..."
       : state.connected
-        ? "live voice preview is active"
-        : "voice preview is idle";
+        ? "실시간 대화를 듣고 바로 반응할 준비가 됐습니다."
+        : "라이브 대화가 아직 시작되지 않았습니다.";
 
   liveConnectButtonEl.disabled = state.connected || state.connecting;
   liveMuteButtonEl.disabled = !state.connected;
@@ -304,13 +374,12 @@ function renderLiveState(state) {
   liveMuteButtonEl.textContent = state.muted ? "Unmute" : "Mute";
 
   liveInputPartialEl.textContent =
-    state.inputPartial || "실시간 입력 대기 중입니다.";
+    state.inputPartial || "지금 말하면 바로 받아적습니다.";
   liveInputPartialEl.className = state.inputPartial
     ? "voice-transcript-text"
     : "voice-transcript-text empty-state";
-  liveInputFinalEl.textContent = state.lastUserTranscript;
   liveOutputTranscriptEl.textContent =
-    state.outputTranscript || "아직 응답이 없습니다.";
+    state.outputTranscript || "지금은 응답을 만들고 있지 않습니다.";
   liveOutputTranscriptEl.className = state.outputTranscript
     ? "voice-transcript-text"
     : "voice-transcript-text empty-state";
@@ -326,6 +395,7 @@ function renderLiveState(state) {
     "[Summary Events]",
     ...(metrics.rawEvents ?? [])
   ].join("\n");
+  renderVoiceTaskSummary(sessionState);
   renderLiveMessages(state.liveMessages ?? []);
 }
 
@@ -345,7 +415,9 @@ function renderLiveMessages(messages) {
     item.className =
       message.role === "system"
         ? "briefing-card pending"
-        : `message ${message.role}`;
+        : `message ${message.role}${message.partial ? " partial" : ""}${
+            message.status === "interrupted" ? " interrupted" : ""
+          }`;
 
     if (message.role === "system") {
       item.innerHTML = `
@@ -362,13 +434,36 @@ function renderLiveMessages(messages) {
       <p class="message-text"></p>
     `;
     item.querySelector(".message-role").textContent = message.partial
-      ? `${message.role} (typing)`
-      : message.role;
+      ? `${message.role} (live)`
+      : message.status === "interrupted"
+        ? `${message.role} (cut short)`
+        : message.role;
     item.querySelector(".message-text").textContent = message.text;
     liveMessageListEl.appendChild(item);
   }
 
   liveMessageListEl.scrollTop = liveMessageListEl.scrollHeight;
+}
+
+function renderVoiceTaskSummary(state) {
+  const activeTask = state?.tasks?.[0];
+  const delivered = state?.notifications?.delivered ?? [];
+  const pending = state?.notifications?.pending ?? [];
+  const latestBriefing = pending.at(-1) ?? delivered.at(-1);
+
+  voiceTaskSummaryEl.textContent = activeTask
+    ? `${activeTask.title} · ${activeTask.status}`
+    : "아직 맡겨둔 task가 없습니다.";
+  voiceTaskSummaryEl.className = activeTask
+    ? "voice-summary-text"
+    : "voice-summary-text empty-state";
+
+  voiceBriefingSummaryEl.textContent = latestBriefing
+    ? latestBriefing.speechText ?? latestBriefing.uiText
+    : "아직 새 briefing이 없습니다.";
+  voiceBriefingSummaryEl.className = latestBriefing
+    ? "voice-summary-text"
+    : "voice-summary-text empty-state";
 }
 
 function renderMessages(messages) {
@@ -460,10 +555,12 @@ function renderNotifications(notifications) {
 }
 
 function renderState(state) {
+  sessionState = state;
   hideRuntimeError();
   renderMessages(state.messages);
   renderTasks(state.tasks, state.taskTimelines ?? []);
   renderNotifications(state.notifications);
+  renderVoiceTaskSummary(state);
   runtimeMetaEl.textContent = `session=${state.brainSessionId}`;
   executorBadgeEl.textContent = `executor=${state.executionMode}`;
   executorBadgeEl.className = `executor-badge ${state.executionMode}`;
@@ -473,10 +570,10 @@ function renderState(state) {
     : "idle";
   micStateEl.textContent = state.mic.mode;
   micToggleEl.textContent = state.mic.enabled ? "Mic On" : "Mic Off";
-  userSpeakingToggleEl.textContent = state.activity.userSpeaking
+  userSpeakingStateEl.textContent = state.activity.userSpeaking
     ? "User Speaking"
     : "User Idle";
-  assistantSpeakingToggleEl.textContent = state.activity.assistantSpeaking
+  assistantSpeakingStateEl.textContent = state.activity.assistantSpeaking
     ? "Assistant Speaking"
     : "Assistant Idle";
 
@@ -568,26 +665,6 @@ micToggleEl.addEventListener("click", async () => {
   }
 });
 
-userSpeakingToggleEl.addEventListener("click", async () => {
-  const next = userSpeakingToggleEl.textContent !== "User Speaking";
-  try {
-    const state = await window.desktopSession.setUserSpeaking(next);
-    renderState(state);
-  } catch (error) {
-    showRuntimeError(error);
-  }
-});
-
-assistantSpeakingToggleEl.addEventListener("click", async () => {
-  const next = assistantSpeakingToggleEl.textContent !== "Assistant Speaking";
-  try {
-    const state = await window.desktopSession.setAssistantSpeaking(next);
-    renderState(state);
-  } catch (error) {
-    showRuntimeError(error);
-  }
-});
-
 liveConnectButtonEl.addEventListener("click", async () => {
   try {
     hideRuntimeError();
@@ -611,7 +688,14 @@ liveMuteButtonEl.addEventListener("click", async () => {
       for (const track of liveRecorderStream.getAudioTracks()) {
         track.enabled = !nextMuted;
       }
-      await window.desktopSession.setUserSpeaking(!nextMuted);
+      if (nextMuted) {
+        liveUserSpeakingActive = false;
+        liveSpeechCandidateStartAt = 0;
+        clearTimeout(liveUserSpeakingTimer);
+        await window.desktopLive.endAudioStream().catch(() => undefined);
+      }
+      liveUserSpeakingActive = !nextMuted && liveUserSpeakingActive;
+      await setRuntimeUserSpeaking(!nextMuted && liveUserSpeakingActive);
     }
     const state = await window.desktopLive.setMuted(nextMuted);
     renderLiveState(state);
@@ -624,6 +708,7 @@ liveHangupButtonEl.addEventListener("click", async () => {
   try {
     await stopVoiceCapture();
     stopPlayback();
+    await setRuntimeAssistantSpeaking(false);
     const state = await window.desktopLive.disconnect();
     renderLiveState(state);
   } catch (error) {

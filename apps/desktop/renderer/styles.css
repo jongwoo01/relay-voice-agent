@@ -115,18 +115,19 @@ body {
 }
 
 .mic-toggle,
-.state-toggle {
+.status-pill {
   border: 1px solid var(--line);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.75);
   color: var(--ink);
   padding: 10px 14px;
-  font: inherit;
-  cursor: pointer;
+  font-size: 13px;
+  letter-spacing: 0.04em;
 }
 
-.state-toggle {
-  background: rgba(216, 212, 204, 0.9);
+.mic-toggle {
+  font: inherit;
+  cursor: pointer;
 }
 
 .message-list,
@@ -212,18 +213,54 @@ body {
   border-radius: 18px;
   background: rgba(246, 242, 234, 0.7);
   padding: 14px 16px;
-  min-height: 120px;
+  min-height: 96px;
 }
 
 .voice-transcript-text,
-.voice-transcript-final {
+.voice-summary-text {
   margin: 0;
   line-height: 1.5;
 }
 
-.voice-transcript-final {
-  margin-top: 10px;
-  color: var(--accent-strong);
+.live-message-list {
+  margin-top: 14px;
+  max-height: 300px;
+  padding: 0;
+}
+
+.live-message-list .empty-state {
+  padding: 14px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 18px;
+}
+
+.voice-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.voice-summary-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 14px 16px;
+  min-height: 92px;
+}
+
+.debug-panel {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.debug-panel summary {
+  cursor: pointer;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .message {
@@ -239,6 +276,14 @@ body {
 
 .message.assistant {
   background: rgba(255, 255, 255, 0.72);
+}
+
+.message.partial {
+  border-style: dashed;
+}
+
+.message.interrupted {
+  opacity: 0.82;
 }
 
 .message-role {
@@ -381,6 +426,10 @@ body {
   }
 
   .voice-transcript-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .voice-summary-grid {
     grid-template-columns: 1fr;
   }
 }

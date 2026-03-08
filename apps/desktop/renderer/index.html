@@ -12,7 +12,7 @@
         <header class="panel-header">
           <div>
             <p class="eyebrow">Conversation</p>
-            <h1>Desktop Agent</h1>
+            <h1>Desktop Companion</h1>
             <p id="runtime-meta" class="runtime-meta">shell booting...</p>
             <p id="input-status" class="input-status">idle</p>
           </div>
@@ -20,16 +20,16 @@
             <span id="executor-badge" class="executor-badge">executor: unknown</span>
             <span id="mic-state" class="mic-state">idle</span>
             <button id="mic-toggle" type="button" class="mic-toggle">Mic On</button>
-            <button id="user-speaking-toggle" type="button" class="state-toggle">User Idle</button>
-            <button id="assistant-speaking-toggle" type="button" class="state-toggle">Assistant Idle</button>
+            <span id="user-speaking-state" class="status-pill">User Idle</span>
+            <span id="assistant-speaking-state" class="status-pill">Assistant Idle</span>
           </div>
         </header>
         <p id="runtime-error" class="runtime-error" hidden></p>
         <section class="voice-panel">
           <div class="voice-panel-header">
             <div>
-              <p class="eyebrow">Live Voice</p>
-              <h2>Voice Preview</h2>
+              <p class="eyebrow">Live Companion</p>
+              <h2>Talk And Delegate</h2>
             </div>
             <span id="live-status-badge" class="executor-badge">voice: idle</span>
           </div>
@@ -48,23 +48,39 @@
             </select>
           </div>
           <p id="live-status-text" class="runtime-meta">voice preview is idle</p>
-          <pre id="live-debug-log" class="executor-debug-log"></pre>
-          <div id="live-message-list" class="message-list"></div>
           <div class="voice-transcript-grid">
             <article class="voice-transcript-card">
-              <p class="message-role">User Transcript</p>
+              <p class="message-role">You&apos;re Saying</p>
               <p id="live-input-partial" class="voice-transcript-text empty-state">
                 아직 입력이 없습니다.
               </p>
-              <p id="live-input-final" class="voice-transcript-final"></p>
             </article>
             <article class="voice-transcript-card">
-              <p class="message-role">Assistant Transcript</p>
+              <p class="message-role">Companion Reply</p>
               <p id="live-output-transcript" class="voice-transcript-text empty-state">
                 아직 응답이 없습니다.
               </p>
             </article>
           </div>
+          <div id="live-message-list" class="message-list live-message-list"></div>
+          <div class="voice-summary-grid">
+            <article class="voice-summary-card">
+              <p class="message-role">Now Working</p>
+              <p id="voice-task-summary" class="voice-summary-text empty-state">
+                아직 맡겨둔 task가 없습니다.
+              </p>
+            </article>
+            <article class="voice-summary-card">
+              <p class="message-role">Latest Briefing</p>
+              <p id="voice-briefing-summary" class="voice-summary-text empty-state">
+                아직 새 briefing이 없습니다.
+              </p>
+            </article>
+          </div>
+          <details class="debug-panel">
+            <summary>Debug Telemetry</summary>
+            <pre id="live-debug-log" class="executor-debug-log"></pre>
+          </details>
         </section>
         <div id="messages" class="message-list"></div>
         <form id="composer" class="composer">
