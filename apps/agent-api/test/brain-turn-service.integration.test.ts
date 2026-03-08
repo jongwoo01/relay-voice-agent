@@ -49,6 +49,23 @@ describe("brain-turn-service", () => {
     expect(result.replyText).toContain("안녕하세요");
   });
 
+  it("asks a task intake follow-up when execution-critical details are missing", async () => {
+    const service = new BrainTurnService();
+
+    const result = await service.handle({
+      brainSessionId: "brain-1",
+      utterance: utterance("일정 잡아줘", "task_request"),
+      activeTasks: [],
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    expect(result.action).toEqual({
+      type: "task_intake_clarify",
+      missingSlots: ["time"]
+    });
+    expect(result.replyText).toContain("언제 할지");
+  });
+
   it("runs a new task when the utterance is a fresh task request", async () => {
     const executor = new CapturingExecutor();
     const service = new BrainTurnService(

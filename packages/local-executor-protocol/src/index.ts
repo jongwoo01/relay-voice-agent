@@ -12,9 +12,15 @@ export type ExecutorProgressListener = (
   event: TaskEvent
 ) => void | Promise<void>;
 
+export type ExecutorOutcome =
+  | "completed"
+  | "waiting_input"
+  | "approval_required";
+
 export interface ExecutorRunResult {
   progressEvents: TaskEvent[];
   completionEvent: TaskEvent;
+  outcome?: ExecutorOutcome;
   sessionId?: string;
 }
 

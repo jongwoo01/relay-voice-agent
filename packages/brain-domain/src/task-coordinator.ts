@@ -86,6 +86,50 @@ export function reportTaskProgress(task: Task, now: string, message: string): Ta
   };
 }
 
+export function pauseTaskForInput(
+  task: Task,
+  now: string,
+  message: string
+): TaskTransitionResult {
+  const activeTask = task.status === "running" ? task : startTask(task, now, "Task is running").task;
+
+  return {
+    task: {
+      ...activeTask,
+      status: reduceTaskStatus(activeTask.status, "waiting_input"),
+      updatedAt: now
+    },
+    event: {
+      taskId: task.id,
+      type: "executor_waiting_input",
+      message,
+      createdAt: now
+    }
+  };
+}
+
+export function pauseTaskForApproval(
+  task: Task,
+  now: string,
+  message: string
+): TaskTransitionResult {
+  const activeTask = task.status === "running" ? task : startTask(task, now, "Task is running").task;
+
+  return {
+    task: {
+      ...activeTask,
+      status: reduceTaskStatus(activeTask.status, "approval_required"),
+      updatedAt: now
+    },
+    event: {
+      taskId: task.id,
+      type: "executor_approval_required",
+      message,
+      createdAt: now
+    }
+  };
+}
+
 export function completeTask(task: Task, now: string, message: string): TaskTransitionResult {
   const runningTask = task.status === "running" ? task : startTask(task, now, "Task is running").task;
 

@@ -48,6 +48,20 @@ describe("next-action", () => {
     });
   });
 
+  it("requests task intake details when execution-critical time is missing", () => {
+    expect(decideNextAction(utterance("일정 잡아줘", "task_request"), [])).toEqual({
+      type: "task_intake_clarify",
+      missingSlots: ["time"]
+    });
+  });
+
+  it("requests task intake details when a message target is missing", () => {
+    expect(decideNextAction(utterance("메일 보내줘", "task_request"), [])).toEqual({
+      type: "task_intake_clarify",
+      missingSlots: ["target"]
+    });
+  });
+
   it("resumes a task when a continuation cue is present", () => {
     expect(decideNextAction(utterance("아까 하던 거 이어서 해", "task_request"), [activeTask])).toEqual({
       type: "resume_task",
@@ -57,6 +71,12 @@ describe("next-action", () => {
 
   it("creates a new task when no continuation is found", () => {
     expect(decideNextAction(utterance("새로 폴더 정리해줘", "task_request"), [activeTask])).toEqual({
+      type: "create_task"
+    });
+  });
+
+  it("creates a task immediately when the cleanup scope is already clear", () => {
+    expect(decideNextAction(utterance("다운로드 폴더 정리해줘", "task_request"), [])).toEqual({
       type: "create_task"
     });
   });

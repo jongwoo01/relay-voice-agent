@@ -3,6 +3,8 @@ import {
   completeTask,
   createTask,
   failTask,
+  pauseTaskForApproval,
+  pauseTaskForInput,
   queueTask,
   reportTaskProgress
 } from "@agent/brain-domain";
@@ -127,7 +129,25 @@ export class TaskRuntime {
       execution.completionEvent.createdAt,
       execution.completionEvent.message
     );
-    events.push(completed.event);
+    const waitingInput = pauseTaskForInput(
+      currentTask,
+      execution.completionEvent.createdAt,
+      execution.completionEvent.message
+    );
+    const approvalRequired = pauseTaskForApproval(
+      currentTask,
+      execution.completionEvent.createdAt,
+      execution.completionEvent.message
+    );
+
+    const terminalTransition =
+      execution.outcome === "waiting_input"
+        ? waitingInput
+        : execution.outcome === "approval_required"
+          ? approvalRequired
+          : completed;
+    currentTask = terminalTransition.task;
+    events.push(terminalTransition.event);
 
     const nextExecutorSession =
       execution.sessionId || prepared.priorExecutorSession
@@ -141,7 +161,7 @@ export class TaskRuntime {
         : undefined;
 
     return {
-      task: completed.task,
+      task: currentTask,
       events,
       executorSession: nextExecutorSession
     };

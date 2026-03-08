@@ -3,6 +3,7 @@ import {
   isCompletionNotificationRequest,
   selectContinuationTask
 } from "./continuation.js";
+import { findMissingTaskSlots } from "./task-intake.js";
 
 export function decideNextAction(
   utterance: FinalizedUtterance,
@@ -23,6 +24,14 @@ export function decideNextAction(
 
   if (utterance.intent === "unclear") {
     return { type: "clarify" };
+  }
+
+  const missingSlots = findMissingTaskSlots(utterance.text);
+  if (missingSlots.length > 0) {
+    return {
+      type: "task_intake_clarify",
+      missingSlots
+    };
   }
 
   return { type: "create_task" };

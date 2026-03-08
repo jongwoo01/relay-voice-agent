@@ -108,6 +108,8 @@ export class TaskExecutionService {
           .reverse()
           .find(
             (event) =>
+              event.type === "executor_waiting_input" ||
+              event.type === "executor_approval_required" ||
               event.type === "executor_completed" ||
               event.type === "executor_failed"
           );

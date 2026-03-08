@@ -1,4 +1,11 @@
-import type { BrainTurnInput, NextAction, Task, TaskEvent, TaskExecutorSession } from "@agent/shared-types";
+import type {
+  BrainTurnInput,
+  NextAction,
+  Task,
+  TaskEvent,
+  TaskExecutorSession,
+  TaskIntakeSlot
+} from "@agent/shared-types";
 import { ConversationOrchestrator } from "./conversation-orchestrator.js";
 import { TaskExecutionService } from "../tasks/task-execution-service.js";
 
@@ -37,6 +44,34 @@ function buildDirectReplyText(
   return "알겠어요. 원하는 작업이나 질문을 조금만 더 구체적으로 말해줘.";
 }
 
+function describeMissingSlot(slot: TaskIntakeSlot): string {
+  switch (slot) {
+    case "target":
+      return "누구에게 하려는 건지";
+    case "time":
+      return "언제 할지";
+    case "scope":
+      return "어디까지 정리할지";
+    case "location":
+      return "어느 위치에서 할지";
+    case "risk_ack":
+      return "지워도 괜찮은 범위인지";
+    default:
+      return "추가 정보";
+  }
+}
+
+function buildTaskIntakeClarifyText(missingSlots: TaskIntakeSlot[]): string {
+  if (missingSlots.length === 1) {
+    return `바로 할게. 다만 ${describeMissingSlot(missingSlots[0])}만 알려줘.`;
+  }
+
+  const labels = missingSlots.map(describeMissingSlot);
+  const head = labels.slice(0, -1).join(", ");
+  const tail = labels.at(-1);
+  return `좋아, 바로 움직일 수 있게 ${head} 그리고 ${tail}만 알려줘.`;
+}
+
 export class BrainTurnService {
   constructor(
     private readonly orchestrator: ConversationOrchestrator = new ConversationOrchestrator(),
@@ -65,6 +100,13 @@ export class BrainTurnService {
       return {
         action,
         replyText: "조금 더 구체적으로 말해줘."
+      };
+    }
+
+    if (action.type === "task_intake_clarify") {
+      return {
+        action,
+        replyText: buildTaskIntakeClarifyText(action.missingSlots)
       };
     }
 

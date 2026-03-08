@@ -67,4 +67,70 @@ describe("task-event-announcer", () => {
       reason: "task_failed"
     });
   });
+
+  it("maps approval-required events into approval briefings", () => {
+    const notification = buildAssistantFollowUpMessage({
+      brainSessionId: "brain-1",
+      task: {
+        id: "task-1",
+        title: "정리",
+        normalizedGoal: "정리",
+        status: "approval_required",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:01.000Z"
+      },
+      event: {
+        taskId: "task-1",
+        type: "executor_approval_required",
+        message: "이 파일들을 지워도 괜찮은지 확인해줘",
+        createdAt: "2026-03-08T00:00:01.000Z"
+      }
+    });
+
+    expect(notification).toEqual({
+      message: {
+        brainSessionId: "brain-1",
+        speaker: "assistant",
+        text: "이건 실행 전에 확인이 필요해. 이 파일들을 지워도 괜찮은지 확인해줘",
+        tone: "reply",
+        createdAt: "2026-03-08T00:00:01.000Z"
+      },
+      priority: "high",
+      delivery: "interrupt_if_speaking",
+      reason: "approval_required"
+    });
+  });
+
+  it("maps waiting-input events into follow-up questions", () => {
+    const notification = buildAssistantFollowUpMessage({
+      brainSessionId: "brain-1",
+      task: {
+        id: "task-1",
+        title: "정리",
+        normalizedGoal: "정리",
+        status: "waiting_input",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:01.000Z"
+      },
+      event: {
+        taskId: "task-1",
+        type: "executor_waiting_input",
+        message: "어느 폴더를 먼저 볼지 알려줘",
+        createdAt: "2026-03-08T00:00:01.000Z"
+      }
+    });
+
+    expect(notification).toEqual({
+      message: {
+        brainSessionId: "brain-1",
+        speaker: "assistant",
+        text: "이어가려면 답이 하나 더 필요해. 어느 폴더를 먼저 볼지 알려줘",
+        tone: "reply",
+        createdAt: "2026-03-08T00:00:01.000Z"
+      },
+      priority: "high",
+      delivery: "interrupt_if_speaking",
+      reason: "task_waiting_input"
+    });
+  });
 });

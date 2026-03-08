@@ -13,6 +13,36 @@ export interface BuildAssistantFollowUpInput {
 export function buildAssistantFollowUpMessage(
   input: BuildAssistantFollowUpInput
 ): AssistantNotification | null {
+  if (input.event.type === "executor_approval_required") {
+    return {
+      message: {
+        brainSessionId: input.brainSessionId,
+        speaker: "assistant",
+        text: `이건 실행 전에 확인이 필요해. ${input.event.message}`,
+        tone: "reply",
+        createdAt: input.event.createdAt
+      },
+      priority: "high",
+      delivery: "interrupt_if_speaking",
+      reason: "approval_required"
+    };
+  }
+
+  if (input.event.type === "executor_waiting_input") {
+    return {
+      message: {
+        brainSessionId: input.brainSessionId,
+        speaker: "assistant",
+        text: `이어가려면 답이 하나 더 필요해. ${input.event.message}`,
+        tone: "reply",
+        createdAt: input.event.createdAt
+      },
+      priority: "high",
+      delivery: "interrupt_if_speaking",
+      reason: "task_waiting_input"
+    };
+  }
+
   if (input.event.type === "executor_completed") {
     return {
       message: {

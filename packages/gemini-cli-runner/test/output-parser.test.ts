@@ -142,4 +142,28 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
       })
     ).rejects.toThrow("Gemini CLI output did not include a final result event");
   });
+
+  it("maps non-terminal executor outcomes for approval and follow-up input", async () => {
+    const parsed = parseGeminiCliOutput(
+      [
+        JSON.stringify({
+          type: "result",
+          status: "approval_required",
+          response: "이 파일들을 삭제해도 되는지 확인해줘"
+        })
+      ].join("\n")
+    );
+
+    const result = await buildExecutorResultFromGeminiCliOutput({
+      taskId: "task-4",
+      now: "2026-03-08T00:00:00.000Z",
+      output: parsed
+    });
+
+    expect(result.outcome).toBe("approval_required");
+    expect(result.completionEvent.type).toBe("executor_approval_required");
+    expect(result.completionEvent.message).toBe(
+      "이 파일들을 삭제해도 되는지 확인해줘"
+    );
+  });
 });

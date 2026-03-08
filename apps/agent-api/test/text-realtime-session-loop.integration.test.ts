@@ -161,4 +161,24 @@ describe("text-realtime-session-loop", () => {
       "executor_completed"
     ]);
   });
+
+  it("keeps task intake follow-ups conversational until required details are filled", async () => {
+    class NoopExecutor implements LocalExecutor {
+      async run(): Promise<ExecutorRunResult> {
+        throw new Error("run should not be called for task intake clarify");
+      }
+    }
+
+    const loop = new TextRealtimeSessionLoop(new NoopExecutor());
+
+    const turn = await loop.handleTurn({
+      brainSessionId: "brain-2",
+      utterance: utterance("일정 잡아줘", "task_request"),
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    expect(turn.assistant.tone).toBe("clarify");
+    expect(turn.assistant.text).toContain("언제 할지");
+    await expect(loop.listActiveTasks("brain-2")).resolves.toEqual([]);
+  });
 });

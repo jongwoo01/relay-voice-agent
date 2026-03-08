@@ -52,4 +52,39 @@ describe("task-runtime", () => {
       })
     );
   });
+
+  it("pauses a task when the executor needs more input", async () => {
+    class WaitingInputExecutor implements LocalExecutor {
+      async run(
+        request: ExecutorRunRequest
+      ): Promise<ExecutorRunResult> {
+        return {
+          progressEvents: [],
+          completionEvent: {
+            taskId: request.task.id,
+            type: "executor_waiting_input",
+            message: "정확한 날짜를 알려줘",
+            createdAt: request.now
+          },
+          outcome: "waiting_input"
+        };
+      }
+    }
+
+    const runtime = new TaskRuntime(new WaitingInputExecutor());
+
+    const result = await runtime.submit({
+      text: "일정 잡아줘",
+      taskId: "task-3",
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    expect(result.task.status).toBe("waiting_input");
+    expect(result.events.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "executor_waiting_input",
+        message: "정확한 날짜를 알려줘"
+      })
+    );
+  });
 });

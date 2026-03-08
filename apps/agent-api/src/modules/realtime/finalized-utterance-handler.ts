@@ -31,7 +31,10 @@ export class FinalizedUtteranceHandler {
       };
     }
 
-    if (result.action.type === "clarify") {
+    if (
+      result.action.type === "clarify" ||
+      result.action.type === "task_intake_clarify"
+    ) {
       return {
         assistant: {
           text: result.replyText ?? "조금 더 구체적으로 말해줘.",

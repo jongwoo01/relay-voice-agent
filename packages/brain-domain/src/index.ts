@@ -4,10 +4,13 @@ export {
   selectContinuationTask
 } from "./continuation.js";
 export { decideNextAction } from "./next-action.js";
+export { findMissingTaskSlots } from "./task-intake.js";
 export {
   completeTask,
   createTask,
   failTask,
+  pauseTaskForApproval,
+  pauseTaskForInput,
   queueTask,
   reportTaskProgress,
   startTask

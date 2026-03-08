@@ -56,6 +56,21 @@ describe("finalized-utterance-handler", () => {
     ]);
   });
 
+  it("returns a clarify-style envelope for task intake follow-ups", async () => {
+    const handler = new FinalizedUtteranceHandler();
+
+    const result = await handler.handle({
+      brainSessionId: "brain-1",
+      utterance: utterance("일정 잡아줘", "task_request"),
+      activeTasks: [],
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    expect(result.assistant.tone).toBe("clarify");
+    expect(result.assistant.text).toContain("언제 할지");
+    expect(result.task).toBeUndefined();
+  });
+
   it("returns a resume acknowledgement when the utterance maps to an active task", async () => {
     const handler = new FinalizedUtteranceHandler();
 

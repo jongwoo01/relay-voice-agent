@@ -1,4 +1,8 @@
-import type { ExecutorRunResult, ExecutorProgressListener } from "@agent/local-executor-protocol";
+import type {
+  ExecutorOutcome,
+  ExecutorProgressListener,
+  ExecutorRunResult
+} from "@agent/local-executor-protocol";
 import type { TaskEvent } from "@agent/shared-types";
 
 export type GeminiCliHeadlessEventType =
@@ -77,6 +81,13 @@ function extractResultResponse(event: GeminiCliHeadlessEvent): string | undefine
     event.payload.message,
     event.payload.text,
     isRecord(event.payload.result) ? event.payload.result.response : undefined
+  ]);
+}
+
+function extractResultStatus(event: GeminiCliHeadlessEvent): string | undefined {
+  return firstNonEmptyString([
+    event.payload.status,
+    isRecord(event.payload.result) ? event.payload.result.status : undefined
   ]);
 }
 
@@ -170,6 +181,7 @@ export async function buildExecutorResultFromGeminiCliOutput(
   const assistantMessages: string[] = [];
   let sessionId: string | undefined;
   let completionMessage: string | undefined;
+  let outcome: ExecutorOutcome = "completed";
   let sawResult = false;
 
   for (const event of input.output.events) {
@@ -206,6 +218,12 @@ export async function buildExecutorResultFromGeminiCliOutput(
     if (event.type === "result") {
       sawResult = true;
       completionMessage = extractResultResponse(event);
+      const status = extractResultStatus(event);
+      if (status === "waiting_input") {
+        outcome = "waiting_input";
+      } else if (status === "approval_required") {
+        outcome = "approval_required";
+      }
     }
 
     if (event.type === "tool_result" && extractToolResultStatus(event) === "error") {
@@ -229,10 +247,16 @@ export async function buildExecutorResultFromGeminiCliOutput(
     progressEvents,
     completionEvent: {
       taskId: input.taskId,
-      type: "executor_completed",
+      type:
+        outcome === "waiting_input"
+          ? "executor_waiting_input"
+          : outcome === "approval_required"
+            ? "executor_approval_required"
+            : "executor_completed",
       message: finalMessage,
       createdAt: input.now
     },
+    outcome,
     sessionId
   };
 }

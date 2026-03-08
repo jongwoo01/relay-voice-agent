@@ -5,6 +5,7 @@ export type TaskStatus =
   | "queued"
   | "running"
   | "waiting_input"
+  | "approval_required"
   | "completed"
   | "failed"
   | "cancelled";
@@ -14,12 +15,22 @@ export type TaskEventType =
   | "task_queued"
   | "task_started"
   | "executor_progress"
+  | "executor_waiting_input"
+  | "executor_approval_required"
   | "executor_completed"
   | "executor_failed";
+
+export type TaskIntakeSlot =
+  | "target"
+  | "time"
+  | "scope"
+  | "location"
+  | "risk_ack";
 
 export type NextAction =
   | { type: "reply" }
   | { type: "clarify" }
+  | { type: "task_intake_clarify"; missingSlots: TaskIntakeSlot[] }
   | { type: "create_task" }
   | { type: "resume_task"; taskId: string }
   | { type: "set_completion_notification"; taskId: string };
