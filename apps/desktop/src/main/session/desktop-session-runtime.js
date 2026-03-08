@@ -49,6 +49,8 @@ export class DesktopSessionRuntime {
       mode: options.executionMode,
       onRawEvent: options.onRawExecutorEvent
     });
+    const intentResolver =
+      options.intentResolver ?? createDefaultIntentResolver();
 
     const loop = new TextRealtimeSessionLoop(
       execution.executor,
@@ -67,7 +69,7 @@ export class DesktopSessionRuntime {
     runtime = new DesktopSessionRuntime({
       brainSessionId,
       loop,
-      intentResolver: createDefaultIntentResolver(),
+      intentResolver,
       onStateChange: options.onStateChange
     });
 
@@ -108,6 +110,15 @@ export class DesktopSessionRuntime {
   }
 
   async init() {
+    return this.collectState();
+  }
+
+  async waitForIdle() {
+    while (this.processingTurns || this.pendingTurns.length > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    await this.loop.waitForBackgroundWork();
     return this.collectState();
   }
 

@@ -14,6 +14,7 @@ import {
 export const DEFAULT_LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025";
 
 export type GoogleLiveTransportEvent =
+  | { type: "raw_server_message"; summary: string }
   | { type: "input_transcription_partial"; text: string }
   | {
       type: "input_transcription_final";
@@ -21,6 +22,7 @@ export type GoogleLiveTransportEvent =
       utterance?: FinalizedUtterance;
       turn?: LiveSessionTurnResult;
     }
+  | { type: "output_audio"; data: string; mimeType: string }
   | { type: "model_text"; text: string }
   | { type: "output_transcription"; text: string; finished: boolean }
   | { type: "interrupted" }
@@ -52,12 +54,18 @@ export interface GoogleLiveApiTransportConnectInput {
 export interface GoogleLiveSessionTransport {
   sendText(text: string, turnComplete?: boolean): void;
   sendRealtimeText(text: string): void;
+  sendRealtimeAudio(audioData: string, mimeType?: string): void;
   close(): void;
 }
 
 export interface GoogleLiveSdkSessionLike {
   sendClientContent(params: { turns: Content[]; turnComplete?: boolean }): void;
-  sendRealtimeInput(params: { text: string }): void;
+  sendRealtimeInput(params: {
+    text?: string;
+    audio?: { data: string; mimeType: string };
+    media?: { data: string; mimeType: string };
+    audioStreamEnd?: boolean;
+  }): void;
   close(): void;
 }
 
@@ -89,6 +97,62 @@ function collectModelText(message: LiveServerMessage): string | undefined {
     .trim();
 
   return plainText ? plainText : undefined;
+}
+
+function collectOutputAudioParts(
+  message: LiveServerMessage
+): Array<{ data: string; mimeType: string }> {
+  const parts = message.serverContent?.modelTurn?.parts ?? [];
+
+  return parts.flatMap((part) => {
+    if (
+      "inlineData" in part &&
+      part.inlineData &&
+      typeof part.inlineData.data === "string" &&
+      typeof part.inlineData.mimeType === "string"
+    ) {
+      return [
+        {
+          data: part.inlineData.data,
+          mimeType: part.inlineData.mimeType
+        }
+      ];
+    }
+
+    return [];
+  });
+}
+
+function summarizeServerMessage(message: LiveServerMessage): string {
+  const summary = {
+    inputText: message.serverContent?.inputTranscription?.text ?? null,
+    inputFinished: message.serverContent?.inputTranscription?.finished ?? null,
+    outputText: message.serverContent?.outputTranscription?.text ?? null,
+    outputFinished: message.serverContent?.outputTranscription?.finished ?? null,
+    modelParts: (message.serverContent?.modelTurn?.parts ?? []).map((part) => {
+      if ("text" in part && typeof part.text === "string") {
+        return { text: part.text };
+      }
+      if ("inlineData" in part && part.inlineData) {
+        return {
+          inlineData: {
+            mimeType: part.inlineData.mimeType,
+            dataLength:
+              typeof part.inlineData.data === "string"
+                ? part.inlineData.data.length
+                : 0
+          }
+        };
+      }
+      return { unknown: true };
+    }),
+    interrupted: message.serverContent?.interrupted ?? false,
+    waitingForInput: message.serverContent?.waitingForInput ?? false,
+    turnComplete: message.serverContent?.turnComplete ?? false,
+    goAway: message.goAway ?? null
+  };
+
+  return JSON.stringify(summary);
 }
 
 export class GoogleLiveApiTransport {
@@ -153,6 +217,14 @@ export class GoogleLiveApiTransport {
       sendRealtimeText(text: string) {
         session.sendRealtimeInput({ text });
       },
+      sendRealtimeAudio(audioData: string, mimeType = "audio/pcm;rate=16000") {
+        session.sendRealtimeInput({
+          audio: {
+            data: audioData,
+            mimeType
+          }
+        });
+      },
       close() {
         session.close();
       }
@@ -165,6 +237,11 @@ export class GoogleLiveApiTransport {
     callbacks?: GoogleLiveApiTransportCallbacks
   ): Promise<void> {
     const inputText = collectInputTranscriptionText(message);
+
+    await callbacks?.onevent?.({
+      type: "raw_server_message",
+      summary: summarizeServerMessage(message)
+    });
 
     if (inputText) {
       const finished = message.serverContent?.inputTranscription?.finished === true;
@@ -207,6 +284,14 @@ export class GoogleLiveApiTransport {
       await callbacks?.onevent?.({
         type: "model_text",
         text: modelText
+      });
+    }
+
+    for (const audioPart of collectOutputAudioParts(message)) {
+      await callbacks?.onevent?.({
+        type: "output_audio",
+        data: audioPart.data,
+        mimeType: audioPart.mimeType
       });
     }
 

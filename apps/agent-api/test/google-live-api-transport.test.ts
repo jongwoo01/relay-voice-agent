@@ -53,6 +53,12 @@ describe("google-live-api-transport", () => {
 
     await flushAsyncWork();
 
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "raw_server_message",
+        summary: expect.any(String)
+      })
+    );
     expect(events).toContainEqual({
       type: "input_transcription_partial",
       text: "브라우저 탭"
@@ -134,6 +140,57 @@ describe("google-live-api-transport", () => {
     expect(events).toContainEqual({ type: "turn_complete" });
   });
 
+  it("forwards output audio chunks", async () => {
+    const events: unknown[] = [];
+    let onmessage: ((message: LiveServerMessage) => void) | undefined;
+    const connect = vi.fn(async (params) => {
+      onmessage = params.callbacks.onmessage;
+      return {
+        sendClientContent: vi.fn(),
+        sendRealtimeInput: vi.fn(),
+        close: vi.fn()
+      };
+    });
+
+    const transport = new GoogleLiveApiTransport(undefined, () => ({
+      live: { connect }
+    }));
+
+    await transport.connect({
+      apiKey: "test-key",
+      brainSessionId: "brain-1",
+      callbacks: {
+        onevent: async (event) => {
+          events.push(event);
+        }
+      }
+    });
+
+    onmessage?.({
+      serverContent: {
+        modelTurn: {
+          role: "model",
+          parts: [
+            {
+              inlineData: {
+                data: "QUJD",
+                mimeType: "audio/pcm;rate=24000"
+              }
+            }
+          ]
+        }
+      }
+    } as LiveServerMessage);
+
+    await flushAsyncWork();
+
+    expect(events).toContainEqual({
+      type: "output_audio",
+      data: "QUJD",
+      mimeType: "audio/pcm;rate=24000"
+    });
+  });
+
   it("sends text through the live session methods", async () => {
     const sendClientContent = vi.fn();
     const sendRealtimeInput = vi.fn();
@@ -155,6 +212,7 @@ describe("google-live-api-transport", () => {
 
     session.sendText("안녕", false);
     session.sendRealtimeText("실시간 텍스트");
+    session.sendRealtimeAudio("QUJD", "audio/pcm;rate=16000");
     session.close();
 
     expect(sendClientContent).toHaveBeenCalledWith({
@@ -168,6 +226,12 @@ describe("google-live-api-transport", () => {
     });
     expect(sendRealtimeInput).toHaveBeenCalledWith({
       text: "실시간 텍스트"
+    });
+    expect(sendRealtimeInput).toHaveBeenCalledWith({
+      audio: {
+        data: "QUJD",
+        mimeType: "audio/pcm;rate=16000"
+      }
     });
     expect(close).toHaveBeenCalled();
   });

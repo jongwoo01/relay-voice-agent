@@ -17,3 +17,29 @@ contextBridge.exposeInMainWorld("desktopSession", {
     };
   }
 });
+
+contextBridge.exposeInMainWorld("desktopLive", {
+  init: () => ipcRenderer.invoke("live:init"),
+  connect: () => ipcRenderer.invoke("live:connect"),
+  disconnect: () => ipcRenderer.invoke("live:disconnect"),
+  setMuted: (muted) => ipcRenderer.invoke("live:set-muted", muted),
+  sendText: (text) => ipcRenderer.invoke("live:send-text", text),
+  sendAudioChunk: (audioData, mimeType) =>
+    ipcRenderer.send("live:send-audio-chunk", audioData, mimeType),
+  onStateUpdated: (listener) => {
+    const wrapped = (_event, state) => listener(state);
+    ipcRenderer.on("live:state-updated", wrapped);
+
+    return () => {
+      ipcRenderer.removeListener("live:state-updated", wrapped);
+    };
+  },
+  onAudioChunk: (listener) => {
+    const wrapped = (_event, chunk) => listener(chunk);
+    ipcRenderer.on("live:audio-chunk", wrapped);
+
+    return () => {
+      ipcRenderer.removeListener("live:audio-chunk", wrapped);
+    };
+  }
+});

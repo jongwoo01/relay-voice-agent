@@ -22,6 +22,7 @@ Dev entrypoints:
 - `npm run dev:live-text-session`
 - `npm run dev:desktop`
 - `npm run dev:desktop:prepare`
+- `npm run smoke:desktop`
 - `npm run smoke:gemini`
 
 Desktop executor mode:

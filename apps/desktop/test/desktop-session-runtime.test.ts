@@ -111,4 +111,41 @@ describe("desktop-session-runtime", () => {
     expect(finalState.input.inFlight).toBe(false);
     expect(finalState.input.queueSize).toBe(0);
   });
+
+  it("waits until queued turns and background work finish", async () => {
+    const deferred = createDeferred();
+    let handledTurns = 0;
+    const runtime = new DesktopSessionRuntime({
+      brainSessionId: "desktop-session-test",
+      loop: {
+        listConversation: async () => [],
+        listActiveTasks: async () => [],
+        listTaskEvents: async () => [],
+        handleTurn: async () => {
+          handledTurns += 1;
+          await deferred.promise;
+        },
+        waitForBackgroundWork: async () => undefined
+      },
+      intentResolver: {
+        resolve: async () => "task_request"
+      }
+    });
+    runtime.execution = { mode: "mock" };
+
+    await runtime.sendText("첫 번째 요청");
+    await runtime.sendText("두 번째 요청");
+
+    const waitPromise = runtime.waitForIdle();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(handledTurns).toBe(1);
+
+    deferred.resolve();
+    await waitPromise;
+
+    expect(handledTurns).toBe(2);
+    const finalState = await runtime.collectState();
+    expect(finalState.input.inFlight).toBe(false);
+    expect(finalState.input.queueSize).toBe(0);
+  });
 });

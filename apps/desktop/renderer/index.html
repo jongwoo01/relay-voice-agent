@@ -25,6 +25,46 @@
           </div>
         </header>
         <p id="runtime-error" class="runtime-error" hidden></p>
+        <section class="voice-panel">
+          <div class="voice-panel-header">
+            <div>
+              <p class="eyebrow">Live Voice</p>
+              <h2>Voice Preview</h2>
+            </div>
+            <span id="live-status-badge" class="executor-badge">voice: idle</span>
+          </div>
+          <div class="voice-controls">
+            <button id="live-connect-button" type="button" class="voice-button primary">
+              Start Voice
+            </button>
+            <button id="live-mute-button" type="button" class="voice-button" disabled>
+              Mute
+            </button>
+            <button id="live-hangup-button" type="button" class="voice-button danger" disabled>
+              End
+            </button>
+            <select id="live-mic-select" class="voice-select">
+              <option value="">Default microphone</option>
+            </select>
+          </div>
+          <p id="live-status-text" class="runtime-meta">voice preview is idle</p>
+          <pre id="live-debug-log" class="executor-debug-log"></pre>
+          <div class="voice-transcript-grid">
+            <article class="voice-transcript-card">
+              <p class="message-role">User Transcript</p>
+              <p id="live-input-partial" class="voice-transcript-text empty-state">
+                아직 입력이 없습니다.
+              </p>
+              <p id="live-input-final" class="voice-transcript-final"></p>
+            </article>
+            <article class="voice-transcript-card">
+              <p class="message-role">Assistant Transcript</p>
+              <p id="live-output-transcript" class="voice-transcript-text empty-state">
+                아직 응답이 없습니다.
+              </p>
+            </article>
+          </div>
+        </section>
         <div id="messages" class="message-list"></div>
         <form id="composer" class="composer">
           <textarea

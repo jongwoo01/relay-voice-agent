@@ -19,6 +19,7 @@
     "dev:desktop:prepare": "npm run build:runtimes",
     "dev:live-text-session": "tsx scripts/dev-live-text-session.ts",
     "dev:text-session": "tsx scripts/dev-text-session.ts",
+    "smoke:desktop": "tsx scripts/smoke-desktop-runtime.ts",
     "smoke:gemini": "node scripts/smoke-gemini-cli.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
