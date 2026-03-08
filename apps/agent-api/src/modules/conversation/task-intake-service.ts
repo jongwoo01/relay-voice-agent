@@ -2,7 +2,6 @@ import {
   buildExecutableTaskText,
   buildTaskIntakeSession,
   isTaskIntakeReady,
-  looksLikeStandaloneTaskRequest,
   mergeTaskIntakeAnswer
 } from "@agent/brain-domain";
 import type {
@@ -13,6 +12,10 @@ import type {
 } from "@agent/shared-types";
 import { ConversationOrchestrator } from "./conversation-orchestrator.js";
 import type { TaskIntakeRepository } from "../persistence/task-intake-repository.js";
+import {
+  HeuristicTaskIntakeResolver,
+  type TaskIntakeResolver
+} from "./task-intake-resolver.js";
 
 export type TaskIntakeResolution =
   | { kind: "not_applicable" }
@@ -29,7 +32,7 @@ function describeMissingSlot(slot: TaskIntakeSlot): string {
     case "time":
       return "언제 할지";
     case "scope":
-      return "어디까지 할지";
+      return "어떤 기준으로 할지";
     case "risk_ack":
       return "지워도 괜찮은 범위";
     default:
@@ -86,7 +89,8 @@ export interface HandleTaskIntakeInput {
 export class TaskIntakeService {
   constructor(
     private readonly repository: TaskIntakeRepository,
-    private readonly orchestrator: ConversationOrchestrator = new ConversationOrchestrator()
+    private readonly orchestrator: ConversationOrchestrator = new ConversationOrchestrator(),
+    private readonly resolver: TaskIntakeResolver = new HeuristicTaskIntakeResolver()
   ) {}
 
   async getActive(brainSessionId: string): Promise<TaskIntakeSession | null> {
@@ -105,14 +109,20 @@ export class TaskIntakeService {
     );
 
     if (active) {
-      if (
-        input.utterance.intent === "task_request" &&
-        looksLikeStandaloneTaskRequest(input.utterance.text)
-      ) {
+      const updateAnalysis = await this.resolver.analyzeUpdate(
+        active,
+        input.utterance.text
+      );
+
+      if (updateAnalysis.resolution === "replace_task") {
         const replacement = buildTaskIntakeSession(
           input.utterance.text,
           input.brainSessionId,
-          input.now
+          input.now,
+          {
+            requiredSlots: updateAnalysis.requiredSlots,
+            filledSlots: updateAnalysis.filledSlots
+          }
         );
         return this.persistAndResolve(replacement);
       }
@@ -120,7 +130,8 @@ export class TaskIntakeService {
       const merged = mergeTaskIntakeAnswer(
         active,
         input.utterance.text,
-        input.now
+        input.now,
+        updateAnalysis.filledSlots
       );
       return this.persistAndResolve(merged);
     }
@@ -143,11 +154,11 @@ export class TaskIntakeService {
       return { kind: "not_applicable" };
     }
 
-    const session = buildTaskIntakeSession(
-      input.utterance.text,
-      input.brainSessionId,
-      input.now
-    );
+    const startAnalysis = await this.resolver.analyzeStart(input.utterance.text);
+    const session = buildTaskIntakeSession(input.utterance.text, input.brainSessionId, input.now, {
+      requiredSlots: startAnalysis.requiredSlots,
+      filledSlots: startAnalysis.filledSlots
+    });
     return this.persistAndResolve(session);
   }
 

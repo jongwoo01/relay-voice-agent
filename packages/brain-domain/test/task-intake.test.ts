@@ -13,6 +13,7 @@ describe("task-intake", () => {
     expect(inferRequiredSlots("메일 보내줘")).toEqual(["target"]);
     expect(inferRequiredSlots("일정 잡아줘")).toEqual(["time"]);
     expect(inferRequiredSlots("다운로드 폴더 정리해줘")).toEqual(["scope"]);
+    expect(inferRequiredSlots("바탕화면 파일들을 종류별로 요약해줘")).toEqual([]);
   });
 
   it("extracts slot values from follow-up answers", () => {
@@ -25,6 +26,9 @@ describe("task-intake", () => {
     expect(extractFilledSlots("다운로드 폴더에서 중복 파일만")).toEqual({
       location: "다운로드 폴더에서 중복 파일만",
       scope: "다운로드 폴더에서 중복 파일만"
+    });
+    expect(extractFilledSlots("종류별로 정리해줘")).toEqual({
+      scope: "종류별로 정리해줘"
     });
   });
 

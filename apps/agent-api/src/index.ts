@@ -24,6 +24,13 @@ export {
 export { extractMemorySignals } from "./modules/memory/memory-signal-extractor.js";
 export { TaskIntakeService } from "./modules/conversation/task-intake-service.js";
 export {
+  createDefaultTaskIntakeResolver,
+  FallbackTaskIntakeResolver,
+  GeminiTaskIntakeResolver,
+  HeuristicTaskIntakeResolver,
+  type TaskIntakeResolver
+} from "./modules/conversation/task-intake-resolver.js";
+export {
   InMemoryTaskRepository,
   PostgresTaskRepository,
   type TaskRepository

@@ -12,7 +12,9 @@ export {
   inferRequiredSlots,
   isTaskIntakeReady,
   looksLikeStandaloneTaskRequest,
-  mergeTaskIntakeAnswer
+  mergeTaskIntakeAnswer,
+  type TaskIntakeAnalysis,
+  type TaskIntakeFilledSlots
 } from "./task-intake.js";
 export {
   completeTask,
