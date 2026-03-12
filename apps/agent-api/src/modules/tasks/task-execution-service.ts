@@ -1,4 +1,9 @@
-import type { Task, TaskEvent, TaskExecutorSession } from "@agent/shared-types";
+import type {
+  Task,
+  TaskCompletionReport,
+  TaskEvent,
+  TaskExecutorSession
+} from "@agent/shared-types";
 import {
   InMemoryTaskEventRepository,
   type TaskEventRepository
@@ -25,6 +30,7 @@ export interface ExecuteTaskResult {
   task: Task;
   events: TaskEvent[];
   executorSession?: TaskExecutorSession;
+  report?: TaskCompletionReport;
 }
 
 export interface TaskTerminalNotification {
@@ -132,7 +138,8 @@ export class TaskExecutionService {
     return {
       task: prepared.task,
       events: prepared.initialEvents,
-      executorSession: prepared.priorExecutorSession
+      executorSession: prepared.priorExecutorSession,
+      report: undefined
     };
   }
 

@@ -1,4 +1,8 @@
-import type { Task, TaskEvent } from "@agent/shared-types";
+import type {
+  Task,
+  TaskCompletionReport,
+  TaskEvent
+} from "@agent/shared-types";
 
 export interface ExecutorRunRequest {
   task: Task;
@@ -6,13 +10,6 @@ export interface ExecutorRunRequest {
   prompt: string;
   workingDirectory?: string;
   resumeSessionId?: string;
-}
-
-export interface ExecutorCompletionReport {
-  summary: string;
-  verification: "verified" | "uncertain";
-  changes: string[];
-  question?: string;
 }
 
 export type ExecutorProgressListener = (
@@ -29,7 +26,7 @@ export interface ExecutorRunResult {
   completionEvent: TaskEvent;
   outcome?: ExecutorOutcome;
   sessionId?: string;
-  report?: ExecutorCompletionReport;
+  report?: TaskCompletionReport;
 }
 
 export interface LocalExecutor {

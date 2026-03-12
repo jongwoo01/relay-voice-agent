@@ -15,7 +15,12 @@ import type {
   ExecutorProgressListener,
   LocalExecutor
 } from "@agent/local-executor-protocol";
-import type { Task, TaskEvent, TaskExecutorSession } from "@agent/shared-types";
+import type {
+  Task,
+  TaskCompletionReport,
+  TaskEvent,
+  TaskExecutorSession
+} from "@agent/shared-types";
 import { startTask } from "@agent/brain-domain";
 
 export interface TaskRunInput {
@@ -30,6 +35,7 @@ export interface TaskRunResult {
   task: Task;
   events: TaskEvent[];
   executorSession?: TaskExecutorSession;
+  report?: TaskCompletionReport;
 }
 
 export interface PreparedTaskRun {
@@ -146,7 +152,13 @@ export class TaskRuntime {
         : execution.outcome === "approval_required"
           ? approvalRequired
           : completed;
-    currentTask = terminalTransition.task;
+    currentTask =
+      execution.report && terminalTransition.task.status === "completed"
+        ? {
+            ...terminalTransition.task,
+            completionReport: execution.report
+          }
+        : terminalTransition.task;
     events.push(terminalTransition.event);
 
     const nextExecutorSession =
@@ -163,7 +175,8 @@ export class TaskRuntime {
     return {
       task: currentTask,
       events,
-      executorSession: nextExecutorSession
+      executorSession: nextExecutorSession,
+      report: execution.report
     };
   }
 
@@ -189,9 +202,16 @@ export class TaskRuntime {
     const result = await this.runPrepared(prepared);
 
     return {
-      task: result.task,
+      task:
+        result.report && result.task.status === "completed"
+          ? {
+              ...result.task,
+              completionReport: result.report
+            }
+          : result.task,
       events: [...prepared.initialEvents, ...result.events],
-      executorSession: result.executorSession
+      executorSession: result.executorSession,
+      report: result.report
     };
   }
 }

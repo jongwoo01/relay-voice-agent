@@ -78,7 +78,8 @@ describe("postgres persistence repositories", () => {
           normalized_goal: "정리",
           status: "running",
           created_at: "2026-03-08T00:00:00.000Z",
-          updated_at: "2026-03-08T00:01:00.000Z"
+          updated_at: "2026-03-08T00:01:00.000Z",
+          completion_report_json: null
         }
       ]
     ]);
@@ -93,9 +94,47 @@ describe("postgres persistence repositories", () => {
         normalizedGoal: "정리",
         status: "running",
         createdAt: "2026-03-08T00:00:00.000Z",
-        updatedAt: "2026-03-08T00:01:00.000Z"
+        updatedAt: "2026-03-08T00:01:00.000Z",
+        completionReport: undefined
       }
     ]);
+  });
+
+  it("maps a task by id with its completion report", async () => {
+    const sql = createSqlMock([
+      [
+        {
+          id: "task-1",
+          title: "정리",
+          normalized_goal: "정리",
+          status: "completed",
+          created_at: "2026-03-08T00:00:00.000Z",
+          updated_at: "2026-03-08T00:01:00.000Z",
+          completion_report_json: {
+            summary: "정리 완료",
+            verification: "verified",
+            changes: ["파일 2개 정리"]
+          }
+        }
+      ]
+    ]);
+
+    const repository = new PostgresTaskRepository(sql);
+    const task = await repository.getById("task-1");
+
+    expect(task).toEqual({
+      id: "task-1",
+      title: "정리",
+      normalizedGoal: "정리",
+      status: "completed",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:01:00.000Z",
+      completionReport: {
+        summary: "정리 완료",
+        verification: "verified",
+        changes: ["파일 2개 정리"]
+      }
+    });
   });
 
   it("persists task events by deriving user_id from tasks", async () => {
@@ -138,5 +177,42 @@ describe("postgres persistence repositories", () => {
       workingDirectory: "/tmp/demo",
       updatedAt: "2026-03-08T00:00:00.000Z"
     });
+  });
+
+  it("persists completion reports with tasks", async () => {
+    const sql = createSqlMock();
+    const repository = new PostgresTaskRepository(sql);
+
+    await repository.save("brain-1", {
+      id: "task-1",
+      title: "정리",
+      normalizedGoal: "정리",
+      status: "completed",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:01:00.000Z",
+      completionReport: {
+        summary: "정리 완료",
+        verification: "verified",
+        changes: ["파일 2개 정리"]
+      }
+    });
+
+    expect(sql.query).toHaveBeenCalledWith(
+      expect.stringContaining("completion_report_json"),
+      [
+        "task-1",
+        "brain-1",
+        "정리",
+        "정리",
+        "completed",
+        "2026-03-08T00:00:00.000Z",
+        "2026-03-08T00:01:00.000Z",
+        JSON.stringify({
+          summary: "정리 완료",
+          verification: "verified",
+          changes: ["파일 2개 정리"]
+        })
+      ]
+    );
   });
 });

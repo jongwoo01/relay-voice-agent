@@ -57,6 +57,14 @@ export interface Task {
   status: TaskStatus;
   createdAt: string;
   updatedAt: string;
+  completionReport?: TaskCompletionReport;
+}
+
+export interface TaskCompletionReport {
+  summary: string;
+  verification: "verified" | "uncertain";
+  changes: string[];
+  question?: string;
 }
 
 export interface FinalizedUtterance {

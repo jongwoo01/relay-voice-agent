@@ -2,6 +2,7 @@ import type { Task } from "@agent/shared-types";
 import type { SqlClientLike } from "./postgres-client.js";
 
 export interface TaskRepository {
+  getById(taskId: string): Promise<Task | null>;
   listActiveByBrainSessionId(brainSessionId: string): Promise<Task[]>;
   listRecentByBrainSessionId(
     brainSessionId: string,
@@ -17,6 +18,10 @@ interface StoredTask {
 
 export class InMemoryTaskRepository implements TaskRepository {
   private readonly tasks = new Map<string, StoredTask>();
+
+  async getById(taskId: string): Promise<Task | null> {
+    return this.tasks.get(taskId)?.task ?? null;
+  }
 
   async listActiveByBrainSessionId(brainSessionId: string): Promise<Task[]> {
     return Array.from(this.tasks.values())
@@ -53,7 +58,7 @@ export class InMemoryTaskRepository implements TaskRepository {
 export class PostgresTaskRepository implements TaskRepository {
   constructor(private readonly sql: SqlClientLike) {}
 
-  async listActiveByBrainSessionId(brainSessionId: string): Promise<Task[]> {
+  async getById(taskId: string): Promise<Task | null> {
     const result = await this.sql.query<{
       id: string;
       title: string;
@@ -61,6 +66,7 @@ export class PostgresTaskRepository implements TaskRepository {
       status: Task["status"];
       created_at: string;
       updated_at: string;
+      completion_report_json: Task["completionReport"] | null;
     }>(
       `
         select
@@ -69,7 +75,49 @@ export class PostgresTaskRepository implements TaskRepository {
           normalized_goal,
           status,
           created_at,
-          updated_at
+          updated_at,
+          completion_report_json
+        from tasks
+        where id = $1
+      `,
+      [taskId]
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      title: row.title,
+      normalizedGoal: row.normalized_goal,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      completionReport: row.completion_report_json ?? undefined
+    };
+  }
+
+  async listActiveByBrainSessionId(brainSessionId: string): Promise<Task[]> {
+    const result = await this.sql.query<{
+      id: string;
+      title: string;
+      normalized_goal: string;
+      status: Task["status"];
+      created_at: string;
+      updated_at: string;
+      completion_report_json: Task["completionReport"] | null;
+    }>(
+      `
+        select
+          id,
+          title,
+          normalized_goal,
+          status,
+          created_at,
+          updated_at,
+          completion_report_json
         from tasks
         where brain_session_id = $1
           and status in ('created', 'queued', 'running', 'waiting_input', 'approval_required')
@@ -84,7 +132,8 @@ export class PostgresTaskRepository implements TaskRepository {
       normalizedGoal: row.normalized_goal,
       status: row.status,
       createdAt: row.created_at,
-      updatedAt: row.updated_at
+      updatedAt: row.updated_at,
+      completionReport: row.completion_report_json ?? undefined
     }));
   }
 
@@ -99,6 +148,7 @@ export class PostgresTaskRepository implements TaskRepository {
       status: Task["status"];
       created_at: string;
       updated_at: string;
+      completion_report_json: Task["completionReport"] | null;
     }>(
       `
         select
@@ -107,7 +157,8 @@ export class PostgresTaskRepository implements TaskRepository {
           normalized_goal,
           status,
           created_at,
-          updated_at
+          updated_at,
+          completion_report_json
         from tasks
         where brain_session_id = $1
         order by updated_at desc
@@ -122,7 +173,8 @@ export class PostgresTaskRepository implements TaskRepository {
       normalizedGoal: row.normalized_goal,
       status: row.status,
       createdAt: row.created_at,
-      updatedAt: row.updated_at
+      updatedAt: row.updated_at,
+      completionReport: row.completion_report_json ?? undefined
     }));
   }
 
@@ -138,7 +190,8 @@ export class PostgresTaskRepository implements TaskRepository {
           status,
           created_at,
           updated_at,
-          completed_at
+          completed_at,
+          completion_report_json
         )
         select
           $1,
@@ -152,7 +205,8 @@ export class PostgresTaskRepository implements TaskRepository {
           case
             when $5 in ('completed', 'failed', 'cancelled') then $7
             else null
-          end
+          end,
+          $8::jsonb
         from brain_sessions bs
         where bs.id = $2
         on conflict (id) do update
@@ -162,7 +216,8 @@ export class PostgresTaskRepository implements TaskRepository {
           normalized_goal = excluded.normalized_goal,
           status = excluded.status,
           updated_at = excluded.updated_at,
-          completed_at = excluded.completed_at
+          completed_at = excluded.completed_at,
+          completion_report_json = excluded.completion_report_json
       `,
       [
         task.id,
@@ -171,7 +226,8 @@ export class PostgresTaskRepository implements TaskRepository {
         task.normalizedGoal,
         task.status,
         task.createdAt,
-        task.updatedAt
+        task.updatedAt,
+        task.completionReport ? JSON.stringify(task.completionReport) : null
       ]
     );
   }
