@@ -1,10 +1,9 @@
 import type {
-  ExecutorCompletionReport,
   ExecutorOutcome,
   ExecutorProgressListener,
   ExecutorRunResult
 } from "@agent/local-executor-protocol";
-import type { TaskEvent } from "@agent/shared-types";
+import type { TaskCompletionReport, TaskEvent } from "@agent/shared-types";
 
 export type GeminiCliHeadlessEventType =
   | "init"
@@ -36,17 +35,79 @@ function parseJsonObjectString(value: string): Record<string, unknown> | null {
     .replace(/\s*```$/i, "")
     .trim();
 
-  try {
-    const parsed = JSON.parse(withoutFences);
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
+  const candidates = [withoutFences];
+  const embeddedObject = findFirstJsonObject(withoutFences);
+  if (embeddedObject && embeddedObject !== withoutFences) {
+    candidates.push(embeddedObject);
   }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (isRecord(parsed)) {
+        return parsed;
+      }
+    } catch {
+      // Try next candidate.
+    }
+  }
+
+  return null;
+}
+
+function findFirstJsonObject(value: string): string | null {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (char === "{") {
+      if (depth === 0) {
+        start = index;
+      }
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      if (depth === 0) {
+        continue;
+      }
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        return value.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
 }
 
 function extractStructuredCompletionReport(
   value: string | undefined
-): ExecutorCompletionReport | undefined {
+): TaskCompletionReport | undefined {
   if (!value) {
     return undefined;
   }
@@ -138,7 +199,14 @@ function extractResultResponse(event: GeminiCliHeadlessEvent): string | undefine
     event.payload.response,
     event.payload.message,
     event.payload.text,
-    isRecord(event.payload.result) ? event.payload.result.response : undefined
+    event.payload.output,
+    event.payload.content,
+    typeof event.payload.result === "string" ? event.payload.result : undefined,
+    isRecord(event.payload.result) ? event.payload.result.response : undefined,
+    isRecord(event.payload.result) ? event.payload.result.message : undefined,
+    isRecord(event.payload.result) ? event.payload.result.text : undefined,
+    isRecord(event.payload.result) ? event.payload.result.output : undefined,
+    isRecord(event.payload.result) ? event.payload.result.content : undefined
   ]);
 }
 
@@ -239,7 +307,7 @@ export async function buildExecutorResultFromGeminiCliOutput(
   const assistantMessages: string[] = [];
   let sessionId: string | undefined;
   let completionMessage: string | undefined;
-  let completionReport: ExecutorCompletionReport | undefined;
+  let completionReport: TaskCompletionReport | undefined;
   let outcome: ExecutorOutcome = "completed";
   let sawResult = false;
 
@@ -297,6 +365,12 @@ export async function buildExecutorResultFromGeminiCliOutput(
   if (!sawResult) {
     throw new Error("Gemini CLI output did not include a final result event");
   }
+
+  const assistantTranscript =
+    assistantMessages.length > 0 ? assistantMessages.join("").trim() : undefined;
+
+  completionMessage ??= assistantTranscript;
+  completionReport ??= extractStructuredCompletionReport(assistantTranscript);
 
   const finalMessage =
     outcome === "waiting_input" || outcome === "approval_required"

@@ -55,6 +55,12 @@ describe("parseGeminiCliOutput", () => {
 describe("buildExecutorResultFromGeminiCliOutput", () => {
   it("maps tool events to progress and result to completion", async () => {
     const onProgress = vi.fn();
+    const structuredReport = JSON.stringify({
+      summary: "브라우저 탭 정리를 마쳤어요",
+      verification: "verified",
+      changes: ["브라우저 탭 상태를 확인했어요"],
+      question: ""
+    });
     const parsed = parseGeminiCliOutput(
       [
         JSON.stringify({
@@ -71,7 +77,7 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
         }),
         JSON.stringify({
           type: "result",
-          response: "브라우저 탭 정리를 마쳤어요"
+          response: structuredReport
         })
       ].join("\n")
     );
@@ -89,6 +95,12 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
       "Tool finished: browser.inspect_tabs"
     ]);
     expect(result.completionEvent.message).toBe("브라우저 탭 정리를 마쳤어요");
+    expect(result.report).toEqual({
+      summary: "브라우저 탭 정리를 마쳤어요",
+      verification: "verified",
+      changes: ["브라우저 탭 상태를 확인했어요"],
+      question: undefined
+    });
     expect(onProgress).toHaveBeenCalledTimes(2);
   });
 
@@ -165,5 +177,66 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
     expect(result.completionEvent.message).toBe(
       "이 파일들을 삭제해도 되는지 확인해줘"
     );
+  });
+
+  it("extracts a structured report when JSON is embedded in extra prose", async () => {
+    const parsed = parseGeminiCliOutput(
+      [
+        JSON.stringify({
+          type: "result",
+          response:
+            '확인 결과는 아래와 같아요. {"summary":"바탕화면 항목을 확인했어요","verification":"verified","changes":["Desktop 디렉터리 항목을 읽었어요"],"question":""}'
+        })
+      ].join("\n")
+    );
+
+    const result = await buildExecutorResultFromGeminiCliOutput({
+      taskId: "task-5",
+      now: "2026-03-08T00:00:00.000Z",
+      output: parsed
+    });
+
+    expect(result.completionEvent.message).toBe("바탕화면 항목을 확인했어요");
+    expect(result.report).toEqual({
+      summary: "바탕화면 항목을 확인했어요",
+      verification: "verified",
+      changes: ["Desktop 디렉터리 항목을 읽었어요"],
+      question: undefined
+    });
+  });
+
+  it("falls back to assistant message chunks when the final result only carries status", async () => {
+    const parsed = parseGeminiCliOutput(
+      [
+        JSON.stringify({
+          type: "message",
+          role: "assistant",
+          text: '{"summary":"바탕화면 항목을 확인했어요","verification":"verified",'
+        }),
+        JSON.stringify({
+          type: "message",
+          role: "assistant",
+          text: '"changes":["Desktop 디렉터리 항목을 읽었어요"],"question":""}'
+        }),
+        JSON.stringify({
+          type: "result",
+          status: "success"
+        })
+      ].join("\n")
+    );
+
+    const result = await buildExecutorResultFromGeminiCliOutput({
+      taskId: "task-6",
+      now: "2026-03-08T00:00:00.000Z",
+      output: parsed
+    });
+
+    expect(result.completionEvent.message).toBe("바탕화면 항목을 확인했어요");
+    expect(result.report).toEqual({
+      summary: "바탕화면 항목을 확인했어요",
+      verification: "verified",
+      changes: ["Desktop 디렉터리 항목을 읽었어요"],
+      question: undefined
+    });
   });
 });

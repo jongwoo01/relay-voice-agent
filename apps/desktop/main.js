@@ -41,6 +41,78 @@ function broadcastToWindow(channel, payload) {
   mainWindow.webContents.send(channel, payload);
 }
 
+function firstString(values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function summarizeRawExecutorEvent(event) {
+  const summary = {
+    type: event?.type ?? null
+  };
+
+  if (event?.payload && typeof event.payload === "object") {
+    const payload = event.payload;
+    summary.payloadKeys = Object.keys(payload).slice(0, 12);
+    if (typeof payload.status === "string") {
+      summary.status = payload.status;
+    }
+    if (typeof payload.name === "string") {
+      summary.name = payload.name;
+    } else if (typeof payload.tool_name === "string") {
+      summary.name = payload.tool_name;
+    }
+
+    const nestedResult =
+      payload.result && typeof payload.result === "object" ? payload.result : null;
+
+    const response = firstString([
+      payload.response,
+      payload.output,
+      payload.content,
+      typeof payload.result === "string" ? payload.result : null,
+      nestedResult?.response,
+      nestedResult?.message,
+      nestedResult?.text,
+      nestedResult?.output,
+      nestedResult?.content
+    ]);
+
+    if (response) {
+      summary.responseSnippet =
+        response.length > 240 ? `${response.slice(0, 240)}...` : response;
+    }
+
+    const message =
+      typeof payload.message === "string"
+        ? payload.message
+        : typeof payload.output === "string"
+          ? payload.output
+          : null;
+    if (message) {
+      summary.messageSnippet =
+        message.length > 240 ? `${message.slice(0, 240)}...` : message;
+    }
+
+    if (
+      event?.type === "result" &&
+      !summary.responseSnippet &&
+      !summary.messageSnippet
+    ) {
+      const preview = JSON.stringify(payload);
+      summary.payloadPreview =
+        preview.length > 400 ? `${preview.slice(0, 400)}...` : preview;
+    }
+  }
+
+  return JSON.stringify(summary);
+}
+
 subscribeDesktopLog((line) => {
   broadcastToWindow("desktop:log", line);
 });
@@ -64,6 +136,11 @@ function createWindow() {
 
   runtime = DesktopSessionRuntime.create({
     executionMode: process.env.DESKTOP_EXECUTOR,
+    onRawExecutorEvent: async (event) => {
+      logDesktop(
+        `[desktop-main] raw executor event: ${summarizeRawExecutorEvent(event)}`
+      );
+    },
     onStateChange: async (state) => {
       await liveBrainBridge?.syncRuntimeContextFromState?.(state);
       broadcastToWindow("session:state-updated", state);

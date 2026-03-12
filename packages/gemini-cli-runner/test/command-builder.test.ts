@@ -21,7 +21,7 @@ describe("buildGeminiCliCommand", () => {
       command: "gemini",
       args: [
         "-p",
-        "Organize my browser tabs",
+        expect.stringContaining("User task:\nOrganize my browser tabs"),
         "--approval-mode",
         "yolo",
         "--output-format",
@@ -29,6 +29,8 @@ describe("buildGeminiCliCommand", () => {
       ],
       cwd: "/tmp"
     });
+    expect(command.args[1]).toContain("Working directory: /tmp");
+    expect(command.args[1]).toContain('"summary":"string"');
   });
 
   it("builds a resume command with -r", () => {
@@ -50,11 +52,14 @@ describe("buildGeminiCliCommand", () => {
       "-r",
       "session-123",
       "-p",
-      "Continue the tab cleanup",
+      expect.stringContaining("User task:\nContinue the tab cleanup"),
       "--approval-mode",
       "yolo",
       "--output-format",
       "stream-json"
     ]);
+    expect(command.args[3]).toContain(
+      "Working directory: current default workspace"
+    );
   });
 });
