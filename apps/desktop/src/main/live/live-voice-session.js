@@ -1,10 +1,16 @@
 import {
   GoogleLiveApiTransport
 } from "@agent/agent-api";
-import { ActivityHandling, Modality } from "@google/genai";
+import {
+  ActivityHandling,
+  Behavior,
+  Modality,
+  Type
+} from "@google/genai";
 import { logDesktop } from "../debug/desktop-log.js";
 
-const SUPPORTED_LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025";
+const SUPPORTED_LIVE_MODEL =
+  process.env.LIVE_MODEL ?? "gemini-2.5-flash-native-audio-preview-12-2025";
 
 function createMetrics() {
   return {
@@ -20,6 +26,24 @@ function createMetrics() {
     lastOutputAudioAt: null,
     lastTurnCompleteAt: null,
     rawEvents: []
+  };
+}
+
+function createTurnDebug() {
+  return {
+    startedAt: null,
+    inputPartials: 0,
+    sawInputFinal: false,
+    inputFinalText: "",
+    outputTranscriptChunks: 0,
+    outputTranscriptPreview: "",
+    outputAudioChunks: 0,
+    toolCalls: [],
+    runtimeOwned: false,
+    pendingRuntimeOwnership: false,
+    waitingForInput: false,
+    interrupted: false,
+    turnComplete: false
   };
 }
 
@@ -40,27 +64,130 @@ function createInitialState() {
       summary: "아직 확인 중인 요청이 없습니다.",
       detail: ""
     },
+    runtimeContext: null,
+    runtimeGuardActive: false,
+    sessionResumption: {
+      resumable: false,
+      handle: null,
+      lastConsumedClientMessageIndex: null
+    },
     metrics: createMetrics()
   };
 }
 
-function createPersonaInstruction() {
-  return [
-    "You are Desktop Companion, a lively desktop voice assistant.",
-    "Keep responses short, playful, and helpful.",
-    "Most replies should be one sentence, and never exceed two short sentences.",
-    "React with quick confidence first, then add one useful detail if needed.",
+function supportsLiveTools(model) {
+  return Boolean(model);
+}
+
+function supportsSessionManagementFeatures(model) {
+  return !/native-audio-preview/i.test(model);
+}
+
+function createPersonaInstruction({ toolEnabled }) {
+  const lines = [
+    "You are Desktop Companion, a concise desktop voice assistant.",
+    "Keep responses calm, direct, and brief.",
+    "Most replies must be one short sentence. Never exceed two short sentences.",
+    "Do not be proactive, playful, or chatty unless the user explicitly asks for that style.",
     "If the user asks about the current state of local files, folders, apps, browser tabs, or anything on this machine, never guess or invent specifics.",
     "For local-machine questions, say you will check first, then wait for the task/result flow instead of pretending you already know the answer.",
     "Do not claim that files were moved, renamed, deleted, summarized, or organized unless the task/executor result explicitly confirmed it.",
     "If the user interrupts, stop cleanly and pivot to the new request immediately.",
-    "For task acknowledgements, sound upbeat and brief.",
-    "For task completion, say what finished, the result in one line, and one suggested next step."
-  ].join(" ");
+    "For greetings or small talk, reply once and stop. Do not add follow-up questions unless the user asked for suggestions.",
+    "For task acknowledgements, give one short acknowledgement and stop.",
+    "When a delegated task is still running, do not volunteer extra updates. Only answer if the user asks.",
+    "When a delegated task completes, report the grounded result once and stop. Do not repeat the same result unless the user asks again.",
+    "After a grounded task result, do not add suggestions or extra questions unless the user explicitly asks."
+  ];
+
+  if (toolEnabled) {
+    lines.splice(
+      6,
+      0,
+      "When local-machine work, task follow-up, or task status is needed, call delegate_to_gemini_cli instead of answering from memory."
+    );
+  } else {
+    lines.splice(
+      6,
+      0,
+      "When local-machine work, task follow-up, or task status is needed, say you will check first and rely on the runtime task flow instead of answering from memory."
+    );
+  }
+
+  return lines.join(" ");
+}
+
+function createDelegateToGeminiCliTool() {
+  return {
+    functionDeclarations: [
+      {
+        name: "delegate_to_gemini_cli",
+        description:
+          "Delegate local machine work, task follow-up, or task status checks to the Gemini CLI runtime.",
+        behavior: Behavior.NON_BLOCKING,
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            request: {
+              type: Type.STRING,
+              description:
+                "Natural-language request to pass to the Gemini CLI runtime."
+            }
+          },
+          required: ["request"]
+        }
+      }
+    ]
+  };
 }
 
 function normalizeError(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function serializeForLog(value) {
+  if (value instanceof Error) {
+    return JSON.stringify({
+      name: value.name,
+      message: value.message,
+      stack: value.stack
+    });
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function summarizeConnectConfig(model, config, { toolEnabled }) {
+  return {
+    model,
+    toolEnabled,
+    sessionManagementEnabled: supportsSessionManagementFeatures(model),
+    responseModalities: config.responseModalities ?? [],
+    hasInputAudioTranscription: Boolean(config.inputAudioTranscription),
+    hasOutputAudioTranscription: Boolean(config.outputAudioTranscription),
+    hasSessionResumption: Boolean(config.sessionResumption),
+    sessionResumptionHandle: config.sessionResumption?.handle ?? null,
+    hasContextWindowCompression: Boolean(config.contextWindowCompression),
+    contextWindowCompression: config.contextWindowCompression ?? null,
+    realtimeInputConfig: config.realtimeInputConfig ?? null,
+    speechConfig: config.speechConfig ?? null,
+    systemInstructionLength:
+      typeof config.systemInstruction === "string"
+        ? config.systemInstruction.length
+        : null,
+    toolNames:
+      config.tools?.flatMap((tool) =>
+        tool.functionDeclarations?.map((declaration) => declaration.name ?? "unknown") ?? []
+      ) ?? []
+  };
 }
 
 function nowIso() {
@@ -117,6 +244,7 @@ export class LiveVoiceSession {
     this.onStateChange = options.onStateChange;
     this.onAudioChunk = options.onAudioChunk;
     this.onUserTranscriptFinal = options.onUserTranscriptFinal;
+    this.onToolCall = options.onToolCall;
     this.state = options.state ?? createInitialState();
     this.session = null;
     this.brainSessionId = null;
@@ -127,6 +255,15 @@ export class LiveVoiceSession {
     this.currentTurnPartialBuffer = "";
     this.currentTurnTranscriptHandled = false;
     this.runtimeOwnershipDecisionInFlight = false;
+    this.lastRuntimeContextSummary = "";
+    this.lastSessionResumptionHandle = null;
+    this.runtimeGuardActive = false;
+    this.toolEnabled = false;
+    this.currentTurnDebug = createTurnDebug();
+  }
+
+  prefersToolRouting() {
+    return this.toolEnabled;
   }
 
   recordRoutingHint(text) {
@@ -141,9 +278,9 @@ export class LiveVoiceSession {
       ),
       normalized
     ].slice(-6);
-    this.pendingRuntimeOwnership = this.currentTurnRoutingHints.some(
-      looksLikeForcedRuntimeHint
-    );
+    this.pendingRuntimeOwnership =
+      !this.toolEnabled &&
+      this.currentTurnRoutingHints.some(looksLikeForcedRuntimeHint);
     if (this.pendingRuntimeOwnership) {
       logDesktop(
         `[live-session] runtime-first hint armed: ${this.currentTurnRoutingHints.at(-1)}`
@@ -157,6 +294,29 @@ export class LiveVoiceSession {
     this.currentTurnPartialBuffer = "";
     this.currentTurnTranscriptHandled = false;
     this.runtimeOwnershipDecisionInFlight = false;
+  }
+
+  beginTurnDebug() {
+    this.currentTurnDebug = createTurnDebug();
+    this.currentTurnDebug.startedAt = nowIso();
+  }
+
+  summarizeCurrentTurnDebug() {
+    return {
+      startedAt: this.currentTurnDebug.startedAt,
+      inputPartials: this.currentTurnDebug.inputPartials,
+      sawInputFinal: this.currentTurnDebug.sawInputFinal,
+      inputFinalText: this.currentTurnDebug.inputFinalText,
+      outputTranscriptChunks: this.currentTurnDebug.outputTranscriptChunks,
+      outputTranscriptPreview: this.currentTurnDebug.outputTranscriptPreview,
+      outputAudioChunks: this.currentTurnDebug.outputAudioChunks,
+      toolCalls: this.currentTurnDebug.toolCalls,
+      runtimeOwned: this.currentTurnDebug.runtimeOwned,
+      pendingRuntimeOwnership: this.currentTurnDebug.pendingRuntimeOwnership,
+      waitingForInput: this.currentTurnDebug.waitingForInput,
+      interrupted: this.currentTurnDebug.interrupted,
+      turnComplete: this.currentTurnDebug.turnComplete
+    };
   }
 
   appendPartialBuffer(fragment) {
@@ -183,6 +343,10 @@ export class LiveVoiceSession {
   }
 
   async maybeHandleRuntimeFirstFromHints(reason) {
+    if (this.toolEnabled) {
+      return false;
+    }
+
     if (this.currentTurnTranscriptHandled || !this.pendingRuntimeOwnership) {
       logDesktop(
         `[live-session] runtime-first skipped from ${reason}: handled=${this.currentTurnTranscriptHandled} pending=${this.pendingRuntimeOwnership}`
@@ -322,6 +486,45 @@ export class LiveVoiceSession {
     return { ...this.state };
   }
 
+  async syncRuntimeContext(
+    summary,
+    { guardActive = false, force = false } = {}
+  ) {
+    const normalizedSummary = normalizeHintText(summary);
+    const summaryChanged = normalizedSummary !== this.lastRuntimeContextSummary;
+    const guardChanged = Boolean(guardActive) !== this.runtimeGuardActive;
+
+    this.lastRuntimeContextSummary = normalizedSummary;
+    this.runtimeGuardActive = Boolean(guardActive);
+    this.state = {
+      ...this.state,
+      runtimeContext: normalizedSummary || null,
+      runtimeGuardActive: this.runtimeGuardActive
+    };
+
+    if (
+      this.session &&
+      typeof this.session.sendContext === "function" &&
+      normalizedSummary &&
+      !this.toolEnabled &&
+      (force || summaryChanged)
+    ) {
+      this.session.sendContext(normalizedSummary);
+      this.appendMetricEvent("runtime context synced");
+    } else if (
+      normalizedSummary &&
+      this.toolEnabled &&
+      (force || summaryChanged)
+    ) {
+      this.appendMetricEvent("runtime context stored locally");
+    } else if (!summaryChanged && !guardChanged && !force) {
+      return this.getState();
+    }
+
+    await this.publishState();
+    return this.getState();
+  }
+
   async connect(options = {}) {
     if (this.session || this.state.connecting) {
       return this.getState();
@@ -338,44 +541,71 @@ export class LiveVoiceSession {
     await this.publishState();
 
     try {
+      const model = options.model ?? SUPPORTED_LIVE_MODEL;
+      const toolEnabled = supportsLiveTools(model);
+      this.toolEnabled = toolEnabled;
+      const sessionManagementEnabled = supportsSessionManagementFeatures(model);
+      const connectConfig = {
+        responseModalities: [Modality.AUDIO],
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
+        thinkingConfig: {
+          thinkingBudget: 0
+        },
+        realtimeInputConfig: {
+          activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+          automaticActivityDetection: {
+            disabled: false,
+            startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
+            endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
+            prefixPaddingMs: 240,
+            silenceDurationMs: 100
+          }
+        },
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: "Zephyr"
+            }
+          }
+        },
+        ...(sessionManagementEnabled
+          ? {
+              sessionResumption: {
+                handle: this.lastSessionResumptionHandle ?? undefined
+              },
+              contextWindowCompression: {
+                triggerTokens: "24000"
+              }
+            }
+          : {}),
+        ...(toolEnabled ? { tools: [createDelegateToGeminiCliTool()] } : {}),
+        systemInstruction: createPersonaInstruction({ toolEnabled })
+      };
+      logDesktop(
+        `[live-session] connect config: ${serializeForLog(
+          summarizeConnectConfig(model, connectConfig, { toolEnabled })
+        )}`
+      );
       this.session = await this.transport.connect({
         brainSessionId: this.brainSessionId,
         apiKey: options.apiKey,
-        model: options.model ?? SUPPORTED_LIVE_MODEL,
-        config: {
-          responseModalities: [Modality.AUDIO],
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
-          thinkingConfig: {
-            thinkingBudget: 0
-          },
-          realtimeInputConfig: {
-            activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
-            automaticActivityDetection: {
-              disabled: false,
-              startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
-              endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
-              prefixPaddingMs: 240,
-              silenceDurationMs: 100
-            }
-          },
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: "Zephyr"
-              }
-            }
-          },
-          systemInstruction: createPersonaInstruction()
-        },
+        model,
+        config: connectConfig,
         callbacks: {
           onopen: () => {
             void this.handleOpen();
           },
           onclose: (info) => {
+            logDesktop(
+              `[live-session] transport close: ${serializeForLog(info)}`
+            );
             void this.handleClose(info?.reason);
           },
           onerror: (error) => {
+            logDesktop(
+              `[live-session] transport error: ${serializeForLog(error)}`
+            );
             void this.handleError(error);
           },
           onevent: async (event) => {
@@ -384,9 +614,31 @@ export class LiveVoiceSession {
         }
       });
 
+      if (
+        sessionManagementEnabled &&
+        this.lastRuntimeContextSummary &&
+        typeof this.session.sendContext === "function" &&
+        !this.toolEnabled
+      ) {
+        this.session.sendContext(this.lastRuntimeContextSummary);
+        this.appendMetricEvent("runtime context restored");
+      }
+
+      this.state = {
+        ...this.state,
+        runtimeContext: this.lastRuntimeContextSummary || null,
+        runtimeGuardActive: this.runtimeGuardActive,
+        sessionResumption: {
+          ...this.state.sessionResumption,
+          handle: this.lastSessionResumptionHandle,
+          resumable: Boolean(this.lastSessionResumptionHandle)
+        }
+      };
+
       return this.getState();
     } catch (error) {
       this.session = null;
+      this.toolEnabled = false;
       this.outputTranscriptChunks = [];
       this.runtimeOwnedTurn = false;
       this.clearRoutingHints();
@@ -407,10 +659,18 @@ export class LiveVoiceSession {
       this.session.close();
       this.session = null;
     }
+    this.toolEnabled = false;
 
     this.state = {
       ...createInitialState(),
-      muted: this.state.muted
+      muted: this.state.muted,
+      runtimeContext: this.lastRuntimeContextSummary || null,
+      runtimeGuardActive: this.runtimeGuardActive,
+      sessionResumption: {
+        ...this.state.sessionResumption,
+        handle: this.lastSessionResumptionHandle,
+        resumable: Boolean(this.lastSessionResumptionHandle)
+      }
     };
     this.outputTranscriptChunks = [];
     this.runtimeOwnedTurn = false;
@@ -551,6 +811,8 @@ export class LiveVoiceSession {
     this.runtimeOwnedTurn = true;
     this.pendingRuntimeOwnership = false;
     this.outputTranscriptChunks = [];
+    this.currentTurnDebug.runtimeOwned = true;
+    this.currentTurnDebug.pendingRuntimeOwnership = false;
   }
 
   releaseCurrentTurnOwnership() {
@@ -561,6 +823,19 @@ export class LiveVoiceSession {
   endAudioStream() {
     this.session?.sendAudioStreamEnd?.();
     this.appendMetricEvent("audio stream end sent");
+  }
+
+  async sendToolResponses(functionResponses) {
+    if (!this.session?.sendToolResponse) {
+      return this.getState();
+    }
+
+    this.session.sendToolResponse({
+      functionResponses
+    });
+    this.appendMetricEvent("tool response sent");
+    await this.publishState();
+    return this.getState();
   }
 
   async applyServerInterrupt() {
@@ -620,12 +895,27 @@ export class LiveVoiceSession {
     });
     if (this.state.sentAudioChunkCount === 1) {
       this.appendMetricEvent("audio chunk stream started", sentAt);
+      logDesktop(
+        `[live-session] first audio chunk sent: ${serializeForLog({
+          mimeType,
+          base64Length: audioData.length
+        })}`
+      );
       void this.publishState();
+    } else if (this.state.sentAudioChunkCount <= 3) {
+      logDesktop(
+        `[live-session] audio chunk sent: ${serializeForLog({
+          index: this.state.sentAudioChunkCount,
+          mimeType,
+          base64Length: audioData.length
+        })}`
+      );
     }
   }
 
   async handleOpen() {
     const openedAt = nowIso();
+    this.beginTurnDebug();
     this.state = {
       ...this.state,
       connected: true,
@@ -641,7 +931,13 @@ export class LiveVoiceSession {
   }
 
   async handleClose(reason) {
+    logDesktop(
+      `[live-session] turn summary before close: ${serializeForLog(
+        this.summarizeCurrentTurnDebug()
+      )}`
+    );
     this.session = null;
+    this.toolEnabled = false;
     this.releaseCurrentTurnOwnership();
     this.clearRoutingHints();
     const closedAt = nowIso();
@@ -674,10 +970,20 @@ export class LiveVoiceSession {
   async handleEvent(event) {
     switch (event.type) {
       case "raw_server_message":
+        logDesktop(`[live-session] raw server: ${event.summary}`);
         await this.publishState();
         return;
       case "input_transcription_partial":
+        if (!this.currentTurnDebug.startedAt) {
+          this.beginTurnDebug();
+        }
         this.releaseCurrentTurnOwnership();
+        if (this.runtimeGuardActive && !this.toolEnabled) {
+          this.pendingRuntimeOwnership = true;
+        }
+        this.currentTurnDebug.inputPartials += 1;
+        this.currentTurnDebug.pendingRuntimeOwnership =
+          this.pendingRuntimeOwnership;
         this.appendPartialBuffer(event.text);
         this.recordRoutingHint(this.currentTurnPartialBuffer);
         {
@@ -711,7 +1017,17 @@ export class LiveVoiceSession {
         await this.publishState();
         return;
       case "input_transcription_final":
+        if (!this.currentTurnDebug.startedAt) {
+          this.beginTurnDebug();
+        }
         this.currentTurnTranscriptHandled = true;
+        if (this.runtimeGuardActive && !this.toolEnabled) {
+          this.pendingRuntimeOwnership = true;
+        }
+        this.currentTurnDebug.sawInputFinal = true;
+        this.currentTurnDebug.inputFinalText = event.text;
+        this.currentTurnDebug.pendingRuntimeOwnership =
+          this.pendingRuntimeOwnership;
         this.currentTurnPartialBuffer = normalizeHintText(event.text);
         this.recordRoutingHint(this.currentTurnPartialBuffer);
         {
@@ -774,6 +1090,12 @@ export class LiveVoiceSession {
         await this.publishState();
         return;
       case "output_transcription":
+        this.currentTurnDebug.outputTranscriptChunks += 1;
+        this.currentTurnDebug.outputTranscriptPreview =
+          event.text.slice(0, 240);
+        this.currentTurnDebug.pendingRuntimeOwnership =
+          this.pendingRuntimeOwnership;
+        this.currentTurnDebug.runtimeOwned = this.runtimeOwnedTurn;
         logDesktop(
           `[live-session] output_transcription received: pending=${this.pendingRuntimeOwnership} runtimeOwned=${this.runtimeOwnedTurn}`
         );
@@ -845,6 +1167,10 @@ export class LiveVoiceSession {
         await this.publishState();
         return;
       case "output_audio":
+        this.currentTurnDebug.outputAudioChunks += 1;
+        this.currentTurnDebug.pendingRuntimeOwnership =
+          this.pendingRuntimeOwnership;
+        this.currentTurnDebug.runtimeOwned = this.runtimeOwnedTurn;
         logDesktop(
           `[live-session] output_audio received: pending=${this.pendingRuntimeOwnership} runtimeOwned=${this.runtimeOwnedTurn}`
         );
@@ -887,10 +1213,12 @@ export class LiveVoiceSession {
         await this.onAudioChunk?.(event);
         return;
       case "interrupted":
+        this.currentTurnDebug.interrupted = true;
         this.releaseCurrentTurnOwnership();
         await this.applyServerInterrupt();
         return;
       case "waiting_for_input":
+        this.currentTurnDebug.waitingForInput = true;
         this.appendMetricEvent("waiting for input");
         this.state = {
           ...this.state,
@@ -903,7 +1231,70 @@ export class LiveVoiceSession {
         };
         await this.publishState();
         return;
+      case "tool_call":
+        this.currentTurnDebug.toolCalls.push(
+          ...event.functionCalls.map((call) => call.name ?? "unknown")
+        );
+        this.appendMetricEvent(
+          `tool call: ${event.functionCalls
+            .map((call) => call.name ?? "unknown")
+            .join(", ")}`
+        );
+        if (!this.onToolCall) {
+          return;
+        }
+        try {
+          const functionResponses = await this.onToolCall(event.functionCalls);
+          if (functionResponses?.length) {
+            await this.sendToolResponses(functionResponses);
+          }
+        } catch (error) {
+          const responses = event.functionCalls.map((call) => ({
+            id: call.id,
+            name: call.name ?? "delegate_to_gemini_cli",
+            response: {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : String(error)
+            }
+          }));
+          await this.sendToolResponses(responses);
+        }
+        return;
+      case "tool_call_cancellation":
+        this.appendMetricEvent(
+          `tool call cancelled: ${event.ids.join(", ")}`
+        );
+        await this.publishState();
+        return;
+      case "session_resumption_update":
+        this.lastSessionResumptionHandle = event.resumable
+          ? event.newHandle ?? null
+          : null;
+        this.state = {
+          ...this.state,
+          sessionResumption: {
+            resumable: Boolean(event.resumable),
+            handle: event.newHandle ?? null,
+            lastConsumedClientMessageIndex:
+              event.lastConsumedClientMessageIndex ?? null
+          }
+        };
+        this.appendMetricEvent(
+          event.resumable
+            ? "session resumption updated"
+            : "session resumption unavailable"
+        );
+        await this.publishState();
+        return;
       case "turn_complete":
+        this.currentTurnDebug.turnComplete = true;
+        logDesktop(
+          `[live-session] turn summary: ${serializeForLog(
+            this.summarizeCurrentTurnDebug()
+          )}`
+        );
         this.releaseCurrentTurnOwnership();
         this.clearRoutingHints();
         {
@@ -924,6 +1315,7 @@ export class LiveVoiceSession {
           }
         };
         await this.publishState();
+        this.beginTurnDebug();
         return;
       default:
         return;

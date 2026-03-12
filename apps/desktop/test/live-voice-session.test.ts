@@ -9,6 +9,8 @@ describe("live-voice-session", () => {
       callbacks = input.callbacks;
       return {
         sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
         sendRealtimeAudio: vi.fn(),
         close: vi.fn()
       };
@@ -27,6 +29,28 @@ describe("live-voice-session", () => {
     });
 
     await session.connect();
+    expect(connect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
+          tools: [
+            expect.objectContaining({
+              functionDeclarations: expect.arrayContaining([
+                expect.objectContaining({
+                  name: "delegate_to_gemini_cli",
+                  behavior: "NON_BLOCKING"
+                })
+              ])
+            })
+          ]
+        })
+      })
+    );
+    expect(connect.mock.calls[0][0].config.sessionResumption).toBeUndefined();
+    expect(
+      connect.mock.calls[0][0].config.contextWindowCompression
+    ).toBeUndefined();
     callbacks.onopen();
     await callbacks.onevent({
       type: "input_transcription_partial",
@@ -87,12 +111,127 @@ describe("live-voice-session", () => {
     expect(states.at(-1)?.outputTranscript).toBe("");
   });
 
+  it("handles live tool calls through the provided callback", async () => {
+    let callbacks;
+    const sendToolResponse = vi.fn();
+    const onToolCall = vi.fn(async (functionCalls) =>
+      functionCalls.map((call) => ({
+        id: call.id,
+        name: call.name,
+        response: {
+          output: {
+            accepted: true,
+            status: "running",
+            action: "created",
+            message: "작업을 넘겼어요."
+          }
+        }
+      }))
+    );
+    const connect = vi.fn(async (input) => {
+      callbacks = input.callbacks;
+      return {
+        sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse,
+        sendRealtimeAudio: vi.fn(),
+        close: vi.fn()
+      };
+    });
+    const session = new LiveVoiceSession({
+      transport: { connect },
+      onToolCall
+    });
+
+    await session.connect();
+    callbacks.onopen();
+    await callbacks.onevent({
+      type: "tool_call",
+      functionCalls: [
+        {
+          id: "call-1",
+          name: "delegate_to_gemini_cli",
+          args: {
+            request: "바탕화면 정리해줘"
+          }
+        }
+      ]
+    });
+
+    expect(onToolCall).toHaveBeenCalledWith([
+      {
+        id: "call-1",
+        name: "delegate_to_gemini_cli",
+        args: {
+          request: "바탕화면 정리해줘"
+        }
+      }
+    ]);
+    expect(sendToolResponse).toHaveBeenCalledWith({
+      functionResponses: [
+        {
+          id: "call-1",
+          name: "delegate_to_gemini_cli",
+          response: {
+            output: {
+              accepted: true,
+              status: "running",
+              action: "created",
+              message: "작업을 넘겼어요."
+            }
+          }
+        }
+      ]
+    });
+  });
+
+  it("includes the delegate tool when a tool-friendly model is selected", async () => {
+    const connect = vi.fn(async () => ({
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      close: vi.fn()
+    }));
+    const session = new LiveVoiceSession({
+      transport: { connect }
+    });
+
+    await session.connect({ model: "gemini-live-2.5-flash-preview" });
+
+    expect(connect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gemini-live-2.5-flash-preview",
+        config: expect.objectContaining({
+          sessionResumption: {
+            handle: undefined
+          },
+          contextWindowCompression: {
+            triggerTokens: "24000"
+          },
+          tools: [
+            expect.objectContaining({
+              functionDeclarations: expect.arrayContaining([
+                expect.objectContaining({
+                  name: "delegate_to_gemini_cli",
+                  behavior: "NON_BLOCKING"
+                })
+              ])
+            })
+          ]
+        })
+      })
+    );
+  });
+
   it("marks assistant output as interrupted when the live session reports interruption", async () => {
     let callbacks;
     const connect = vi.fn(async (input) => {
       callbacks = input.callbacks;
       return {
         sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
         sendRealtimeAudio: vi.fn(),
         close: vi.fn()
       };
@@ -144,6 +283,8 @@ describe("live-voice-session", () => {
       callbacks = input.callbacks;
       return {
         sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
         sendRealtimeAudio: vi.fn(),
         close: vi.fn()
       };
@@ -214,6 +355,8 @@ describe("live-voice-session", () => {
       callbacks = input.callbacks;
       return {
         sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
         sendRealtimeAudio: vi.fn(),
         close: vi.fn()
       };
@@ -226,6 +369,7 @@ describe("live-voice-session", () => {
 
     await session.connect();
     callbacks.onopen();
+    session.toolEnabled = false;
     await callbacks.onevent({
       type: "input_transcription_partial",
       text: "내 바탕화면에 무슨 폴더나 파일이"
@@ -273,6 +417,8 @@ describe("live-voice-session", () => {
       callbacks = input.callbacks;
       return {
         sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
         sendRealtimeAudio: vi.fn(),
         close: vi.fn()
       };
@@ -285,6 +431,7 @@ describe("live-voice-session", () => {
 
     await session.connect();
     callbacks.onopen();
+    session.toolEnabled = false;
     for (const fragment of [
       "탕",
       "화",
@@ -349,6 +496,7 @@ describe("live-voice-session", () => {
       callbacks = input.callbacks;
       return {
         sendText: vi.fn(),
+        sendContext: vi.fn(),
         sendRealtimeAudio: vi.fn(),
         close: vi.fn()
       };
@@ -360,6 +508,7 @@ describe("live-voice-session", () => {
 
     await session.connect();
     callbacks.onopen();
+    session.toolEnabled = false;
     await callbacks.onevent({
       type: "input_transcription_partial",
       text: "내 바탕화면에 무슨 폴더나 파일이 있는지"
@@ -406,6 +555,8 @@ describe("live-voice-session", () => {
     const close = vi.fn();
     const connect = vi.fn(async () => ({
       sendText,
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
       sendRealtimeAudio,
       close
     }));
@@ -443,5 +594,60 @@ describe("live-voice-session", () => {
 
     await session.disconnect();
     expect(close).toHaveBeenCalled();
+  });
+
+  it("keeps runtime context local-only for tool-enabled voice sessions", async () => {
+    let callbacks;
+    const sendContext = vi.fn();
+    const connect = vi.fn(async (input) => {
+      callbacks = input.callbacks;
+      return {
+        sendText: vi.fn(),
+        sendContext,
+        sendToolResponse: vi.fn(),
+        sendRealtimeAudio: vi.fn(),
+        close: vi.fn()
+      };
+    });
+    const session = new LiveVoiceSession({
+      transport: { connect }
+    });
+
+    await session.connect();
+    callbacks.onopen();
+    await session.syncRuntimeContext(
+      'Runtime status: task "브라우저 정리" is still running.',
+      { guardActive: true }
+    );
+    await callbacks.onevent({
+      type: "session_resumption_update",
+      newHandle: "resume-123",
+      resumable: true,
+      lastConsumedClientMessageIndex: "9"
+    });
+    await session.disconnect();
+    await session.connect();
+
+    expect(sendContext).not.toHaveBeenCalled();
+    expect(connect).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          inputAudioTranscription: {},
+          outputAudioTranscription: {}
+        })
+      })
+    );
+    expect(connect.mock.calls.at(-1)[0].config.sessionResumption).toBeUndefined();
+    expect(
+      connect.mock.calls.at(-1)[0].config.contextWindowCompression
+    ).toBeUndefined();
+    const state = await session.getState();
+    expect(state.runtimeGuardActive).toBe(true);
+    expect(state.runtimeContext).toContain('task "브라우저 정리"');
+    expect(state.sessionResumption).toEqual({
+      resumable: true,
+      handle: "resume-123",
+      lastConsumedClientMessageIndex: "9"
+    });
   });
 });

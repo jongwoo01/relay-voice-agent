@@ -285,6 +285,18 @@ export class DesktopSessionRuntime {
     return this.intentResolver.resolve(text.trim());
   }
 
+  async handleDelegateToGeminiCli(input) {
+    const result = await this.loop.handleDelegateToGeminiCli({
+      brainSessionId: this.brainSessionId,
+      ...input
+    });
+
+    return {
+      result,
+      state: await this.collectState()
+    };
+  }
+
   recordCanonicalTurn({ text, source, createdAt }) {
     const normalizedText = text.trim();
     if (!normalizedText) {

@@ -47,7 +47,7 @@ describe("live-transcript-adapter", () => {
 
     await adapter.handleTranscript({
       brainSessionId: "brain-1",
-      text: "브라우저 탭 정리해줘",
+      text: "바탕화면 파일들을 종류별로 정리해줘",
       createdAt: "2026-03-08T00:00:00.000Z",
       now: "2026-03-08T00:00:00.000Z",
       isFinal: false
@@ -61,7 +61,7 @@ describe("live-transcript-adapter", () => {
       isFinal: true
     });
 
-    expect(result.finalizedUtterance?.text).toBe("브라우저 탭 정리해줘");
+    expect(result.finalizedUtterance?.text).toBe("바탕화면 파일들을 종류별로 정리해줘");
     expect(result.assistant?.tone).toBe("task_ack");
     expect(result.task?.status).toBe("running");
   });

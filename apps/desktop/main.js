@@ -65,6 +65,7 @@ function createWindow() {
   runtime = DesktopSessionRuntime.create({
     executionMode: process.env.DESKTOP_EXECUTOR,
     onStateChange: async (state) => {
+      await liveBrainBridge?.syncRuntimeContextFromState?.(state);
       broadcastToWindow("session:state-updated", state);
     }
   });
@@ -82,6 +83,14 @@ function createWindow() {
         }`
       );
       return liveBrainBridge.handleFinalTranscript(text, context);
+    },
+    onToolCall: async (functionCalls) => {
+      logDesktop(
+        `[desktop-main] live tool call: ${functionCalls
+          .map((call) => call.name ?? "unknown")
+          .join(", ")}`
+      );
+      return liveBrainBridge.handleToolCalls(functionCalls);
     }
   });
   liveBrainBridge = createLiveBrainBridge({ runtime, liveVoiceSession });

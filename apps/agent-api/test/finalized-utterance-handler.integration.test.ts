@@ -39,7 +39,7 @@ describe("finalized-utterance-handler", () => {
 
     const result = await handler.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("브라우저 탭 정리해줘", "task_request"),
+      utterance: utterance("바탕화면 파일들을 종류별로 정리해줘", "task_request"),
       activeTasks: [],
       now: "2026-03-08T00:00:00.000Z"
     });
