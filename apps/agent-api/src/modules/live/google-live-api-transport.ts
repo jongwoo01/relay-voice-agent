@@ -1,6 +1,8 @@
 import {
   GoogleGenAI,
   type Content,
+  type FunctionCall,
+  type FunctionResponse,
   type LiveCallbacks,
   type LiveConnectConfig,
   type LiveServerMessage
@@ -11,7 +13,8 @@ import {
   type LiveSessionTurnResult
 } from "./live-session-controller.js";
 
-export const DEFAULT_LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025";
+export const DEFAULT_LIVE_MODEL =
+  process.env.LIVE_MODEL ?? "gemini-2.5-flash-native-audio-preview-12-2025";
 
 export type GoogleLiveTransportEvent =
   | { type: "raw_server_message"; summary: string }
@@ -25,9 +28,17 @@ export type GoogleLiveTransportEvent =
   | { type: "output_audio"; data: string; mimeType: string }
   | { type: "model_text"; text: string }
   | { type: "output_transcription"; text: string; finished: boolean }
+  | { type: "tool_call"; functionCalls: FunctionCall[] }
+  | { type: "tool_call_cancellation"; ids: string[] }
   | { type: "interrupted" }
   | { type: "turn_complete" }
   | { type: "waiting_for_input" }
+  | {
+      type: "session_resumption_update";
+      newHandle?: string;
+      resumable?: boolean;
+      lastConsumedClientMessageIndex?: string;
+    }
   | { type: "go_away"; timeLeft?: string };
 
 export interface GoogleLiveCloseInfo {
@@ -53,6 +64,10 @@ export interface GoogleLiveApiTransportConnectInput {
 
 export interface GoogleLiveSessionTransport {
   sendText(text: string, turnComplete?: boolean): void;
+  sendContext(text: string): void;
+  sendToolResponse(params: {
+    functionResponses: FunctionResponse | FunctionResponse[];
+  }): void;
   sendRealtimeText(text: string): void;
   sendRealtimeAudio(audioData: string, mimeType?: string): void;
   sendActivityStart(): void;
@@ -63,6 +78,9 @@ export interface GoogleLiveSessionTransport {
 
 export interface GoogleLiveSdkSessionLike {
   sendClientContent(params: { turns: Content[]; turnComplete?: boolean }): void;
+  sendToolResponse(params: {
+    functionResponses: FunctionResponse | FunctionResponse[];
+  }): void;
   sendRealtimeInput(params: {
     text?: string;
     audio?: { data: string; mimeType: string };
@@ -154,6 +172,12 @@ function summarizeServerMessage(message: LiveServerMessage): string {
     interrupted: message.serverContent?.interrupted ?? false,
     waitingForInput: message.serverContent?.waitingForInput ?? false,
     turnComplete: message.serverContent?.turnComplete ?? false,
+    toolCalls:
+      message.toolCall?.functionCalls?.map((call) => ({
+        id: call.id ?? null,
+        name: call.name ?? null
+      })) ?? [],
+    toolCallCancellationIds: message.toolCallCancellation?.ids ?? [],
     goAway: message.goAway ?? null
   };
 
@@ -218,6 +242,25 @@ export class GoogleLiveApiTransport {
           ],
           turnComplete
         });
+      },
+      sendContext(text: string) {
+        const normalizedText = text.trim();
+        if (!normalizedText) {
+          return;
+        }
+
+        session.sendClientContent({
+          turns: [
+            {
+              role: "user",
+              parts: [{ text: `[Runtime context]\n${normalizedText}` }]
+            }
+          ],
+          turnComplete: false
+        });
+      },
+      sendToolResponse(params) {
+        session.sendToolResponse(params);
       },
       sendRealtimeText(text: string) {
         session.sendRealtimeInput({ text });
@@ -325,6 +368,30 @@ export class GoogleLiveApiTransport {
 
     if (message.serverContent?.turnComplete) {
       await callbacks?.onevent?.({ type: "turn_complete" });
+    }
+
+    if ((message.toolCall?.functionCalls?.length ?? 0) > 0) {
+      await callbacks?.onevent?.({
+        type: "tool_call",
+        functionCalls: message.toolCall?.functionCalls ?? []
+      });
+    }
+
+    if ((message.toolCallCancellation?.ids?.length ?? 0) > 0) {
+      await callbacks?.onevent?.({
+        type: "tool_call_cancellation",
+        ids: message.toolCallCancellation?.ids ?? []
+      });
+    }
+
+    if (message.sessionResumptionUpdate) {
+      await callbacks?.onevent?.({
+        type: "session_resumption_update",
+        newHandle: message.sessionResumptionUpdate.newHandle,
+        resumable: message.sessionResumptionUpdate.resumable,
+        lastConsumedClientMessageIndex:
+          message.sessionResumptionUpdate.lastConsumedClientMessageIndex
+      });
     }
 
     if (message.goAway) {

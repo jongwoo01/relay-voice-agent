@@ -133,6 +133,12 @@ export { TextRealtimeSessionLoop } from "./modules/realtime/text-realtime-sessio
 export { TaskExecutionService } from "./modules/tasks/task-execution-service.js";
 export { TaskRuntime } from "./modules/tasks/task-runtime.js";
 export {
+  DelegateToGeminiCliService,
+  type DelegateToGeminiCliInput,
+  type DelegateToGeminiCliMode,
+  type DelegateToGeminiCliResult
+} from "./modules/tasks/delegate-to-gemini-cli-service.js";
+export {
   buildAssistantFollowUpMessage,
   type BuildAssistantFollowUpInput
 } from "./modules/tasks/task-event-announcer.js";

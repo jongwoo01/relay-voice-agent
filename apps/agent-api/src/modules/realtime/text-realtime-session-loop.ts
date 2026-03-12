@@ -24,6 +24,11 @@ import { RealtimeGatewayService } from "./realtime-gateway-service.js";
 import { TaskExecutionService } from "../tasks/task-execution-service.js";
 import { TaskRuntime } from "../tasks/task-runtime.js";
 import {
+  DelegateToGeminiCliService,
+  type DelegateToGeminiCliInput,
+  type DelegateToGeminiCliResult
+} from "../tasks/delegate-to-gemini-cli-service.js";
+import {
   createInMemorySessionPersistence,
   type SessionPersistence
 } from "../persistence/session-persistence.js";
@@ -53,6 +58,7 @@ export class TextRealtimeSessionLoop {
   private readonly taskEventRepository: TaskEventRepository;
   private readonly taskExecutorSessionRepository: TaskExecutorSessionRepository;
   private readonly taskExecutionService: TaskExecutionService;
+  private readonly delegateToGeminiCliService: DelegateToGeminiCliService;
   private readonly gateway: RealtimeGatewayService;
   private readonly persistDirectAssistantReplies: boolean;
 
@@ -97,6 +103,21 @@ export class TextRealtimeSessionLoop {
           await this.onAssistantMessage(followUpMessage);
         }
       }
+    );
+    this.delegateToGeminiCliService = new DelegateToGeminiCliService(
+      this.taskRepository,
+      this.taskEventRepository,
+      this.taskExecutionService,
+      async ({ brainSessionId, request, now }) =>
+        this.handleTurn({
+          brainSessionId,
+          utterance: {
+            text: request,
+            intent: "task_request",
+            createdAt: now
+          },
+          now
+        })
     );
     this.persistDirectAssistantReplies =
       options.persistDirectAssistantReplies ?? true;
@@ -209,5 +230,11 @@ export class TextRealtimeSessionLoop {
 
   async waitForBackgroundWork(): Promise<void> {
     await this.taskExecutionService.waitForAll();
+  }
+
+  async handleDelegateToGeminiCli(
+    input: DelegateToGeminiCliInput
+  ): Promise<DelegateToGeminiCliResult> {
+    return this.delegateToGeminiCliService.handle(input);
   }
 }
