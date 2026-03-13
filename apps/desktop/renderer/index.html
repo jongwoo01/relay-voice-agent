@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f2ea" />
     <title>Gemini Live Agent Desktop</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -11,25 +12,29 @@
       <section class="panel conversation-panel">
         <header class="panel-header">
           <div>
-            <p class="eyebrow">Conversation</p>
-            <h1>Desktop Companion</h1>
-            <p id="runtime-meta" class="runtime-meta">shell booting...</p>
-            <p id="input-status" class="input-status">idle</p>
+            <p class="eyebrow">Desktop Companion</p>
+            <h1>Unified Conversation</h1>
+            <p id="runtime-meta" class="runtime-meta" aria-live="polite">
+              shell booting…
+            </p>
+            <p id="input-status" class="input-status" aria-live="polite">idle</p>
           </div>
           <div class="header-actions">
-            <span id="executor-badge" class="executor-badge">executor: unknown</span>
+            <span id="executor-badge" class="executor-badge">executor=unknown</span>
             <span id="mic-state" class="mic-state">idle</span>
             <button id="mic-toggle" type="button" class="mic-toggle">Mic On</button>
             <span id="user-speaking-state" class="status-pill">User Idle</span>
             <span id="assistant-speaking-state" class="status-pill">Assistant Idle</span>
           </div>
         </header>
-        <p id="runtime-error" class="runtime-error" hidden></p>
-        <section class="voice-panel">
+
+        <p id="runtime-error" class="runtime-error" aria-live="polite" hidden></p>
+
+        <section class="control-strip">
           <div class="voice-panel-header">
             <div>
-              <p class="eyebrow">Live Companion</p>
-              <h2>Talk And Delegate</h2>
+              <p class="eyebrow">Live Voice</p>
+              <h2>Talk Or Type</h2>
             </div>
             <span id="live-status-badge" class="executor-badge">voice: idle</span>
           </div>
@@ -43,113 +48,121 @@
             <button id="live-hangup-button" type="button" class="voice-button danger" disabled>
               End
             </button>
-            <select id="live-mic-select" class="voice-select">
-              <option value="">Default microphone</option>
-            </select>
+            <div class="field-stack">
+              <label for="live-mic-select" class="field-label">Microphone</label>
+              <select id="live-mic-select" class="voice-select" aria-label="Voice input microphone">
+                <option value="">Default microphone</option>
+              </select>
+            </div>
           </div>
-          <p id="live-status-text" class="runtime-meta">voice preview is idle</p>
-          <div class="avatar-stream-grid">
-            <article class="voice-summary-card">
-              <p class="message-role">Main Avatar</p>
-              <p id="main-avatar-state" class="voice-summary-text empty-state">
-                아직 상태 정보가 없습니다.
-              </p>
-            </article>
-            <article class="voice-summary-card">
-              <p class="message-role">Action Path</p>
-              <p id="live-route-summary" class="voice-summary-text empty-state">
-                아직 확인 중인 요청이 없습니다.
-              </p>
-              <p id="live-route-detail" class="briefing-delivery"></p>
-            </article>
-            <article class="voice-summary-card">
-              <p class="message-role">Memory Signals</p>
-              <div id="memory-signal-list" class="signal-list">
-                <p class="empty-state">아직 기억 후보가 없습니다.</p>
-              </div>
-            </article>
-          </div>
-          <div class="voice-transcript-grid">
-            <article class="voice-transcript-card">
-              <p class="message-role">You&apos;re Saying</p>
-              <p id="live-input-partial" class="voice-transcript-text empty-state">
-                아직 입력이 없습니다.
-              </p>
-            </article>
-            <article class="voice-transcript-card">
-              <p class="message-role">Companion Reply</p>
-              <p id="live-output-transcript" class="voice-transcript-text empty-state">
-                아직 응답이 없습니다.
-              </p>
-            </article>
-          </div>
-          <div id="live-message-list" class="message-list live-message-list"></div>
-          <div class="voice-summary-grid">
-            <article class="voice-summary-card">
-              <p class="message-role">Now Working</p>
-              <p id="voice-task-summary" class="voice-summary-text empty-state">
-                아직 맡겨둔 task가 없습니다.
-              </p>
-            </article>
-            <article class="voice-summary-card">
-              <p class="message-role">Latest Briefing</p>
-              <p id="voice-briefing-summary" class="voice-summary-text empty-state">
-                아직 새 briefing이 없습니다.
-              </p>
-            </article>
-          </div>
-          <article class="voice-summary-card">
-            <p class="message-role">Task Intake</p>
-            <p id="voice-intake-summary" class="voice-summary-text empty-state">
-              지금 보충 질문 중인 작업이 없습니다.
-            </p>
-          </article>
-          <article class="voice-summary-card flow-trace-card">
-            <p class="message-role">Flow Trace</p>
-            <pre id="flow-trace-log" class="executor-debug-log flow-trace-log"></pre>
-          </article>
-          <details class="debug-panel">
-            <summary>Debug Telemetry</summary>
-            <pre id="live-debug-log" class="executor-debug-log"></pre>
-          </details>
+          <p id="live-status-text" class="runtime-meta" aria-live="polite">
+            voice preview is idle
+          </p>
         </section>
+
+        <section class="conversation-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Chat Feed</p>
+              <h2>Turn Timeline</h2>
+            </div>
+          </div>
+          <div id="conversation-feed" class="conversation-feed"></div>
+        </section>
+
         <form id="composer" class="composer">
-          <textarea
-            id="prompt"
-            rows="3"
-            placeholder="메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"
-          ></textarea>
-          <button type="submit">Send</button>
+          <div class="field-stack composer-field">
+            <label for="prompt" class="field-label">Message</label>
+            <textarea
+              id="prompt"
+              name="prompt"
+              rows="3"
+              autocomplete="off"
+              placeholder="메시지를 입력하세요… (Enter 전송, Shift+Enter 줄바꿈)"
+            ></textarea>
+          </div>
+          <button type="submit" class="composer-submit">Send</button>
         </form>
-        <details class="secondary-log">
-          <summary>Canonical Log</summary>
-          <div id="messages" class="message-list secondary-message-list"></div>
+
+        <details class="debug-inspector">
+          <summary>Debug Inspector</summary>
+          <div class="debug-toolbar">
+            <label class="debug-filter"><input type="checkbox" data-source-filter="transport" checked />transport</label>
+            <label class="debug-filter"><input type="checkbox" data-source-filter="live" checked />live</label>
+            <label class="debug-filter"><input type="checkbox" data-source-filter="bridge" checked />bridge</label>
+            <label class="debug-filter"><input type="checkbox" data-source-filter="runtime" checked />runtime</label>
+            <label class="debug-filter"><input type="checkbox" data-source-filter="executor" checked />executor</label>
+            <div class="field-stack debug-field">
+              <label for="debug-turn-filter" class="field-label">Turn</label>
+              <input id="debug-turn-filter" name="debug-turn-filter" type="text" autocomplete="off" placeholder="turnId filter…" />
+            </div>
+            <div class="field-stack debug-field">
+              <label for="debug-task-filter" class="field-label">Task</label>
+              <input id="debug-task-filter" name="debug-task-filter" type="text" autocomplete="off" placeholder="taskId filter…" />
+            </div>
+          </div>
+          <div id="debug-event-list" class="debug-event-list"></div>
         </details>
       </section>
 
-      <aside class="panel task-panel">
+      <aside class="panel side-panel">
         <header class="panel-header">
           <div>
-            <p class="eyebrow">Tasks</p>
-            <h2>Background Work</h2>
+            <p class="eyebrow">Workspace</p>
+            <h2>Task Workspace</h2>
           </div>
           <span id="pending-briefings-count" class="pending-count">pending briefing 0</span>
         </header>
-        <section class="briefing-panel">
-          <h3>Sub Agents</h3>
-          <div id="sub-avatar-list" class="briefing-list"></div>
+
+        <section class="side-section">
+          <h3>Companion</h3>
+          <article class="summary-card workspace-card">
+            <div class="workspace-head">
+              <div>
+                <p class="message-role">Now</p>
+                <p id="main-avatar-state" class="summary-text empty-state">아직 상태 정보가 없습니다.</p>
+              </div>
+              <span id="workspace-state-pill" class="task-runner-status-pill">idle</span>
+            </div>
+            <p id="live-route-summary" class="summary-text empty-state">아직 확인 중인 요청이 없습니다.</p>
+            <p id="live-route-detail" class="summary-detail"></p>
+            <p id="voice-intake-summary" class="summary-detail empty-state">지금 보충 질문 중인 작업이 없습니다.</p>
+          </article>
         </section>
-        <div id="tasks" class="task-list"></div>
-        <section class="briefing-panel">
-          <h3>Briefings</h3>
-          <div id="notifications" class="briefing-list"></div>
+
+        <section class="side-section">
+          <h3>Active Task Runners</h3>
+          <div id="task-runner-list" class="task-runner-grid"></div>
+          <article id="task-runner-detail-card" class="side-card task-runner-detail-card" hidden>
+            <div class="task-runner-detail-head">
+              <div>
+                <p id="task-runner-detail-label" class="message-role">Task Runner</p>
+                <h4 id="task-runner-detail-title" class="task-runner-detail-title">선택된 runner가 없습니다.</h4>
+              </div>
+              <span id="task-runner-detail-status" class="task-runner-status-pill">idle</span>
+            </div>
+            <p id="task-runner-detail-id" class="stack-subtitle"></p>
+            <p id="task-runner-detail-update" class="stack-text"></p>
+            <p id="task-runner-detail-blocking" class="stack-text" hidden></p>
+            <p id="task-runner-detail-updated-at" class="stack-subtitle"></p>
+            <p id="task-runner-detail-summary" class="stack-text" hidden></p>
+          </article>
         </section>
-        <section id="executor-debug-panel" class="briefing-panel" hidden>
-          <h3>Executor Raw Events (dev)</h3>
-          <pre id="executor-debug-log" class="executor-debug-log"></pre>
+
+        <section class="side-section">
+          <details id="task-drawer" class="task-drawer">
+            <summary>
+              <span>Task Drawer</span>
+              <span id="task-drawer-count" class="pending-count">0 items</span>
+            </summary>
+            <p id="task-drawer-description" class="summary-detail empty-state">
+              완료되거나 멈춘 작업은 여기에서 다시 확인할 수 있습니다.
+            </p>
+            <div id="task-drawer-list" class="stack-list"></div>
+          </details>
         </section>
       </aside>
     </main>
     <script type="module" src="./app.js"></script>
   </body>
-  </html>
+</html>

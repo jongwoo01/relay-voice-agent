@@ -1,11 +1,15 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { loadDotEnvFromRoot } from "@agent/agent-api";
+import {
+  createDefaultGenAiClientFactory,
+  loadDotEnvFromRoot,
+} from "@agent/agent-api";
 import { DesktopSessionRuntime } from "./src/main/session/desktop-session-runtime.js";
 import { assertTrustedSenderUrl } from "./src/main/ipc/sender-guard.js";
 import { LiveVoiceSession } from "./src/main/live/live-voice-session.js";
 import { createLiveBrainBridge } from "./src/main/integration/live-brain-bridge.js";
+import { DesktopUiStateStore } from "./src/main/ui/desktop-ui-state.js";
 import {
   clearDesktopLog,
   logDesktop,
@@ -19,10 +23,23 @@ let mainWindow;
 let runtime;
 let liveVoiceSession;
 let liveBrainBridge;
+const desktopUiState = new DesktopUiStateStore();
 
 loadDotEnvFromRoot(path.resolve(__dirname, "..", ".."));
 clearDesktopLog();
 logDesktop("[desktop-main] boot");
+try {
+  const runtimeMetadata = createDefaultGenAiClientFactory().getRuntimeMetadata();
+  logDesktop(
+    `[desktop-main] genai runtime ${JSON.stringify(runtimeMetadata)}`
+  );
+} catch (error) {
+  logDesktop(
+    `[desktop-main] genai runtime config error ${
+      error instanceof Error ? error.message : String(error)
+    }`
+  );
+}
 
 const rendererEntry = path.join(__dirname, "renderer", "index.html");
 const rendererEntryUrl = pathToFileURL(rendererEntry).toString();
@@ -39,6 +56,10 @@ function broadcastToWindow(channel, payload) {
   }
 
   mainWindow.webContents.send(channel, payload);
+}
+
+function broadcastUiState() {
+  broadcastToWindow("desktop-ui:state-updated", desktopUiState.compose());
 }
 
 function firstString(values) {
@@ -113,6 +134,34 @@ function summarizeRawExecutorEvent(event) {
   return JSON.stringify(summary);
 }
 
+function serializeErrorForLog(error) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      cause:
+        error.cause instanceof Error
+          ? {
+              name: error.cause.name,
+              message: error.cause.message,
+              stack: error.cause.stack
+            }
+          : error.cause ?? null
+    };
+  }
+
+  if (error && typeof error === "object") {
+    try {
+      return JSON.parse(JSON.stringify(error));
+    } catch {
+      return { message: String(error) };
+    }
+  }
+
+  return { message: String(error) };
+}
+
 subscribeDesktopLog((line) => {
   broadcastToWindow("desktop:log", line);
 });
@@ -140,15 +189,34 @@ function createWindow() {
       logDesktop(
         `[desktop-main] raw executor event: ${summarizeRawExecutorEvent(event)}`
       );
+      desktopUiState.appendDebugEvent({
+        source: "executor",
+        kind: event?.type ?? "executor_event",
+        summary: event?.type ?? "executor event",
+        detail: summarizeRawExecutorEvent(event)
+      });
+      broadcastUiState();
+    },
+    onDebugEvent: async (event) => {
+      desktopUiState.appendDebugEvent(event);
+      broadcastUiState();
     },
     onStateChange: async (state) => {
+      desktopUiState.setSessionState(state);
       await liveBrainBridge?.syncRuntimeContextFromState?.(state);
       broadcastToWindow("session:state-updated", state);
+      broadcastUiState();
     }
   });
   liveVoiceSession = new LiveVoiceSession({
+    onDebugEvent: async (event) => {
+      desktopUiState.appendDebugEvent(event);
+      broadcastUiState();
+    },
     onStateChange: async (state) => {
+      desktopUiState.setLiveState(state);
       broadcastToWindow("live:state-updated", state);
+      broadcastUiState();
     },
     onAudioChunk: async (event) => {
       broadcastToWindow("live:audio-chunk", event);
@@ -206,7 +274,10 @@ app.whenReady().then(() => {
   ipcMain.handle("session:init", async (event) => {
     assertTrustedSender(event);
     logDesktop("[desktop-main] session:init");
-    return runtime.init();
+    const state = await runtime.init();
+    desktopUiState.setSessionState(state);
+    broadcastUiState();
+    return state;
   });
   ipcMain.handle("session:send", async (_event, text) => {
     assertTrustedSender(_event);
@@ -233,12 +304,34 @@ app.whenReady().then(() => {
   ipcMain.handle("live:init", async (event) => {
     assertTrustedSender(event);
     logDesktop("[desktop-main] live:init");
-    return liveVoiceSession.getState();
+    const state = await liveVoiceSession.getState();
+    desktopUiState.setLiveState(state);
+    broadcastUiState();
+    return state;
+  });
+  ipcMain.handle("desktop-ui:init", async (event) => {
+    assertTrustedSender(event);
+    const [sessionState, liveState] = await Promise.all([
+      runtime.init(),
+      liveVoiceSession.getState()
+    ]);
+    desktopUiState.setSessionState(sessionState);
+    desktopUiState.setLiveState(liveState);
+    return desktopUiState.compose();
   });
   ipcMain.handle("live:connect", async (event) => {
     assertTrustedSender(event);
     logDesktop("[desktop-main] live:connect");
-    return liveVoiceSession.connect();
+    try {
+      return await liveVoiceSession.connect();
+    } catch (error) {
+      logDesktop(
+        `[desktop-main] live:connect failed ${JSON.stringify(
+          serializeErrorForLog(error)
+        )}`
+      );
+      throw error;
+    }
   });
   ipcMain.handle("live:disconnect", async (event) => {
     assertTrustedSender(event);
