@@ -3,8 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f6f2ea" />
-    <title>Gemini Live Agent Desktop</title>
+    <meta name="theme-color" content="#131314" />
+    <title>Gemini Live Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Google+Sans+Text:wght@400;500;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -31,33 +34,47 @@
         <p id="runtime-error" class="runtime-error" aria-live="polite" hidden></p>
 
         <section class="control-strip">
-          <div class="voice-panel-header">
-            <div>
-              <p class="eyebrow">Live Voice</p>
-              <h2>Talk Or Type</h2>
+          <div class="voice-strip-layout">
+            <div class="live-avatar" id="live-avatar">
+              <div class="live-avatar-face">
+                <div class="live-avatar-mouth"></div>
+                <span class="cheek-left"></span>
+                <span class="cheek-right"></span>
+              </div>
+              <div class="live-avatar-waves">
+                <span></span><span></span><span></span>
+              </div>
             </div>
-            <span id="live-status-badge" class="executor-badge">voice: idle</span>
-          </div>
-          <div class="voice-controls">
-            <button id="live-connect-button" type="button" class="voice-button primary">
-              Start Voice
-            </button>
-            <button id="live-mute-button" type="button" class="voice-button" disabled>
-              Mute
-            </button>
-            <button id="live-hangup-button" type="button" class="voice-button danger" disabled>
-              End
-            </button>
-            <div class="field-stack">
-              <label for="live-mic-select" class="field-label">Microphone</label>
-              <select id="live-mic-select" class="voice-select" aria-label="Voice input microphone">
-                <option value="">Default microphone</option>
-              </select>
+            <div class="voice-strip-content">
+              <div class="voice-panel-header">
+                <div>
+                  <p class="eyebrow">Live Voice</p>
+                  <h2>Talk Or Type</h2>
+                </div>
+                <span id="live-status-badge" class="executor-badge">voice: idle</span>
+              </div>
+              <div class="voice-controls">
+                <button id="live-connect-button" type="button" class="voice-button primary">
+                  Start Voice
+                </button>
+                <button id="live-mute-button" type="button" class="voice-button" disabled>
+                  Mute
+                </button>
+                <button id="live-hangup-button" type="button" class="voice-button danger" disabled>
+                  End
+                </button>
+                <div class="field-stack mic-field">
+                  <label for="live-mic-select" class="field-label">Mic</label>
+                  <select id="live-mic-select" class="voice-select" aria-label="Voice input microphone">
+                    <option value="">Default microphone</option>
+                  </select>
+                </div>
+              </div>
+              <p id="live-status-text" class="runtime-meta" aria-live="polite">
+                voice preview is idle
+              </p>
             </div>
           </div>
-          <p id="live-status-text" class="runtime-meta" aria-live="polite">
-            voice preview is idle
-          </p>
         </section>
 
         <section class="conversation-section">
@@ -117,12 +134,21 @@
         <section class="side-section">
           <h3>Companion</h3>
           <article class="summary-card workspace-card">
-            <div class="workspace-head">
-              <div>
-                <p class="message-role">Now</p>
-                <p id="main-avatar-state" class="summary-text empty-state">아직 상태 정보가 없습니다.</p>
+            <div class="main-avatar">
+              <div class="main-avatar-face">
+                <div class="main-avatar-mouth"></div>
+                <span class="cheek-left"></span>
+                <span class="cheek-right"></span>
               </div>
-              <span id="workspace-state-pill" class="task-runner-status-pill">idle</span>
+              <div class="main-avatar-info">
+                <div class="workspace-head">
+                  <div>
+                    <p class="message-role">Now</p>
+                    <p id="main-avatar-state" class="summary-text empty-state">대기 중</p>
+                  </div>
+                  <span id="workspace-state-pill" class="task-runner-status-pill">idle</span>
+                </div>
+              </div>
             </div>
             <p id="live-route-summary" class="summary-text empty-state">아직 확인 중인 요청이 없습니다.</p>
             <p id="live-route-detail" class="summary-detail"></p>
@@ -146,6 +172,10 @@
             <p id="task-runner-detail-blocking" class="stack-text" hidden></p>
             <p id="task-runner-detail-updated-at" class="stack-subtitle"></p>
             <p id="task-runner-detail-summary" class="stack-text" hidden></p>
+            <div id="task-runner-detail-execution" class="task-runner-detail-execution" hidden>
+              <p class="stack-subtitle">execution trace</p>
+              <div id="task-runner-detail-execution-list" class="task-runner-detail-execution-list"></div>
+            </div>
           </article>
         </section>
 

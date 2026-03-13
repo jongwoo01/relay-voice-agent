@@ -51,6 +51,12 @@ const taskRunnerDetailUpdatedAtEl = document.getElementById(
 const taskRunnerDetailSummaryEl = document.getElementById(
   "task-runner-detail-summary"
 );
+const taskRunnerDetailExecutionEl = document.getElementById(
+  "task-runner-detail-execution"
+);
+const taskRunnerDetailExecutionListEl = document.getElementById(
+  "task-runner-detail-execution-list"
+);
 const taskDrawerCountEl = document.getElementById("task-drawer-count");
 const taskDrawerDescriptionEl = document.getElementById(
   "task-drawer-description"
@@ -88,6 +94,16 @@ let liveUserSpeakingActive = false;
 let liveSpeechCandidateStartAt = 0;
 let promptComposing = false;
 let selectedTaskRunnerId = null;
+let scheduledUiState = null;
+let scheduledRenderFrame = null;
+const renderStateCache = {
+  chrome: null,
+  conversation: null,
+  summary: null,
+  taskRunners: null,
+  taskDrawer: null,
+  debugInspector: null
+};
 const activeAudioSources = [];
 const LIVE_INPUT_BUFFER_SIZE = 512;
 const LIVE_SPEECH_ACTIVITY_THRESHOLD = 0.03;
@@ -145,6 +161,141 @@ function formatTime(iso) {
   }
 
   return timeFormatter.format(date);
+}
+
+function buildChromeSignature(state, voiceState, inputState) {
+  return JSON.stringify({
+    brainSessionId: state.brainSessionId ?? null,
+    executionMode: state.executionMode ?? null,
+    inputInFlight: inputState.inFlight ?? false,
+    inputActiveText: inputState.activeText ?? null,
+    micMode: voiceState.mic?.mode ?? null,
+    micEnabled: voiceState.mic?.enabled ?? false,
+    userSpeaking: voiceState.activity?.userSpeaking ?? false,
+    assistantSpeaking: voiceState.activity?.assistantSpeaking ?? false,
+    liveStatus: voiceState.status ?? null,
+    liveConnected: voiceState.connected ?? false,
+    liveConnecting: voiceState.connecting ?? false,
+    liveMuted: voiceState.muted ?? false,
+    liveError: voiceState.error ?? null,
+    runtimeError: state.runtimeError ?? null
+  });
+}
+
+function buildConversationSignature(state) {
+  return JSON.stringify({
+    activeTurnId: state.activeTurnId ?? null,
+    turns: (state.conversationTurns ?? []).map((turn) => ({
+      turnId: turn.turnId,
+      stage: turn.stage,
+      updatedAt: turn.updatedAt ?? null
+    })),
+    timeline: (state.conversationTimeline ?? []).map((item) => ({
+      id: item.id,
+      turnId: item.turnId,
+      text: item.text,
+      partial: item.partial,
+      streaming: item.streaming,
+      interrupted: item.interrupted,
+      taskStatus: item.taskStatus ?? null,
+      updatedAt: item.updatedAt ?? item.createdAt ?? null
+    }))
+  });
+}
+
+function buildSummarySignature(summary, voiceState) {
+  return JSON.stringify({
+    mainState: summary.avatar?.mainState ?? null,
+    taskRunnerCount: summary.avatar?.taskRunners?.length ?? 0,
+    activeStatuses: (summary.activeTasks ?? []).map((task) => ({
+      id: task.id,
+      status: task.status
+    })),
+    intake: summary.intake ?? null,
+    pendingBriefingCount: summary.pendingBriefingCount ?? 0,
+    routing: voiceState.routing ?? null
+  });
+}
+
+function buildTaskRunnerSignature(summary, debugInspector) {
+  const selectedTaskId = selectedTaskRunnerId;
+  const selectedExecutionEvents = (debugInspector?.events ?? [])
+    .filter((event) => event.source === "executor" && event.taskId === selectedTaskId)
+    .map((event) => ({
+      id: event.id,
+      createdAt: event.createdAt
+    }));
+
+  return JSON.stringify({
+    selectedTaskId,
+    taskRunners: (summary.avatar?.taskRunners ?? []).map((runner) => ({
+      taskId: runner.taskId,
+      label: runner.label,
+      title: runner.title,
+      status: runner.status,
+      progressSummary: runner.progressSummary ?? null,
+      blockingReason: runner.blockingReason ?? null,
+      lastUpdatedAt: runner.lastUpdatedAt ?? null
+    })),
+    activeTasks: (summary.activeTasks ?? []).map((task) => ({
+      id: task.id,
+      status: task.status,
+      updatedAt: task.updatedAt ?? null,
+      completionSummary: task.completionReport?.summary ?? null
+    })),
+    timelines: (summary.taskTimelines ?? []).map((timeline) => ({
+      taskId: timeline.taskId,
+      eventCount: timeline.events?.length ?? 0,
+      lastEventAt: timeline.events?.at(-1)?.createdAt ?? null
+    })),
+    selectedExecutionEvents
+  });
+}
+
+function buildTaskDrawerSignature(summary) {
+  return JSON.stringify({
+    recentTasks: (summary.recentTasks ?? []).map((task) => ({
+      id: task.id,
+      status: task.status,
+      updatedAt: task.updatedAt ?? null,
+      summary: task.completionReport?.summary ?? null,
+      verification: task.completionReport?.verification ?? null,
+      changes: task.completionReport?.changes ?? []
+    })),
+    activeTaskIds: (summary.activeTasks ?? []).map((task) => task.id),
+    timelines: (summary.taskTimelines ?? []).map((timeline) => ({
+      taskId: timeline.taskId,
+      eventCount: timeline.events?.length ?? 0,
+      lastEventAt: timeline.events?.at(-1)?.createdAt ?? null,
+      lastMessage: timeline.events?.at(-1)?.message ?? null
+    })),
+    notifications: [
+      ...(summary.notifications?.delivered ?? []),
+      ...(summary.notifications?.pending ?? [])
+    ].map((plan) => ({
+      taskId: plan.taskId ?? null,
+      reason: plan.reason ?? null,
+      delivery: plan.delivery ?? null,
+      uiText: plan.uiText ?? null,
+      createdAt: plan.createdAt ?? null
+    }))
+  });
+}
+
+function buildDebugSignature(debugInspector) {
+  return JSON.stringify({
+    filters: [...debugSourceFilters].sort(),
+    turnFilter: debugTurnFilterEl.value.trim(),
+    taskFilter: debugTaskFilterEl.value.trim(),
+    events: (debugInspector?.events ?? []).map((event) => ({
+      id: event.id,
+      createdAt: event.createdAt,
+      source: event.source,
+      kind: event.kind,
+      taskId: event.taskId ?? null,
+      turnId: event.turnId ?? null
+    }))
+  });
 }
 
 function formatLatency(fromIso, toIso) {
@@ -420,102 +571,162 @@ async function startVoiceCapture() {
   liveStatusTextEl.textContent = "microphone 연결 완료. 실시간 음성 입력 준비가 끝났습니다.";
 }
 
+function buildConversationKey(item) {
+  return `${item.turnId ?? ""}-${item.speaker}-${item.kind ?? "msg"}-${item.createdAt ?? ""}`;
+}
+
 function renderConversationFeed(state) {
   const timeline = state.conversationTimeline ?? [];
   const turnsById = new Map(
     (state.conversationTurns ?? []).map((turn) => [turn.turnId, turn])
   );
 
-  conversationFeedEl.innerHTML = "";
+  // Build a map of existing DOM nodes keyed by data-key
+  const existingByKey = new Map();
+  for (const child of [...conversationFeedEl.children]) {
+    const key = child.dataset?.key;
+    if (key) {
+      existingByKey.set(key, child);
+    }
+  }
 
   if (timeline.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "conversation-empty";
-    empty.textContent =
-      "아직 대화가 없습니다. 음성으로 말하거나 텍스트를 입력하면 같은 피드에 이어집니다.";
-    conversationFeedEl.appendChild(empty);
+    if (!conversationFeedEl.querySelector(".conversation-empty")) {
+      conversationFeedEl.innerHTML = "";
+      const empty = document.createElement("p");
+      empty.className = "conversation-empty";
+      empty.textContent =
+        "아직 대화가 없습니다. 음성으로 말하거나 텍스트를 입력하면 같은 피드에 이어집니다.";
+      conversationFeedEl.appendChild(empty);
+    }
     return;
   }
 
+  // Remove the empty-state placeholder if present
+  const emptyEl = conversationFeedEl.querySelector(".conversation-empty");
+  if (emptyEl) emptyEl.remove();
+
+  let anchorNode = conversationFeedEl.firstElementChild;
+  let shouldScroll = false;
+
   for (const item of timeline) {
-    const row = document.createElement("article");
-    row.className = `conversation-row ${item.speaker}`;
+    const key = buildConversationKey(item);
 
-    const bubble = document.createElement("div");
-    bubble.className = `conversation-bubble${
-      item.partial ? " partial" : ""
-    }${item.streaming ? " streaming" : ""}${
-      item.interrupted ? " interrupted" : ""
-    }`;
+    const existing = existingByKey.get(key);
+    let row = existing;
 
-    const meta = document.createElement("div");
-    meta.className = "conversation-meta";
+    if (existing) {
+      // PATCH existing node in-place → no flicker
+      const bubble = existing.querySelector(".conversation-bubble");
+      if (bubble) {
+        const wantClass = `conversation-bubble${item.partial ? " partial" : ""}${item.streaming ? " streaming" : ""}${item.interrupted ? " interrupted" : ""}`;
+        if (bubble.className !== wantClass) bubble.className = wantClass;
 
-    const role = document.createElement("p");
-    role.className = "message-role";
-    role.textContent =
-      item.kind === "task_event"
-        ? "task event"
-        : item.speaker === "user"
-          ? "you"
-          : item.responseSource
-            ? `assistant · ${item.responseSource}`
-            : "assistant";
-    meta.appendChild(role);
+        const textEl = bubble.querySelector(".message-text");
+        if (textEl && textEl.textContent !== item.text) {
+          textEl.textContent = item.text;
+          shouldScroll = true;
+        }
 
-    const modeChip = document.createElement("span");
-    modeChip.className = "turn-chip";
-    modeChip.textContent = item.inputMode;
-    meta.appendChild(modeChip);
+        // Update time badge
+        const timeBadges = bubble.querySelectorAll(".bubble-status");
+        const timeStr = formatTime(item.updatedAt || item.createdAt);
+        const lastBadge = timeBadges[timeBadges.length - 1];
+        if (lastBadge && lastBadge.textContent !== timeStr) {
+          lastBadge.textContent = timeStr;
+        }
+      }
+      existingByKey.delete(key);
+    } else {
+      // CREATE new row
+      row = document.createElement("article");
+      row.className = `conversation-row ${item.speaker}`;
+      row.dataset.key = key;
 
-    const turn = turnsById.get(item.turnId);
-    if (turn?.stage) {
-      const stage = document.createElement("span");
-      stage.className = "bubble-status";
-      stage.textContent = turn.stage;
-      meta.appendChild(stage);
+      const bubble = document.createElement("div");
+      bubble.className = `conversation-bubble${item.partial ? " partial" : ""}${item.streaming ? " streaming" : ""}${item.interrupted ? " interrupted" : ""}`;
+
+      const meta = document.createElement("div");
+      meta.className = "conversation-meta";
+
+      const role = document.createElement("p");
+      role.className = "message-role";
+      role.textContent =
+        item.kind === "task_event"
+          ? "task event"
+          : item.speaker === "user"
+            ? "you"
+            : item.responseSource
+              ? `assistant · ${item.responseSource}`
+              : "assistant";
+      meta.appendChild(role);
+
+      const modeChip = document.createElement("span");
+      modeChip.className = "turn-chip";
+      modeChip.textContent = item.inputMode;
+      meta.appendChild(modeChip);
+
+      const turn = turnsById.get(item.turnId);
+      if (turn?.stage) {
+        const stage = document.createElement("span");
+        stage.className = "bubble-status";
+        stage.textContent = turn.stage;
+        meta.appendChild(stage);
+      }
+
+      if (item.partial) {
+        const partial = document.createElement("span");
+        partial.className = "bubble-status";
+        partial.textContent = "partial";
+        meta.appendChild(partial);
+      }
+
+      if (item.interrupted) {
+        const interrupted = document.createElement("span");
+        interrupted.className = "bubble-status";
+        interrupted.textContent = "interrupted";
+        meta.appendChild(interrupted);
+      }
+
+      const time = document.createElement("span");
+      time.className = "bubble-status";
+      time.textContent = formatTime(item.updatedAt || item.createdAt);
+      meta.appendChild(time);
+
+      const text = document.createElement("p");
+      text.className = "message-text";
+      text.textContent = item.text;
+
+      bubble.appendChild(meta);
+      bubble.appendChild(text);
+
+      if (item.taskId || item.taskStatus) {
+        const chip = document.createElement("div");
+        chip.className = `task-chip ${item.taskStatus ?? ""}`.trim();
+        chip.textContent = item.taskId
+          ? `${item.taskId}${item.taskStatus ? ` · ${item.taskStatus}` : ""}`
+          : item.taskStatus;
+        bubble.appendChild(chip);
+      }
+
+      row.appendChild(bubble);
+      shouldScroll = true;
     }
 
-    if (item.partial) {
-      const partial = document.createElement("span");
-      partial.className = "bubble-status";
-      partial.textContent = "partial";
-      meta.appendChild(partial);
+    if (row && row !== anchorNode) {
+      conversationFeedEl.insertBefore(row, anchorNode);
     }
-
-    if (item.interrupted) {
-      const interrupted = document.createElement("span");
-      interrupted.className = "bubble-status";
-      interrupted.textContent = "interrupted";
-      meta.appendChild(interrupted);
-    }
-
-    const time = document.createElement("span");
-    time.className = "bubble-status";
-    time.textContent = formatTime(item.updatedAt || item.createdAt);
-    meta.appendChild(time);
-
-    const text = document.createElement("p");
-    text.className = "message-text";
-    text.textContent = item.text;
-
-    bubble.appendChild(meta);
-    bubble.appendChild(text);
-
-    if (item.taskId || item.taskStatus) {
-      const chip = document.createElement("div");
-      chip.className = `task-chip ${item.taskStatus ?? ""}`.trim();
-      chip.textContent = item.taskId
-        ? `${item.taskId}${item.taskStatus ? ` · ${item.taskStatus}` : ""}`
-        : item.taskStatus;
-      bubble.appendChild(chip);
-    }
-
-    row.appendChild(bubble);
-    conversationFeedEl.appendChild(row);
+    anchorNode = row?.nextElementSibling ?? null;
   }
 
-  conversationFeedEl.scrollTop = conversationFeedEl.scrollHeight;
+  // Remove stale nodes that are no longer in the timeline
+  for (const [, staleNode] of existingByKey) {
+    staleNode.remove();
+  }
+
+  if (shouldScroll) {
+    conversationFeedEl.scrollTop = conversationFeedEl.scrollHeight;
+  }
 }
 
 function renderSummaryCardState(state) {
@@ -648,6 +859,48 @@ function formatTaskRunnerStatus(status) {
     default:
       return status;
   }
+}
+
+function parseExecutorDebugDetail(detail) {
+  if (typeof detail !== "string" || !detail.trim()) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(detail);
+  } catch {
+    return null;
+  }
+}
+
+function buildExecutionTraceEntries(taskId) {
+  const events = desktopUiState?.debugInspector?.events ?? [];
+
+  return events
+    .filter((event) => event.source === "executor" && event.taskId === taskId)
+    .map((event) => {
+      const parsed = parseExecutorDebugDetail(event.detail);
+      const body =
+        parsed?.responseSnippet ??
+        parsed?.messageSnippet ??
+        parsed?.payloadPreview ??
+        event.detail ??
+        event.summary;
+      const meta = [
+        parsed?.name ? `name=${parsed.name}` : null,
+        parsed?.status ? `status=${parsed.status}` : null
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
+      return {
+        id: event.id,
+        kind: event.kind,
+        createdAt: event.createdAt,
+        body,
+        meta
+      };
+    });
 }
 
 function getTaskRunnerAccent(status) {
@@ -795,6 +1048,8 @@ function renderTaskRunnerDetail(selectedRunner) {
     taskRunnerDetailCardEl.hidden = true;
     taskRunnerDetailBlockingEl.hidden = true;
     taskRunnerDetailSummaryEl.hidden = true;
+    taskRunnerDetailExecutionEl.hidden = true;
+    taskRunnerDetailExecutionListEl.innerHTML = "";
     return;
   }
 
@@ -826,6 +1081,44 @@ function renderTaskRunnerDetail(selectedRunner) {
   } else {
     taskRunnerDetailSummaryEl.hidden = true;
     taskRunnerDetailSummaryEl.textContent = "";
+  }
+
+  const executionTrace = buildExecutionTraceEntries(selectedRunner.taskId);
+  taskRunnerDetailExecutionListEl.innerHTML = "";
+  if (executionTrace.length > 0) {
+    taskRunnerDetailExecutionEl.hidden = false;
+    for (const entry of executionTrace) {
+      const item = document.createElement("article");
+      item.className = "task-runner-detail-event";
+      item.innerHTML = `
+        <div class="task-runner-detail-event-head">
+          <p class="task-runner-detail-event-kind"></p>
+          <p class="task-runner-detail-event-time"></p>
+        </div>
+        <p class="task-runner-detail-event-text"></p>
+        <p class="task-runner-detail-event-meta"></p>
+      `;
+      item.querySelector(".task-runner-detail-event-kind").textContent =
+        entry.kind.replaceAll("_", " ");
+      item.querySelector(".task-runner-detail-event-time").textContent = formatTime(
+        entry.createdAt
+      );
+      item.querySelector(".task-runner-detail-event-text").textContent =
+        entry.body ?? "No execution detail";
+      const metaEl = item.querySelector(".task-runner-detail-event-meta");
+      if (entry.meta) {
+        metaEl.textContent = entry.meta;
+      } else {
+        metaEl.remove();
+      }
+      taskRunnerDetailExecutionListEl.appendChild(item);
+    }
+  } else {
+    taskRunnerDetailExecutionEl.hidden = false;
+    const empty = document.createElement("p");
+    empty.className = "stack-empty";
+    empty.textContent = "이 task에 연결된 executor 이벤트가 아직 없습니다.";
+    taskRunnerDetailExecutionListEl.appendChild(empty);
   }
 }
 
@@ -965,56 +1258,110 @@ function renderDebugInspector(state) {
   }
 }
 
-function renderUiState(nextState) {
+function performUiRender(nextState) {
   desktopUiState = nextState;
   const voiceState = getVoiceState();
   const inputState = desktopUiState.inputState ?? {};
+  const summary = getTaskSummary();
+  const debugInspector = desktopUiState.debugInspector ?? { events: [] };
 
-  runtimeMetaEl.textContent = `session=${desktopUiState.brainSessionId ?? "n/a"}`;
-  executorBadgeEl.textContent = `executor=${desktopUiState.executionMode ?? "unknown"}`;
-  executorBadgeEl.className = `executor-badge ${
-    desktopUiState.executionMode ?? ""
-  }`.trim();
-  inputStatusEl.textContent = inputState.inFlight
-    ? `working: ${inputState.activeText ?? ""}`
-    : "idle";
-  micStateEl.textContent = voiceState.mic?.mode ?? "idle";
-  micToggleEl.textContent = voiceState.mic?.enabled ? "Mic On" : "Mic Off";
-  userSpeakingStateEl.textContent = voiceState.activity?.userSpeaking
-    ? "User Speaking"
-    : "User Idle";
-  assistantSpeakingStateEl.textContent = voiceState.activity?.assistantSpeaking
-    ? "Assistant Speaking"
-    : "Assistant Idle";
+  const chromeSignature = buildChromeSignature(desktopUiState, voiceState, inputState);
+  if (renderStateCache.chrome !== chromeSignature) {
+    renderStateCache.chrome = chromeSignature;
 
-  liveStatusBadgeEl.textContent = voiceState.status ?? "idle";
-  liveStatusBadgeEl.className = `executor-badge ${
-    voiceState.connected ? "gemini" : ""
-  }`.trim();
-  liveStatusTextEl.textContent = voiceState.error
-    ? `voice error: ${voiceState.error}`
-    : voiceState.connecting
-      ? "Gemini Live에 연결 중입니다…"
-      : voiceState.connected
-        ? "실시간 대화를 듣고 바로 반응할 준비가 됐습니다."
-        : "라이브 대화가 아직 시작되지 않았습니다.";
+    runtimeMetaEl.textContent = `session=${desktopUiState.brainSessionId ?? "n/a"}`;
+    executorBadgeEl.textContent = `executor=${desktopUiState.executionMode ?? "unknown"}`;
+    executorBadgeEl.className = `executor-badge ${
+      desktopUiState.executionMode ?? ""
+    }`.trim();
+    inputStatusEl.textContent = inputState.inFlight
+      ? `working: ${inputState.activeText ?? ""}`
+      : "idle";
+    micStateEl.textContent = voiceState.mic?.mode ?? "idle";
+    micToggleEl.textContent = voiceState.mic?.enabled ? "Mic On" : "Mic Off";
+    userSpeakingStateEl.textContent = voiceState.activity?.userSpeaking
+      ? "User Speaking"
+      : "User Idle";
+    assistantSpeakingStateEl.textContent = voiceState.activity?.assistantSpeaking
+      ? "Assistant Speaking"
+      : "Assistant Idle";
 
-  liveConnectButtonEl.disabled = voiceState.connected || voiceState.connecting;
-  liveMuteButtonEl.disabled = !voiceState.connected;
-  liveHangupButtonEl.disabled = !voiceState.connected && !voiceState.connecting;
-  liveMuteButtonEl.textContent = voiceState.muted ? "Unmute" : "Mute";
+    liveStatusBadgeEl.textContent = voiceState.status ?? "idle";
+    liveStatusBadgeEl.className = `executor-badge ${
+      voiceState.connected ? "gemini" : ""
+    }`.trim();
+    liveStatusTextEl.textContent = voiceState.error
+      ? `voice error: ${voiceState.error}`
+      : voiceState.connecting
+        ? "Gemini Live에 연결 중입니다…"
+        : voiceState.connected
+          ? "실시간 대화를 듣고 바로 반응할 준비가 됐습니다."
+          : "라이브 대화가 아직 시작되지 않았습니다.";
 
-  if (desktopUiState.runtimeError) {
-    showRuntimeError(desktopUiState.runtimeError);
-  } else {
-    hideRuntimeError();
+    liveConnectButtonEl.disabled = voiceState.connected || voiceState.connecting;
+    liveMuteButtonEl.disabled = !voiceState.connected;
+    liveHangupButtonEl.disabled = !voiceState.connected && !voiceState.connecting;
+    liveMuteButtonEl.textContent = voiceState.muted ? "Unmute" : "Mute";
+
+    if (desktopUiState.runtimeError) {
+      showRuntimeError(desktopUiState.runtimeError);
+    } else {
+      hideRuntimeError();
+    }
+
+    const liveAvatarEl = document.getElementById("live-avatar");
+    if (liveAvatarEl) {
+      const isSpeaking =
+        voiceState.activity?.assistantSpeaking || voiceState.activity?.userSpeaking;
+      liveAvatarEl.classList.toggle("speaking", !!isSpeaking);
+    }
   }
 
-  renderConversationFeed(desktopUiState);
-  renderSummaryCardState(desktopUiState);
-  renderTaskRunnerCards();
-  renderTaskLists(desktopUiState);
-  renderDebugInspector(desktopUiState);
+  const conversationSignature = buildConversationSignature(desktopUiState);
+  if (renderStateCache.conversation !== conversationSignature) {
+    renderStateCache.conversation = conversationSignature;
+    renderConversationFeed(desktopUiState);
+  }
+
+  const summarySignature = buildSummarySignature(summary, voiceState);
+  if (renderStateCache.summary !== summarySignature) {
+    renderStateCache.summary = summarySignature;
+    renderSummaryCardState(desktopUiState);
+  }
+
+  const taskRunnerSignature = buildTaskRunnerSignature(summary, debugInspector);
+  if (renderStateCache.taskRunners !== taskRunnerSignature) {
+    renderStateCache.taskRunners = taskRunnerSignature;
+    renderTaskRunnerCards();
+  }
+
+  const taskDrawerSignature = buildTaskDrawerSignature(summary);
+  if (renderStateCache.taskDrawer !== taskDrawerSignature) {
+    renderStateCache.taskDrawer = taskDrawerSignature;
+    renderTaskLists(desktopUiState);
+  }
+
+  const debugSignature = buildDebugSignature(debugInspector);
+  if (renderStateCache.debugInspector !== debugSignature) {
+    renderStateCache.debugInspector = debugSignature;
+    renderDebugInspector(desktopUiState);
+  }
+}
+
+function renderUiState(nextState) {
+  scheduledUiState = nextState;
+  if (scheduledRenderFrame !== null) {
+    return;
+  }
+
+  scheduledRenderFrame = window.requestAnimationFrame(() => {
+    scheduledRenderFrame = null;
+    const stateToRender = scheduledUiState;
+    scheduledUiState = null;
+    if (stateToRender) {
+      performUiRender(stateToRender);
+    }
+  });
 }
 
 async function bootstrap() {

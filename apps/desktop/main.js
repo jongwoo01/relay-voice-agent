@@ -72,7 +72,25 @@ function firstString(values) {
   return null;
 }
 
-function summarizeRawExecutorEvent(event) {
+function redactSensitiveText(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    return value;
+  }
+
+  return value
+    .replace(/ya29\.[A-Za-z0-9._-]+/g, "[REDACTED_TOKEN]")
+    .replace(/1\/\/[A-Za-z0-9._-]+/g, "[REDACTED_TOKEN]")
+    .replace(
+      /"access_token"\s*:\s*"[^"]+"/gi,
+      '"access_token":"[REDACTED_TOKEN]"'
+    )
+    .replace(
+      /"refresh_token"\s*:\s*"[^"]+"/gi,
+      '"refresh_token":"[REDACTED_TOKEN]"'
+    );
+}
+
+function buildRawExecutorEventSummary(event) {
   const summary = {
     type: event?.type ?? null
   };
@@ -106,7 +124,9 @@ function summarizeRawExecutorEvent(event) {
 
     if (response) {
       summary.responseSnippet =
-        response.length > 240 ? `${response.slice(0, 240)}...` : response;
+        redactSensitiveText(
+          response.length > 160 ? `${response.slice(0, 160)}...` : response
+        );
     }
 
     const message =
@@ -117,7 +137,9 @@ function summarizeRawExecutorEvent(event) {
           : null;
     if (message) {
       summary.messageSnippet =
-        message.length > 240 ? `${message.slice(0, 240)}...` : message;
+        redactSensitiveText(
+          message.length > 160 ? `${message.slice(0, 160)}...` : message
+        );
     }
 
     if (
@@ -125,13 +147,30 @@ function summarizeRawExecutorEvent(event) {
       !summary.responseSnippet &&
       !summary.messageSnippet
     ) {
-      const preview = JSON.stringify(payload);
+      const preview = redactSensitiveText(JSON.stringify(payload));
       summary.payloadPreview =
-        preview.length > 400 ? `${preview.slice(0, 400)}...` : preview;
+        preview.length > 220 ? `${preview.slice(0, 220)}...` : preview;
     }
   }
 
-  return JSON.stringify(summary);
+  return summary;
+}
+
+function summarizeRawExecutorEvent(event) {
+  return JSON.stringify(buildRawExecutorEventSummary(event));
+}
+
+function shouldLogRawExecutorEvent(event, summary) {
+  if (!event || typeof event !== "object") {
+    return false;
+  }
+
+  if (event.type === "message") {
+    const haystack = `${summary?.responseSnippet ?? ""} ${summary?.messageSnippet ?? ""}`.toLowerCase();
+    return /fail|error|undeliver|permission|scope|bounce|denied/.test(haystack);
+  }
+
+  return true;
 }
 
 function serializeErrorForLog(error) {
@@ -186,14 +225,23 @@ function createWindow() {
   runtime = DesktopSessionRuntime.create({
     executionMode: process.env.DESKTOP_EXECUTOR,
     onRawExecutorEvent: async (event) => {
-      logDesktop(
-        `[desktop-main] raw executor event: ${summarizeRawExecutorEvent(event)}`
-      );
+      const summary = buildRawExecutorEventSummary(event);
+      if (shouldLogRawExecutorEvent(event, summary)) {
+        logDesktop(
+          `[desktop-main] raw executor event: ${JSON.stringify(summary)}`
+        );
+      }
       desktopUiState.appendDebugEvent({
         source: "executor",
         kind: event?.type ?? "executor_event",
         summary: event?.type ?? "executor event",
-        detail: summarizeRawExecutorEvent(event)
+        detail: JSON.stringify(summary),
+        taskId:
+          event?.payload && typeof event.payload === "object"
+            ? typeof event.payload.taskId === "string"
+              ? event.payload.taskId
+              : undefined
+            : undefined
       });
       broadcastUiState();
     },
