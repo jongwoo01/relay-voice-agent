@@ -1,9 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LiveServerMessage } from "@google/genai";
-import { GoogleLiveApiTransport } from "../src/index.js";
+import {
+  BrainTurnService,
+  FinalizedUtteranceHandler,
+  GoogleLiveApiTransport,
+  HeuristicIntentResolver,
+  LiveSessionController,
+  LiveTranscriptAdapter,
+  RealtimeGatewayService,
+  type TaskRoutingDecision,
+  type TaskRoutingResolver
+} from "../src/index.js";
 
 async function flushAsyncWork(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 10));
   await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function createRoutingDecision(
+  overrides: Partial<TaskRoutingDecision> = {}
+): TaskRoutingDecision {
+  return {
+    kind: "create_task",
+    targetTaskId: null,
+    clarificationNeeded: false,
+    clarificationText: null,
+    executorPrompt: null,
+    reason: "test routing decision",
+    ...overrides
+  };
 }
 
 describe("google-live-api-transport", () => {
@@ -20,12 +45,30 @@ describe("google-live-api-transport", () => {
       };
     });
 
-    const transport = new GoogleLiveApiTransport(undefined, () => ({
-      live: { connect }
-    }));
+    const transport = new GoogleLiveApiTransport(
+      new LiveSessionController(
+        new LiveTranscriptAdapter(
+          new RealtimeGatewayService(
+            new FinalizedUtteranceHandler(
+              new BrainTurnService(
+                undefined,
+                undefined,
+                undefined,
+                {
+                  resolve: async () => createRoutingDecision()
+                } satisfies TaskRoutingResolver
+              )
+            )
+          ),
+          new HeuristicIntentResolver()
+        )
+      ),
+      () => ({
+        live: { connect }
+      })
+    );
 
     await transport.connect({
-      apiKey: "test-key",
       brainSessionId: "brain-1",
       callbacks: {
         onevent: async (event) => {
@@ -96,7 +139,6 @@ describe("google-live-api-transport", () => {
     }));
 
     await transport.connect({
-      apiKey: "test-key",
       brainSessionId: "brain-1",
       callbacks: {
         onevent: async (event) => {
@@ -160,7 +202,6 @@ describe("google-live-api-transport", () => {
     }));
 
     await transport.connect({
-      apiKey: "test-key",
       brainSessionId: "brain-1",
       callbacks: {
         onevent: async (event) => {
@@ -194,6 +235,54 @@ describe("google-live-api-transport", () => {
     });
   });
 
+  it("emits live_error events with raw code and message", async () => {
+    const events: unknown[] = [];
+    let onerror:
+      | ((event: { error?: { code?: string; message?: string } }) => void)
+      | undefined;
+    const connect = vi.fn(async (params) => {
+      onerror = params.callbacks.onerror;
+      return {
+        sendClientContent: vi.fn(),
+        sendToolResponse: vi.fn(),
+        sendRealtimeInput: vi.fn(),
+        close: vi.fn()
+      };
+    });
+
+    const transport = new GoogleLiveApiTransport(undefined, () => ({
+      live: { connect }
+    }));
+
+    await transport.connect({
+      brainSessionId: "brain-1",
+      callbacks: {
+        onevent: async (event) => {
+          events.push(event);
+        }
+      }
+    });
+
+    onerror?.({
+      error: {
+        code: "INVALID_ARGUMENT",
+        message: "unsupported setup"
+      }
+    });
+
+    await flushAsyncWork();
+
+    expect(events).toContainEqual({
+      type: "live_error",
+      code: "INVALID_ARGUMENT",
+      message: "unsupported setup",
+      raw: {
+        code: "INVALID_ARGUMENT",
+        message: "unsupported setup"
+      }
+    });
+  });
+
   it("sends text through the live session methods", async () => {
     const sendClientContent = vi.fn();
     const sendToolResponse = vi.fn();
@@ -211,7 +300,6 @@ describe("google-live-api-transport", () => {
     }));
 
     const session = await transport.connect({
-      apiKey: "test-key",
       brainSessionId: "brain-1"
     });
 
@@ -303,7 +391,6 @@ describe("google-live-api-transport", () => {
     }));
 
     await transport.connect({
-      apiKey: "test-key",
       brainSessionId: "brain-1",
       callbacks: {
         onevent: async (event) => {
@@ -312,7 +399,7 @@ describe("google-live-api-transport", () => {
       }
     });
 
-    onmessage?.({
+    onmessage?.(({
       toolCall: {
         functionCalls: [
           {
@@ -327,7 +414,7 @@ describe("google-live-api-transport", () => {
       toolCallCancellation: {
         ids: ["call-1"]
       }
-    } as LiveServerMessage);
+    } as unknown) as LiveServerMessage);
 
     await flushAsyncWork();
 
@@ -347,5 +434,25 @@ describe("google-live-api-transport", () => {
       type: "tool_call_cancellation",
       ids: ["call-1"]
     });
+  });
+
+  it("preserves the raw live connect message when connect fails", async () => {
+    const transport = new GoogleLiveApiTransport(undefined, () => ({
+      live: {
+        connect: vi.fn(async () => {
+          throw Object.assign(new Error("setup failed: unsupported tool config"), {
+            code: "INVALID_ARGUMENT"
+          });
+        })
+      }
+    }));
+
+    await expect(
+      transport.connect({
+        brainSessionId: "brain-1"
+      })
+    ).rejects.toThrow(
+      "Gemini Live 연결 실패: setup failed: unsupported tool config"
+    );
   });
 });

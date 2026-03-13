@@ -38,8 +38,7 @@ describe("live-voice-session", () => {
             expect.objectContaining({
               functionDeclarations: expect.arrayContaining([
                 expect.objectContaining({
-                  name: "delegate_to_gemini_cli",
-                  behavior: "NON_BLOCKING"
+                  name: "delegate_to_gemini_cli"
                 })
               ])
             })
@@ -47,10 +46,12 @@ describe("live-voice-session", () => {
         })
       })
     );
-    expect(connect.mock.calls[0][0].config.sessionResumption).toBeUndefined();
-    expect(
-      connect.mock.calls[0][0].config.contextWindowCompression
-    ).toBeUndefined();
+    expect(connect.mock.calls[0][0].config.sessionResumption).toEqual({
+      handle: undefined
+    });
+    expect(connect.mock.calls[0][0].config.contextWindowCompression).toEqual({
+      triggerTokens: "24000"
+    });
     callbacks.onopen();
     await callbacks.onevent({
       type: "input_transcription_partial",
@@ -85,6 +86,22 @@ describe("live-voice-session", () => {
         }),
         expect.objectContaining({
           role: "assistant",
+          text: "반가워요",
+          partial: false
+        })
+      ])
+    );
+    expect(state.conversationTimeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "user_message",
+          speaker: "user",
+          text: "안녕하세요",
+          partial: false
+        }),
+        expect.objectContaining({
+          kind: "assistant_message",
+          speaker: "assistant",
           text: "반가워요",
           partial: false
         })
@@ -213,14 +230,62 @@ describe("live-voice-session", () => {
             expect.objectContaining({
               functionDeclarations: expect.arrayContaining([
                 expect.objectContaining({
-                  name: "delegate_to_gemini_cli",
-                  behavior: "NON_BLOCKING"
+                  name: "delegate_to_gemini_cli"
                 })
               ])
             })
           ]
         })
       })
+    );
+  });
+
+  it("records live_error details and keeps the raw error message in state", async () => {
+    let callbacks;
+    const debugEvents = [];
+    const connect = vi.fn(async (input) => {
+      callbacks = input.callbacks;
+      return {
+        sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
+        sendRealtimeAudio: vi.fn(),
+        close: vi.fn()
+      };
+    });
+    const session = new LiveVoiceSession({
+      transport: { connect },
+      onDebugEvent: async (event) => {
+        debugEvents.push(event);
+      }
+    });
+
+    await session.connect();
+    callbacks.onopen();
+    await callbacks.onevent({
+      type: "live_error",
+      code: "INVALID_ARGUMENT",
+      message: "unsupported setup",
+      raw: {
+        code: "INVALID_ARGUMENT",
+        message: "unsupported setup"
+      }
+    });
+    callbacks.onerror({
+      code: "INVALID_ARGUMENT",
+      message: "unsupported setup"
+    });
+
+    const state = await session.getState();
+    expect(state.status).toBe("error");
+    expect(state.error).toBe("unsupported setup");
+    expect(debugEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "live_error",
+          detail: expect.stringContaining("unsupported setup")
+        })
+      ])
     );
   });
 
@@ -259,14 +324,36 @@ describe("live-voice-session", () => {
           text: "좋아, 바로 해볼게",
           status: "interrupted",
           partial: false
-        }),
-        expect.objectContaining({
-          role: "system",
-          status: "interrupted",
-          text: "새 발화가 감지되어 응답을 멈췄습니다."
         })
       ])
     );
+    expect(interrupted.conversationTimeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "assistant_message",
+          text: "좋아, 바로 해볼게",
+          interrupted: true
+        })
+      ])
+    );
+  });
+
+  it("preserves the raw connect failure message in session state", async () => {
+    const session = new LiveVoiceSession({
+      transport: {
+        connect: vi.fn(async () => {
+          throw new Error("setup failed: unsupported tool config");
+        })
+      }
+    });
+
+    await expect(session.connect()).rejects.toThrow(
+      "setup failed: unsupported tool config"
+    );
+
+    const state = await session.getState();
+    expect(state.status).toBe("error");
+    expect(state.error).toBe("setup failed: unsupported tool config");
   });
 
   it("suppresses live output and injects runtime reply when a voice turn is claimed by runtime", async () => {
@@ -637,10 +724,12 @@ describe("live-voice-session", () => {
         })
       })
     );
-    expect(connect.mock.calls.at(-1)[0].config.sessionResumption).toBeUndefined();
-    expect(
-      connect.mock.calls.at(-1)[0].config.contextWindowCompression
-    ).toBeUndefined();
+    expect(connect.mock.calls.at(-1)[0].config.sessionResumption).toEqual({
+      handle: "resume-123"
+    });
+    expect(connect.mock.calls.at(-1)[0].config.contextWindowCompression).toEqual({
+      triggerTokens: "24000"
+    });
     const state = await session.getState();
     expect(state.runtimeGuardActive).toBe(true);
     expect(state.runtimeContext).toContain('task "브라우저 정리"');
