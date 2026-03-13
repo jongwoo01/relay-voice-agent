@@ -50,6 +50,67 @@ describe("live-brain-bridge live tool routing", () => {
     expect(result.mode).toBe("live-runtime");
   });
 
+  it("routes generic voice follow-ups through the backend while an unresolved task exists", async () => {
+    const runningState = {
+      tasks: [
+        {
+          id: "task-1",
+          title: "메일 보내기",
+          status: "running",
+        },
+      ],
+      recentTasks: [
+        {
+          id: "task-1",
+          title: "메일 보내기",
+          status: "running",
+        },
+      ],
+      intake: { active: false, missingSlots: [] },
+      notifications: { pending: [], delivered: [] },
+      taskTimelines: [],
+    };
+    const runtime = {
+      collectState: vi.fn(async () => runningState),
+      resolveIntent: vi.fn(async () => "question"),
+      handleDelegateToGeminiCli: vi.fn(async () => ({
+        result: {
+          action: "status",
+          accepted: true,
+          taskId: "task-1",
+          status: "running",
+          message: "아직 진행 중입니다. 완료나 실패가 확인되면 바로 알려드릴게요.",
+        },
+        state: runningState,
+      })),
+      submitCanonicalUserTurnForDecision: vi.fn(async () => ({
+        handled: null,
+        state: runningState,
+      })),
+      submitCanonicalUserTurn: vi.fn(async () => runningState),
+    };
+    const liveVoiceSession = createLiveSessionStub();
+    liveVoiceSession.prefersToolRouting.mockReturnValue(true);
+
+    const bridge = createLiveBrainBridge({ runtime, liveVoiceSession });
+    const result = await bridge.handleFinalTranscript("Are you doing it?");
+
+    expect(runtime.handleDelegateToGeminiCli).toHaveBeenCalledWith({
+      request: "Are you doing it?",
+      mode: "auto",
+      now: expect.any(String),
+    });
+    expect(liveVoiceSession.sendText).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      mode: "runtime-first",
+      assistant: {
+        text: "아직 진행 중입니다. 완료나 실패가 확인되면 바로 알려드릴게요.",
+        tone: "task_ack",
+      },
+      sessionState: runningState,
+    });
+  });
+
   it("sends a follow-up tool response when a tracked task completes", async () => {
     const runningState = {
       tasks: [

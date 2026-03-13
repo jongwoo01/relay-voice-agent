@@ -48,18 +48,26 @@ describe("delegate-to-gemini-cli-service", () => {
       now: "2026-03-12T00:00:00.000Z"
     });
 
-    expect(result).toEqual({
-      action: "created",
-      accepted: true,
-      taskId: "task-1",
-      status: "running",
-      message: "Task is running",
-      needsInput: false,
-      needsApproval: false,
-      summary: undefined,
-      verification: undefined,
-      changes: undefined
-    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        action: "created",
+        accepted: true,
+        taskId: "task-1",
+        status: "running",
+        message: "Task is running",
+        needsInput: false,
+        needsApproval: false,
+        summary: undefined,
+        verification: undefined,
+        changes: undefined,
+        presentation: {
+          ownership: "runtime",
+          speechMode: "canonical",
+          speechText: "작업을 시작했어요. 완료나 실패가 확인되면 바로 알려드릴게요.",
+          allowLiveModelOutput: false
+        }
+      })
+    );
     expect(autoHandle).toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalled();
   });
@@ -164,18 +172,26 @@ describe("delegate-to-gemini-cli-service", () => {
     });
 
     expect(dispatch).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      action: "status",
-      accepted: true,
-      taskId: "task-1",
-      status: "completed",
-      message: "닫은 탭 3개와 고정한 탭 2개를 확인했어요.",
-      needsInput: false,
-      needsApproval: false,
-      summary: "닫은 탭 3개와 고정한 탭 2개를 확인했어요.",
-      verification: "verified",
-      changes: ["닫은 탭 3개", "고정한 탭 2개"]
-    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        action: "status",
+        accepted: true,
+        taskId: "task-1",
+        status: "completed",
+        message: "닫은 탭 3개와 고정한 탭 2개를 확인했어요.",
+        needsInput: false,
+        needsApproval: false,
+        summary: "닫은 탭 3개와 고정한 탭 2개를 확인했어요.",
+        verification: "verified",
+        changes: ["닫은 탭 3개", "고정한 탭 2개"],
+        presentation: {
+          ownership: "runtime",
+          speechMode: "grounded_summary",
+          speechText: "닫은 탭 3개와 고정한 탭 2개를 확인했어요.",
+          allowLiveModelOutput: false
+        }
+      })
+    );
   });
 
   it("returns status when the shared loop reports a status action", async () => {
@@ -231,18 +247,26 @@ describe("delegate-to-gemini-cli-service", () => {
 
     expect(dispatch).not.toHaveBeenCalled();
     expect(autoHandle).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({
-      action: "status",
-      accepted: true,
-      taskId: "task-1",
-      status: "running",
-      message: "Task is running",
-      needsInput: false,
-      needsApproval: false,
-      summary: undefined,
-      verification: undefined,
-      changes: undefined
-    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        action: "status",
+        accepted: true,
+        taskId: "task-1",
+        status: "running",
+        message: "Task is running",
+        needsInput: false,
+        needsApproval: false,
+        summary: undefined,
+        verification: undefined,
+        changes: undefined,
+        presentation: {
+          ownership: "runtime",
+          speechMode: "canonical",
+          speechText: "아직 진행 중입니다. 완료나 실패가 확인되면 바로 알려드릴게요.",
+          allowLiveModelOutput: false
+        }
+      })
+    );
   });
 
   it("creates a new task when one running task exists but the request is unrelated", async () => {
@@ -372,17 +396,25 @@ describe("delegate-to-gemini-cli-service", () => {
       now: "2026-03-12T00:03:00.000Z"
     });
 
-    expect(result).toEqual({
-      action: "error",
-      accepted: false,
-      status: "failed",
-      message: "Vertex AI quota 제한으로 작업 라우팅이 실패했습니다.",
-      failureReason: "quota_exhausted",
-      needsInput: false,
-      needsApproval: false,
-      summary: undefined,
-      verification: undefined,
-      changes: undefined
-    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        action: "error",
+        accepted: false,
+        status: "failed",
+        message: "Vertex AI quota 제한으로 작업 라우팅이 실패했습니다.",
+        failureReason: "quota_exhausted",
+        needsInput: false,
+        needsApproval: false,
+        summary: undefined,
+        verification: undefined,
+        changes: undefined,
+        presentation: {
+          ownership: "runtime",
+          speechMode: "canonical",
+          speechText: "Vertex AI quota 제한으로 작업 라우팅이 실패했습니다.",
+          allowLiveModelOutput: false
+        }
+      })
+    );
   });
 });

@@ -92,6 +92,8 @@ function createPersonaInstruction({ toolEnabled }) {
     "Do not claim that any action was completed, changed, verified, or successful unless it was explicitly confirmed by runtime state, a tool result, or an executor result.",
     "Report task progress, completion, and failure only when grounded in runtime state, task state, tool results, or executor results.",
     "If something is uncertain or not yet verified, say that clearly instead of implying success.",
+    "If a delegated task is still running, queued, or unresolved, never imply that it has already succeeded, completed, sent, saved, deleted, or delivered anything.",
+    "If a delegated task fails, say it failed and give the grounded reason from the tool or runtime instead of softening it.",
     "When the user asks about the local machine or the result of a local action, check first or rely on the task/result flow before stating specifics.",
   ];
 
@@ -264,6 +266,86 @@ function isTranscriptOnlyServerSummary(summary) {
   );
 }
 
+function isInputOnlyServerSummary(summary) {
+  if (!summary || typeof summary !== "object") {
+    return false;
+  }
+
+  const hasNoModelParts =
+    !Array.isArray(summary.modelParts) || summary.modelParts.length === 0;
+
+  return (
+    hasNoModelParts &&
+    typeof summary.inputText === "string" &&
+    !summary.setupComplete &&
+    !summary.inputFinished &&
+    !summary.outputText &&
+    !summary.outputFinished &&
+    !summary.interrupted &&
+    !summary.waitingForInput &&
+    !summary.turnComplete &&
+    !summary.sessionResumptionUpdate &&
+    !summary.goAway &&
+    (!Array.isArray(summary.toolCalls) || summary.toolCalls.length === 0) &&
+    (!Array.isArray(summary.toolCallCancellationIds) ||
+      summary.toolCallCancellationIds.length === 0)
+  );
+}
+
+function isNoopServerSummary(summary) {
+  if (!summary || typeof summary !== "object") {
+    return false;
+  }
+
+  const noModelParts =
+    !Array.isArray(summary.modelParts) || summary.modelParts.length === 0;
+
+  return (
+    noModelParts &&
+    !summary.setupComplete &&
+    !summary.inputText &&
+    !summary.inputFinished &&
+    !summary.outputText &&
+    !summary.outputFinished &&
+    !summary.interrupted &&
+    !summary.waitingForInput &&
+    !summary.turnComplete &&
+    !summary.sessionResumptionUpdate &&
+    !summary.goAway &&
+    (!Array.isArray(summary.toolCalls) || summary.toolCalls.length === 0) &&
+    (!Array.isArray(summary.toolCallCancellationIds) ||
+      summary.toolCallCancellationIds.length === 0)
+  );
+}
+
+function shouldLogParsedServerSummary(summary) {
+  if (!summary || typeof summary !== "object") {
+    return true;
+  }
+
+  return Boolean(
+    summary.setupComplete ||
+      summary.turnComplete ||
+      summary.interrupted ||
+      summary.waitingForInput ||
+      summary.sessionResumptionUpdate ||
+      summary.goAway ||
+      (Array.isArray(summary.toolCalls) && summary.toolCalls.length > 0) ||
+      (Array.isArray(summary.toolCallCancellationIds) &&
+        summary.toolCallCancellationIds.length > 0),
+  );
+}
+
+function isVerboseMetricLabel(label) {
+  return (
+    /^input partial:/i.test(label) ||
+    /^input final:/i.test(label) ||
+    /^output partial:/i.test(label) ||
+    /^output final:/i.test(label) ||
+    /^runtime-first check from /i.test(label)
+  );
+}
+
 function summarizeConnectConfig(model, config, { toolEnabled }) {
   return {
     model,
@@ -302,6 +384,46 @@ function isRuntimeFirstDecision(decision) {
 
 function normalizeHintText(text) {
   return typeof text === "string" ? text.trim() : "";
+}
+
+function findLongestSuffixPrefixOverlap(left, right) {
+  const max = Math.min(left.length, right.length);
+
+  for (let size = max; size > 0; size -= 1) {
+    if (left.slice(-size) === right.slice(0, size)) {
+      return size;
+    }
+  }
+
+  return 0;
+}
+
+function mergeTranscriptText(existingText, nextFragment) {
+  const existing = normalizeHintText(existingText);
+  const incoming = normalizeHintText(nextFragment);
+
+  if (!incoming) {
+    return existing;
+  }
+
+  if (!existing || existing === incoming) {
+    return incoming;
+  }
+
+  if (incoming.startsWith(existing) || incoming.includes(existing)) {
+    return incoming;
+  }
+
+  if (existing.startsWith(incoming) || existing.includes(incoming)) {
+    return existing;
+  }
+
+  const overlap = findLongestSuffixPrefixOverlap(existing, incoming);
+  if (overlap > 0) {
+    return `${existing}${incoming.slice(overlap)}`;
+  }
+
+  return `${existing}${incoming}`;
 }
 
 function scoreRoutingHint(text) {
@@ -351,7 +473,7 @@ export class LiveVoiceSession {
     this.state = options.state ?? createInitialState();
     this.session = null;
     this.brainSessionId = null;
-    this.outputTranscriptChunks = [];
+    this.outputTranscriptBuffer = "";
     this.runtimeOwnedTurn = false;
     this.pendingRuntimeOwnership = false;
     this.currentTurnRoutingHints = [];
@@ -446,25 +568,10 @@ export class LiveVoiceSession {
   }
 
   appendPartialBuffer(fragment) {
-    const normalized = normalizeHintText(fragment);
-    if (!normalized) {
-      return this.currentTurnPartialBuffer;
-    }
-
-    if (!this.currentTurnPartialBuffer) {
-      this.currentTurnPartialBuffer = normalized;
-      return this.currentTurnPartialBuffer;
-    }
-
-    if (normalized.length > this.currentTurnPartialBuffer.length) {
-      this.currentTurnPartialBuffer = normalized;
-      return this.currentTurnPartialBuffer;
-    }
-
-    if (!this.currentTurnPartialBuffer.endsWith(normalized)) {
-      this.currentTurnPartialBuffer = `${this.currentTurnPartialBuffer}${normalized}`;
-    }
-
+    this.currentTurnPartialBuffer = mergeTranscriptText(
+      this.currentTurnPartialBuffer,
+      fragment,
+    );
     return this.currentTurnPartialBuffer;
   }
 
@@ -736,14 +843,16 @@ export class LiveVoiceSession {
       -12,
     );
     this.updateMetrics({ rawEvents });
-    logDesktop(`[live-session] ${label}`);
-    this.onDebugEvent?.({
-      source: "live",
-      kind: label,
-      summary: label,
-      createdAt: at,
-      turnId: this.state.activeTurnId ?? undefined,
-    });
+    if (!isVerboseMetricLabel(label)) {
+      logDesktop(`[live-session] ${label}`);
+      this.onDebugEvent?.({
+        source: "live",
+        kind: label,
+        summary: label,
+        createdAt: at,
+        turnId: this.state.activeTurnId ?? undefined,
+      });
+    }
   }
 
   async getState() {
@@ -908,7 +1017,7 @@ export class LiveVoiceSession {
     } catch (error) {
       this.session = null;
       this.toolEnabled = false;
-      this.outputTranscriptChunks = [];
+      this.outputTranscriptBuffer = "";
       this.runtimeOwnedTurn = false;
       this.clearRoutingHints();
       this.state = {
@@ -941,7 +1050,7 @@ export class LiveVoiceSession {
         resumable: Boolean(this.lastSessionResumptionHandle),
       },
     };
-    this.outputTranscriptChunks = [];
+    this.outputTranscriptBuffer = "";
     this.runtimeOwnedTurn = false;
     this.clearRoutingHints();
     await this.publishState();
@@ -981,7 +1090,7 @@ export class LiveVoiceSession {
 
   async recordExternalUserTurn(text, createdAt = nowIso()) {
     this.releaseCurrentTurnOwnership();
-    this.outputTranscriptChunks = [];
+    this.outputTranscriptBuffer = "";
     this.clearRoutingHints();
     this.recordRoutingHint(text);
     const turnId = this.ensureActiveTurn("typed", createdAt);
@@ -1021,7 +1130,7 @@ export class LiveVoiceSession {
       this.currentTurnInputMode ?? "voice",
       eventAt,
     );
-    this.outputTranscriptChunks = [];
+    this.outputTranscriptBuffer = "";
     this.appendMetricEvent(`assistant injected (${tone})`, eventAt);
     const responseSource =
       tone === "task_ack"
@@ -1153,7 +1262,7 @@ export class LiveVoiceSession {
   claimCurrentTurnForRuntime() {
     this.runtimeOwnedTurn = true;
     this.pendingRuntimeOwnership = false;
-    this.outputTranscriptChunks = [];
+    this.outputTranscriptBuffer = "";
     this.currentTurnDebug.runtimeOwned = true;
     this.currentTurnDebug.pendingRuntimeOwnership = false;
   }
@@ -1177,6 +1286,7 @@ export class LiveVoiceSession {
     const firstOutput = functionResponses.find(
       (response) => response?.response?.output,
     )?.response?.output;
+    const firstPresentation = firstOutput?.presentation ?? null;
     if (firstOutput) {
       this.currentTurnResponseSource = "delegate";
       if (this.state.activeTurnId) {
@@ -1192,6 +1302,25 @@ export class LiveVoiceSession {
         });
       }
     }
+    const shouldUseCanonicalRuntimeOutput =
+      firstPresentation?.ownership === "runtime" &&
+      firstPresentation?.allowLiveModelOutput === false &&
+      typeof firstPresentation?.speechText === "string" &&
+      firstPresentation.speechText.trim().length > 0;
+    if (shouldUseCanonicalRuntimeOutput) {
+      this.claimCurrentTurnForRuntime();
+      this.appendMetricEvent(
+        `runtime-owned tool presentation: ${firstPresentation.speechMode ?? "canonical"}`,
+      );
+      logDesktop(
+        `[live-session] runtime-owned tool presentation: ${serializeForLog({
+          ownership: firstPresentation.ownership,
+          speechMode: firstPresentation.speechMode,
+          allowLiveModelOutput: firstPresentation.allowLiveModelOutput,
+          speechText: firstPresentation.speechText,
+        })}`,
+      );
+    }
     logDesktop(
       `[live-session] tool responses prepared: ${serializeForLog(
         functionResponses.map((response) => ({
@@ -1204,6 +1333,25 @@ export class LiveVoiceSession {
             accepted: response.response?.output?.accepted ?? null,
             taskId: response.response?.output?.taskId ?? null,
             status: response.response?.output?.status ?? null,
+            presentation: response.response?.output?.presentation
+              ? {
+                  ownership:
+                    response.response.output.presentation.ownership ?? null,
+                  speechMode:
+                    response.response.output.presentation.speechMode ?? null,
+                  allowLiveModelOutput:
+                    response.response.output.presentation.allowLiveModelOutput ??
+                    null,
+                  speechText:
+                    typeof response.response.output.presentation.speechText ===
+                    "string"
+                      ? response.response.output.presentation.speechText.slice(
+                          0,
+                          160,
+                        )
+                      : null,
+                }
+              : null,
             failureReason: response.response?.output?.failureReason ?? null,
             message:
               typeof response.response?.output?.message === "string"
@@ -1217,13 +1365,23 @@ export class LiveVoiceSession {
       functionResponses,
     });
     this.appendMetricEvent("tool response sent");
+    if (shouldUseCanonicalRuntimeOutput) {
+      const tone =
+        firstOutput?.status === "waiting_input" ||
+        firstOutput?.status === "approval_required"
+          ? "clarify"
+          : firstOutput?.action === "created" || firstOutput?.action === "resumed"
+            ? "task_ack"
+            : "reply";
+      await this.injectAssistantMessage(firstPresentation.speechText, tone);
+    }
     await this.publishState();
     return this.getState();
   }
 
   async applyServerInterrupt() {
     const interruptedAt = nowIso();
-    this.outputTranscriptChunks = [];
+    this.outputTranscriptBuffer = "";
     this.clearRoutingHints();
     this.finalizeLiveMessage("assistant-current", {
       status: "interrupted",
@@ -1373,11 +1531,20 @@ export class LiveVoiceSession {
             this.audioOnlyServerTotalBytes += getAudioOnlyServerBytes(parsedSummary);
             return;
           }
+          if (isNoopServerSummary(parsedSummary)) {
+            return;
+          }
           if (isTranscriptOnlyServerSummary(parsedSummary)) {
             if (!this.firstServerMessageSeen) {
               this.firstServerMessageSeen = true;
               logDesktop(`[live-session] first server message: ${event.summary}`);
             }
+            return;
+          }
+          if (isInputOnlyServerSummary(parsedSummary)) {
+            return;
+          }
+          if (parsedSummary && !shouldLogParsedServerSummary(parsedSummary)) {
             return;
           }
           this.flushAudioOnlyServerAggregate();
@@ -1477,10 +1644,6 @@ export class LiveVoiceSession {
               this.state.metrics.firstInputPartialAt ?? eventAt,
             lastInputPartialAt: eventAt,
           });
-          this.appendMetricEvent(
-            `input partial: ${event.text.slice(0, 120)}`,
-            eventAt,
-          );
           this.upsertLiveMessage("user-current", {
             role: "user",
             text: this.currentTurnPartialBuffer,
@@ -1513,7 +1676,10 @@ export class LiveVoiceSession {
         this.currentTurnDebug.inputFinalText = event.text;
         this.currentTurnDebug.pendingRuntimeOwnership =
           this.pendingRuntimeOwnership;
-        this.currentTurnPartialBuffer = normalizeHintText(event.text);
+        this.currentTurnPartialBuffer = mergeTranscriptText(
+          this.currentTurnPartialBuffer,
+          event.text,
+        );
         this.currentTurnDebug.latestHeardText = this.currentTurnPartialBuffer;
         this.currentTurnDebug.localTaskCueDetected =
           this.currentTurnDebug.localTaskCueDetected ||
@@ -1547,10 +1713,6 @@ export class LiveVoiceSession {
             firstInputFinalAt: this.state.metrics.firstInputFinalAt ?? eventAt,
             lastInputFinalAt: eventAt,
           });
-          this.appendMetricEvent(
-            `input final: ${event.text.slice(0, 120)}`,
-            eventAt,
-          );
           this.upsertLiveMessage("user-current", {
             role: "user",
             text: this.currentTurnPartialBuffer,
@@ -1614,8 +1776,7 @@ export class LiveVoiceSession {
         this.currentTurnDebug.runtimeOwned = this.runtimeOwnedTurn;
         if (
           event.finished ||
-          this.currentTurnDebug.outputTranscriptChunks === 1 ||
-          this.currentTurnDebug.outputTranscriptChunks % 4 === 0
+          this.currentTurnDebug.outputTranscriptChunks === 1
         ) {
           logDesktop(
             `[live-session] output_transcription received: ${serializeForLog({
@@ -1654,8 +1815,7 @@ export class LiveVoiceSession {
           });
           if (
             event.finished ||
-            this.currentTurnDebug.outputTranscriptChunks === 1 ||
-            this.currentTurnDebug.outputTranscriptChunks % 4 === 0
+            this.currentTurnDebug.outputTranscriptChunks === 1
           ) {
             this.appendMetricEvent(
               `${event.finished ? "output final" : "output partial"}: ${event.text.slice(0, 120)}`,
@@ -1663,17 +1823,15 @@ export class LiveVoiceSession {
             );
           }
         }
+        const assistantTranscript = mergeTranscriptText(
+          this.outputTranscriptBuffer,
+          event.text,
+        );
         if (event.finished) {
-          this.outputTranscriptChunks = [];
+          this.outputTranscriptBuffer = "";
         } else {
-          this.outputTranscriptChunks = [
-            ...this.outputTranscriptChunks,
-            event.text,
-          ];
+          this.outputTranscriptBuffer = assistantTranscript;
         }
-        const assistantTranscript = event.finished
-          ? event.text
-          : this.outputTranscriptChunks.join(" ");
         {
           const eventAt = nowIso();
           const turnId = this.ensureActiveTurn(
@@ -1892,6 +2050,7 @@ export class LiveVoiceSession {
           )}`,
         );
         this.releaseCurrentTurnOwnership();
+        this.outputTranscriptBuffer = "";
         this.clearRoutingHints();
         {
           const eventAt = nowIso();

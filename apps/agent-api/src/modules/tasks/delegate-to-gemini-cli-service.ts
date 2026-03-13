@@ -40,12 +40,20 @@ export interface DelegateToGeminiCliResult {
   taskId?: string;
   status: TaskStatus;
   message: string;
+  presentation?: DelegateResultPresentation;
   failureReason?: VertexAiFailureReason;
   needsInput?: boolean;
   needsApproval?: boolean;
   summary?: string;
   verification?: "verified" | "uncertain";
   changes?: string[];
+}
+
+export interface DelegateResultPresentation {
+  ownership: "live" | "runtime";
+  speechMode: "canonical" | "grounded_summary" | "freeform";
+  speechText: string;
+  allowLiveModelOutput: boolean;
 }
 
 export interface DelegateAutoHandleResult {
@@ -87,12 +95,19 @@ function toToolResult(
   latestEvent?: TaskEvent,
   accepted = true
 ): DelegateToGeminiCliResult {
+  const message = buildTaskStatusMessage(task, latestEvent);
+  const presentation = buildPresentation({
+    action,
+    task,
+    message
+  });
   const result = {
     action,
     accepted,
     taskId: task.id,
     status: task.status,
-    message: buildTaskStatusMessage(task, latestEvent),
+    message,
+    presentation,
     needsInput: task.status === "waiting_input",
     needsApproval: task.status === "approval_required",
     summary: task.completionReport?.summary,
@@ -105,9 +120,77 @@ function toToolResult(
     taskId: result.taskId,
     status: result.status,
     message: truncateForLog(result.message),
+    presentation,
     summary: truncateForLog(result.summary)
   });
   return result;
+}
+
+function buildPresentation({
+  action,
+  task,
+  message
+}: {
+  action: DelegateToGeminiCliResult["action"];
+  task: Task;
+  message: string;
+}): DelegateResultPresentation {
+  if (task.status === "completed") {
+    if (task.completionReport?.verification === "verified") {
+      return {
+        ownership: "runtime",
+        speechMode: "grounded_summary",
+        speechText: task.completionReport.summary || message,
+        allowLiveModelOutput: false
+      };
+    }
+
+    return {
+      ownership: "runtime",
+      speechMode: "canonical",
+      speechText:
+        task.completionReport?.summary ||
+        "작업은 끝났지만 실제 결과 확인이 더 필요해요.",
+      allowLiveModelOutput: false
+    };
+  }
+
+  if (task.status === "failed") {
+    return {
+      ownership: "runtime",
+      speechMode: "canonical",
+      speechText: message || "작업이 실패했어요.",
+      allowLiveModelOutput: false
+    };
+  }
+
+  if (task.status === "waiting_input" || task.status === "approval_required") {
+    return {
+      ownership: "runtime",
+      speechMode: "canonical",
+      speechText: message,
+      allowLiveModelOutput: false
+    };
+  }
+
+  if (task.status === "queued" || task.status === "running" || task.status === "created") {
+    return {
+      ownership: "runtime",
+      speechMode: "canonical",
+      speechText:
+        action === "created" || action === "resumed"
+          ? "작업을 시작했어요. 완료나 실패가 확인되면 바로 알려드릴게요."
+          : "아직 진행 중입니다. 완료나 실패가 확인되면 바로 알려드릴게요.",
+      allowLiveModelOutput: false
+    };
+  }
+
+  return {
+    ownership: "live",
+    speechMode: "freeform",
+    speechText: message,
+    allowLiveModelOutput: true
+  };
 }
 
 function createTaskId(): string {
@@ -290,8 +373,15 @@ export class DelegateToGeminiCliService {
     message: string,
     fallbackTask?: Task
   ): DelegateToGeminiCliResult {
+    const presentation: DelegateResultPresentation = {
+      ownership: "runtime",
+      speechMode: "canonical",
+      speechText: message,
+      allowLiveModelOutput: false
+    };
     logDelegate("clarify result", {
       message: truncateForLog(message),
+      presentation,
       fallbackTaskId: fallbackTask?.id ?? null,
       fallbackTaskStatus: fallbackTask?.status ?? null,
       fallbackTaskTitle: fallbackTask?.title ?? null
@@ -302,6 +392,7 @@ export class DelegateToGeminiCliService {
       taskId: fallbackTask?.id,
       status: fallbackTask?.status ?? "failed",
       message,
+      presentation,
       needsInput: fallbackTask?.status === "waiting_input",
       needsApproval: fallbackTask?.status === "approval_required",
       summary: fallbackTask?.completionReport?.summary,
@@ -315,9 +406,16 @@ export class DelegateToGeminiCliService {
     failureReason: VertexAiFailureReason,
     fallbackTask?: Task
   ): DelegateToGeminiCliResult {
+    const presentation: DelegateResultPresentation = {
+      ownership: "runtime",
+      speechMode: "canonical",
+      speechText: message,
+      allowLiveModelOutput: false
+    };
     logDelegate("error result", {
       message: truncateForLog(message),
       failureReason,
+      presentation,
       fallbackTaskId: fallbackTask?.id ?? null,
       fallbackTaskStatus: fallbackTask?.status ?? null,
       fallbackTaskTitle: fallbackTask?.title ?? null
@@ -328,6 +426,7 @@ export class DelegateToGeminiCliService {
       taskId: fallbackTask?.id,
       status: "failed",
       message,
+      presentation,
       failureReason,
       needsInput: false,
       needsApproval: false,

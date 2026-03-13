@@ -128,6 +128,152 @@ describe("live-voice-session", () => {
     expect(states.at(-1)?.outputTranscript).toBe("");
   });
 
+  it("merges clipped english partial transcripts instead of dropping the prefix", async () => {
+    let callbacks;
+    const onUserTranscriptFinal = vi.fn(async () => undefined);
+    const connect = vi.fn(async (input) => {
+      callbacks = input.callbacks;
+      return {
+        sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
+        sendRealtimeAudio: vi.fn(),
+        close: vi.fn()
+      };
+    });
+    const session = new LiveVoiceSession({
+      transport: { connect },
+      onUserTranscriptFinal
+    });
+
+    await session.connect();
+    callbacks.onopen();
+    await callbacks.onevent({
+      type: "input_transcription_partial",
+      text: "so wha"
+    });
+    await callbacks.onevent({
+      type: "input_transcription_partial",
+      text: "t are you hearing now?"
+    });
+    await callbacks.onevent({
+      type: "input_transcription_final",
+      text: "t are you hearing now?"
+    });
+
+    const state = await session.getState();
+    expect(state.inputPartial).toBe("");
+    expect(state.lastUserTranscript).toBe("so what are you hearing now?");
+    expect(state.conversationTimeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "user_message",
+          speaker: "user",
+          text: "so what are you hearing now?",
+          partial: false
+        })
+      ])
+    );
+    expect(onUserTranscriptFinal).toHaveBeenCalledWith(
+      "so what are you hearing now?",
+      expect.any(Object)
+    );
+  });
+
+  it("treats cumulative assistant partial transcripts as replacements instead of duplicate chunks", async () => {
+    let callbacks;
+    const connect = vi.fn(async (input) => {
+      callbacks = input.callbacks;
+      return {
+        sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
+        sendRealtimeAudio: vi.fn(),
+        close: vi.fn()
+      };
+    });
+    const session = new LiveVoiceSession({
+      transport: { connect }
+    });
+
+    await session.connect();
+    callbacks.onopen();
+    await callbacks.onevent({
+      type: "input_transcription_final",
+      text: "hello"
+    });
+    await callbacks.onevent({
+      type: "output_transcription",
+      text: "Hello, how can I help you today?",
+      finished: false
+    });
+    await callbacks.onevent({
+      type: "output_transcription",
+      text: "Hello, how can I help you today? Thank you! Is there anything specific you'd like to do or know?",
+      finished: false
+    });
+
+    const state = await session.getState();
+    expect(state.outputTranscript).toBe(
+      "Hello, how can I help you today? Thank you! Is there anything specific you'd like to do or know?"
+    );
+    expect(state.outputTranscript).not.toContain(
+      "Hello, how can I help you today? Hello, how can I help you today?"
+    );
+  });
+
+  it("does not carry assistant transcript across voice turns", async () => {
+    let callbacks;
+    const connect = vi.fn(async (input) => {
+      callbacks = input.callbacks;
+      return {
+        sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
+        sendRealtimeAudio: vi.fn(),
+        close: vi.fn()
+      };
+    });
+    const session = new LiveVoiceSession({
+      transport: { connect }
+    });
+
+    await session.connect();
+    callbacks.onopen();
+    await callbacks.onevent({
+      type: "input_transcription_final",
+      text: "hello"
+    });
+    await callbacks.onevent({
+      type: "output_transcription",
+      text: "Hello, how can I help you today?",
+      finished: false
+    });
+    await callbacks.onevent({
+      type: "turn_complete"
+    });
+    await callbacks.onevent({
+      type: "input_transcription_final",
+      text: "so what are you hearing now?"
+    });
+    await callbacks.onevent({
+      type: "output_transcription",
+      text: "I'm not currently hearing any sounds at the moment.",
+      finished: false
+    });
+
+    const state = await session.getState();
+    const assistantMessages = state.conversationTimeline.filter(
+      (item) => item.kind === "assistant_message" && item.speaker === "assistant"
+    );
+    expect(assistantMessages.at(-1)?.text).toBe(
+      "I'm not currently hearing any sounds at the moment."
+    );
+    expect(assistantMessages.at(-1)?.text).not.toContain(
+      "Hello, how can I help you today?"
+    );
+  });
+
   it("handles live tool calls through the provided callback", async () => {
     let callbacks;
     const sendToolResponse = vi.fn();
@@ -200,6 +346,100 @@ describe("live-voice-session", () => {
         }
       ]
     });
+  });
+
+  it("claims runtime ownership for canonical tool presentations and suppresses later live output", async () => {
+    let callbacks;
+    const sendToolResponse = vi.fn();
+    const onToolCall = vi.fn(async (functionCalls) =>
+      functionCalls.map((call) => ({
+        id: call.id,
+        name: call.name,
+        response: {
+          output: {
+            accepted: true,
+            status: "running",
+            action: "created",
+            message: "Task is running",
+            presentation: {
+              ownership: "runtime",
+              speechMode: "canonical",
+              speechText:
+                "작업을 시작했어요. 완료나 실패가 확인되면 바로 알려드릴게요.",
+              allowLiveModelOutput: false,
+            },
+          },
+        },
+      })),
+    );
+    const connect = vi.fn(async (input) => {
+      callbacks = input.callbacks;
+      return {
+        sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse,
+        sendRealtimeAudio: vi.fn(),
+        close: vi.fn(),
+      };
+    });
+    const session = new LiveVoiceSession({
+      transport: { connect },
+      onToolCall,
+    });
+
+    await session.connect();
+    callbacks.onopen();
+    await callbacks.onevent({
+      type: "tool_call",
+      functionCalls: [
+        {
+          id: "call-1",
+          name: "delegate_to_gemini_cli",
+          args: {
+            request: "메일 보내줘",
+          },
+        },
+      ],
+    });
+    await callbacks.onevent({
+      type: "output_transcription",
+      text: "I've sent it.",
+      finished: false,
+    });
+    await callbacks.onevent({
+      type: "output_audio",
+      data: "QUJD",
+      mimeType: "audio/pcm;rate=24000",
+    });
+
+    const state = await session.getState();
+    expect(sendToolResponse).toHaveBeenCalledTimes(1);
+    expect(state.liveMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "assistant",
+          text: "작업을 시작했어요. 완료나 실패가 확인되면 바로 알려드릴게요.",
+          partial: false,
+          status: "task_ack",
+        }),
+      ]),
+    );
+    expect(state.liveMessages).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: "I've sent it.",
+        }),
+      ]),
+    );
+    expect(state.metrics.rawEvents.join("\n")).toContain(
+      "runtime-owned tool presentation: canonical",
+    );
+    expect(state.metrics.rawEvents.join("\n")).toContain(
+      "suppressed live output transcription",
+    );
+    expect(state.metrics.rawEvents.join("\n")).toContain(
+      "suppressed live output audio",
+    );
   });
 
   it("includes the delegate tool when a tool-friendly model is selected", async () => {

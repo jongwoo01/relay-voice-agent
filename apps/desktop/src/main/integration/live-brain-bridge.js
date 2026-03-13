@@ -8,6 +8,15 @@ const TASK_REPAIR_FOLLOW_UP_HINTS =
   /(진짜|정말|for real|really|seriously|왜|why|what do you mean|무슨 말|아니|아닌데|아냐|틀렸|잘못|다시|retry|recheck|redo|wrong|delete|삭제|지우|create|만들라고|생성하라|내가 .*말|i said|i told you|not what|don't delete|wait|hold on)/i;
 const SHORT_CHALLENGE_FOLLOW_UP_HINTS =
   /^(for real\??|really\??|seriously\??|진짜\??|정말\??|왜\??|아니\??|아닌데\??|맞아\??|확실해\??|뭐라고\??)$/i;
+const CLEAR_NON_TASK_SMALL_TALK_HINTS =
+  /^(hi|hello|hey|thanks|thank you|ok|okay|cool|bye|안녕|고마워|감사|오케이|좋아|잘가)\b/i;
+const UNRESOLVED_TASK_STATUSES = new Set([
+  "queued",
+  "running",
+  "waiting_input",
+  "approval_required",
+  "failed",
+]);
 
 const TOOL_CONTINUATION_STATUSES = new Set(["queued", "running"]);
 const TOOL_ATTENTION_STATUSES = new Map([
@@ -92,6 +101,20 @@ function hasRecentTaskContext(state) {
   );
 }
 
+function hasUnresolvedTaskContext(state) {
+  if (!state) {
+    return false;
+  }
+
+  if (state.intake?.active) {
+    return true;
+  }
+
+  return [...(state.tasks ?? []), ...(state.recentTasks ?? [])].some((task) =>
+    UNRESOLVED_TASK_STATUSES.has(task?.status),
+  );
+}
+
 function shouldRouteThroughRuntimeState(state, text) {
   if (!state) {
     return false;
@@ -156,6 +179,15 @@ function looksLikeTaskRepairFollowUp(text) {
     TASK_REPAIR_FOLLOW_UP_HINTS.test(normalized) ||
     SHORT_CHALLENGE_FOLLOW_UP_HINTS.test(normalized)
   );
+}
+
+function looksLikeClearlyNonTaskSmallTalk(text) {
+  const normalized = text.trim();
+  if (!normalized) {
+    return false;
+  }
+
+  return CLEAR_NON_TASK_SMALL_TALK_HINTS.test(normalized);
 }
 
 function buildRuntimeContextSummary(state) {
@@ -226,6 +258,14 @@ function summarizeToolOutput(result) {
     accepted: result?.accepted ?? null,
     taskId: result?.taskId ?? null,
     status: result?.status ?? null,
+    presentation: result?.presentation
+      ? {
+          ownership: result.presentation.ownership ?? null,
+          speechMode: result.presentation.speechMode ?? null,
+          allowLiveModelOutput: result.presentation.allowLiveModelOutput ?? null,
+          speechText: truncateForLog(result.presentation.speechText)
+        }
+      : null,
     failureReason: result?.failureReason ?? null,
     message: truncateForLog(result?.message),
     summary: truncateForLog(result?.summary)
@@ -302,11 +342,19 @@ export function createLiveBrainBridge({ runtime, liveVoiceSession }) {
     }
 
     const normalized = text.trim();
-    if (!normalized || !hasFreshDelegateActivity()) {
+    if (!normalized) {
       return false;
     }
 
-    return looksLikeTaskRepairFollowUp(normalized);
+    if (looksLikeClearlyNonTaskSmallTalk(normalized)) {
+      return false;
+    }
+
+    if (hasUnresolvedTaskContext(state)) {
+      return true;
+    }
+
+    return hasFreshDelegateActivity() && looksLikeTaskRepairFollowUp(normalized);
   }
 
   async function applyRuntimeContextFromState(state) {
