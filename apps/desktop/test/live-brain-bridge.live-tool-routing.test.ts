@@ -270,4 +270,214 @@ describe("live-brain-bridge live tool routing", () => {
       }
     ]);
   });
+
+  it("keeps the original running continuation when a later tool call clarifies against the same task", async () => {
+    const runningState = {
+      tasks: [
+        {
+          id: "task-1",
+          title: "바탕화면 확인",
+          normalizedGoal: "바탕화면 확인",
+          status: "running"
+        }
+      ],
+      recentTasks: [
+        {
+          id: "task-1",
+          title: "바탕화면 확인",
+          normalizedGoal: "바탕화면 확인",
+          status: "running"
+        }
+      ],
+      intake: { active: false, missingSlots: [] },
+      notifications: { pending: [], delivered: [] },
+      taskTimelines: []
+    };
+    const completedState = {
+      tasks: [],
+      recentTasks: [
+        {
+          id: "task-1",
+          title: "바탕화면 확인",
+          normalizedGoal: "바탕화면 확인",
+          status: "completed"
+        }
+      ],
+      intake: { active: false, missingSlots: [] },
+      notifications: { pending: [], delivered: [] },
+      taskTimelines: []
+    };
+    const runtime = {
+      handleDelegateToGeminiCli: vi
+        .fn()
+        .mockResolvedValueOnce({
+          result: {
+            action: "created",
+            accepted: true,
+            taskId: "task-1",
+            status: "running",
+            message: "작업을 시작할게. 진행 상황은 패널에 보여줄게."
+          },
+          state: runningState
+        })
+        .mockResolvedValueOnce({
+          result: {
+            action: "clarify",
+            accepted: false,
+            taskId: "task-1",
+            status: "running",
+            message: "어떤 작업인지 먼저 짚어줘."
+          },
+          state: runningState
+        })
+        .mockResolvedValueOnce({
+          result: {
+            action: "status",
+            accepted: true,
+            taskId: "task-1",
+            status: "completed",
+            message: "바탕화면 확인을 끝냈어요.",
+            summary: "바탕화면 확인을 끝냈어요.",
+            verification: "verified",
+            changes: []
+          },
+          state: completedState
+        })
+    };
+    const liveVoiceSession = createLiveSessionStub();
+    const bridge = createLiveBrainBridge({ runtime, liveVoiceSession });
+
+    await bridge.handleToolCalls([
+      {
+        id: "call-1",
+        name: "delegate_to_gemini_cli",
+        args: { request: "바탕화면 확인해줘" }
+      }
+    ]);
+
+    await bridge.handleToolCalls([
+      {
+        id: "call-2",
+        name: "delegate_to_gemini_cli",
+        args: { request: "그거 뭐였더라?" }
+      }
+    ]);
+
+    await bridge.syncRuntimeContextFromState(completedState);
+
+    expect(runtime.handleDelegateToGeminiCli).toHaveBeenNthCalledWith(3, {
+      request: "상태 알려줘",
+      taskId: "task-1",
+      mode: "status",
+      now: expect.any(String)
+    });
+    expect(liveVoiceSession.sendToolResponses).toHaveBeenCalledWith([
+      {
+        id: "call-1",
+        name: "delegate_to_gemini_cli",
+        response: {
+          output: {
+            action: "status",
+            accepted: true,
+            taskId: "task-1",
+            status: "completed",
+            message: "바탕화면 확인을 끝냈어요.",
+            summary: "바탕화면 확인을 끝냈어요.",
+            verification: "verified",
+            changes: []
+          }
+        },
+        scheduling: "WHEN_IDLE",
+        willContinue: false
+      }
+    ]);
+  });
+
+  it("routes recent task repair follow-ups back through the delegate backend", async () => {
+    const runningState = {
+      tasks: [
+        {
+          id: "task-1",
+          title: "LLMtest 파일 생성",
+          normalizedGoal: "LLMtest 파일 생성",
+          status: "running",
+        },
+      ],
+      recentTasks: [
+        {
+          id: "task-1",
+          title: "LLMtest 파일 생성",
+          normalizedGoal: "LLMtest 파일 생성",
+          status: "running",
+        },
+      ],
+      intake: { active: false, missingSlots: [] },
+      notifications: { pending: [], delivered: [] },
+      taskTimelines: [
+        {
+          taskId: "task-1",
+          events: [{ message: "Task is running" }],
+        },
+      ],
+    };
+    const runtime = {
+      collectState: vi.fn(async () => runningState),
+      resolveIntent: vi.fn(async () => "question"),
+      submitCanonicalUserTurnForDecision: vi.fn(async () => ({
+        handled: null,
+        state: runningState,
+      })),
+      handleDelegateToGeminiCli: vi
+        .fn()
+        .mockResolvedValueOnce({
+          result: {
+            action: "created",
+            accepted: true,
+            taskId: "task-1",
+            status: "running",
+            message: "Task is running",
+          },
+          state: runningState,
+        })
+        .mockResolvedValueOnce({
+          result: {
+            action: "status",
+            accepted: true,
+            taskId: "task-1",
+            status: "running",
+            message: "작업을 다시 확인하고 있어요.",
+          },
+          state: runningState,
+        }),
+    };
+    const liveVoiceSession = createLiveSessionStub();
+    liveVoiceSession.prefersToolRouting.mockReturnValue(true);
+
+    const bridge = createLiveBrainBridge({ runtime, liveVoiceSession });
+
+    await bridge.handleToolCalls([
+      {
+        id: "call-1",
+        name: "delegate_to_gemini_cli",
+        args: { request: "LLMtest 폴더에 파일 만들어줘" },
+      },
+    ]);
+
+    const result = await bridge.handleFinalTranscript("For real?");
+
+    expect(runtime.handleDelegateToGeminiCli).toHaveBeenNthCalledWith(2, {
+      request: "For real?",
+      mode: "auto",
+      now: expect.any(String),
+    });
+    expect(liveVoiceSession.sendText).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      mode: "runtime-first",
+      assistant: {
+        text: "작업을 다시 확인하고 있어요.",
+        tone: "task_ack",
+      },
+      sessionState: runningState,
+    });
+  });
 });

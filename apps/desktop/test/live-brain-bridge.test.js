@@ -262,6 +262,28 @@ describe("live-brain-bridge", () => {
     expect(result.sessionState.tasks[0].status).toBe("running");
   });
 
+  it("sends ordinary typed chat directly to Live instead of runtime-first", async () => {
+    const runtime = {
+      collectState: vi.fn(async () => createIdleRuntimeState()),
+      resolveIntent: vi.fn(async () => "small_talk"),
+      submitCanonicalUserTurnForDecision: vi.fn(async () => ({
+        handled: null,
+        state: createIdleRuntimeState()
+      }))
+    };
+    const liveVoiceSession = createLiveSessionStub();
+
+    const bridge = createLiveBrainBridge({ runtime, liveVoiceSession });
+    const result = await bridge.sendTypedTurn("하이염");
+
+    expect(runtime.resolveIntent).not.toHaveBeenCalled();
+    expect(runtime.submitCanonicalUserTurnForDecision).not.toHaveBeenCalled();
+    expect(liveVoiceSession.recordExternalUserTurn).not.toHaveBeenCalled();
+    expect(liveVoiceSession.injectAssistantMessage).not.toHaveBeenCalled();
+    expect(liveVoiceSession.sendText).toHaveBeenCalledWith("하이염");
+    expect(result.liveState).toEqual({ session: "live" });
+  });
+
   it("routes completed-task voice follow-ups through the delegate backend", async () => {
     const completedState = {
       tasks: [],

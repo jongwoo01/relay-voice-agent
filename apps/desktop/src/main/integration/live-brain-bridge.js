@@ -4,6 +4,10 @@ const TASK_FOLLOW_UP_HINTS =
   /(그거|그건|그 일|그 작업|아까|방금|진행|상태|어디까지|됐어|됐나|완료|끝났|결과|뭐가 있었|확인 중|확인해|briefing|done|finished|status|progress|result|update)/i;
 const TASK_RESULT_DETAIL_HINTS =
   /(읽어|읽었|봤어|봤나|찾았|찾았어|보고|보고해|브리핑|요약|말해|설명|개수|갯수|몇 개|이름|목록|뭐였|무엇|어떤)/i;
+const TASK_REPAIR_FOLLOW_UP_HINTS =
+  /(진짜|정말|for real|really|seriously|왜|why|what do you mean|무슨 말|아니|아닌데|아냐|틀렸|잘못|다시|retry|recheck|redo|wrong|delete|삭제|지우|create|만들라고|생성하라|내가 .*말|i said|i told you|not what|don't delete|wait|hold on)/i;
+const SHORT_CHALLENGE_FOLLOW_UP_HINTS =
+  /^(for real\??|really\??|seriously\??|진짜\??|정말\??|왜\??|아니\??|아닌데\??|맞아\??|확실해\??|뭐라고\??)$/i;
 
 const TOOL_CONTINUATION_STATUSES = new Set(["queued", "running"]);
 const TOOL_ATTENTION_STATUSES = new Map([
@@ -142,6 +146,18 @@ function shouldUseDelegateBackend(state, text) {
   return false;
 }
 
+function looksLikeTaskRepairFollowUp(text) {
+  const normalized = text.trim();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    TASK_REPAIR_FOLLOW_UP_HINTS.test(normalized) ||
+    SHORT_CHALLENGE_FOLLOW_UP_HINTS.test(normalized)
+  );
+}
+
 function buildRuntimeContextSummary(state) {
   if (state?.intake?.active) {
     const missing = state.intake.missingSlots?.join(", ") || "more details";
@@ -168,6 +184,68 @@ function buildRuntimeContextSummary(state) {
 
 function isRecord(value) {
   return typeof value === "object" && value !== null;
+}
+
+function truncateForLog(value, max = 160) {
+  if (typeof value !== "string" || value.length <= max) {
+    return value ?? null;
+  }
+
+  return `${value.slice(0, max)}...`;
+}
+
+function summarizeRuntimeState(state) {
+  return {
+    intake: state?.intake?.active
+      ? {
+          active: true,
+          missingSlots: state.intake.missingSlots ?? [],
+          workingText: truncateForLog(state.intake.workingText)
+        }
+      : { active: false },
+    activeTasks: (state?.tasks ?? []).map((task) => ({
+      id: task.id,
+      title: task.title,
+      status: task.status
+    })),
+    recentTasks: (state?.recentTasks ?? []).map((task) => ({
+      id: task.id,
+      title: task.title,
+      status: task.status
+    })),
+    latestNotification:
+      state?.notifications?.pending?.at(-1)?.reason ??
+      state?.notifications?.delivered?.at(-1)?.reason ??
+      null
+  };
+}
+
+function summarizeToolOutput(result) {
+  return {
+    action: result?.action ?? null,
+    accepted: result?.accepted ?? null,
+    taskId: result?.taskId ?? null,
+    status: result?.status ?? null,
+    failureReason: result?.failureReason ?? null,
+    message: truncateForLog(result?.message),
+    summary: truncateForLog(result?.summary)
+  };
+}
+
+function mapDelegateResultToAssistantTone(result) {
+  if (result?.action === "clarify") {
+    return "clarify";
+  }
+
+  if (
+    result?.action === "created" ||
+    result?.action === "resumed" ||
+    (result?.accepted && result?.status === "running")
+  ) {
+    return "task_ack";
+  }
+
+  return "reply";
 }
 
 function normalizeDelegateMode(value) {
@@ -208,6 +286,28 @@ function shouldPreferLiveToolRouting({
 
 export function createLiveBrainBridge({ runtime, liveVoiceSession }) {
   const pendingToolContinuations = new Map();
+  let lastDelegateActivityAt = 0;
+
+  function noteDelegateActivity() {
+    lastDelegateActivityAt = Date.now();
+  }
+
+  function hasFreshDelegateActivity(maxAgeMs = 90_000) {
+    return lastDelegateActivityAt > 0 && Date.now() - lastDelegateActivityAt <= maxAgeMs;
+  }
+
+  function shouldForceDelegateBackend(state, text) {
+    if (!state || !hasRecentTaskContext(state)) {
+      return false;
+    }
+
+    const normalized = text.trim();
+    if (!normalized || !hasFreshDelegateActivity()) {
+      return false;
+    }
+
+    return looksLikeTaskRepairFollowUp(normalized);
+  }
 
   async function applyRuntimeContextFromState(state) {
     await liveVoiceSession.syncRuntimeContext(buildRuntimeContextSummary(state), {
@@ -258,7 +358,16 @@ export function createLiveBrainBridge({ runtime, liveVoiceSession }) {
         scheduling,
         willContinue: false
       });
+      logDesktop(
+        `[live-brain-bridge] tool response queued: ${JSON.stringify({
+          callId: continuation.callId,
+          taskId,
+          scheduling,
+          output: summarizeToolOutput(result)
+        })}`
+      );
       pendingToolContinuations.delete(taskId);
+      noteDelegateActivity();
     }
 
     if (updates.length === 0) {
@@ -278,7 +387,10 @@ export function createLiveBrainBridge({ runtime, liveVoiceSession }) {
     await applyRuntimeContextFromState(runtimeState);
     const normalizedFinalText = finalText.trim();
 
-    if (shouldRouteThroughRuntimeState(runtimeState, normalizedFinalText)) {
+    if (
+      shouldRouteThroughRuntimeState(runtimeState, normalizedFinalText) ||
+      shouldForceDelegateBackend(runtimeState, normalizedFinalText)
+    ) {
       return {
         text: normalizedFinalText,
         intent: "task_request",
@@ -428,6 +540,10 @@ export function createLiveBrainBridge({ runtime, liveVoiceSession }) {
             routingTarget.runtimeState,
             routingTarget.text
           ),
+          shouldForceDelegateBackend: shouldForceDelegateBackend(
+            routingTarget.runtimeState,
+            routingTarget.text
+          ),
           shouldPreferLiveToolRouting: shouldPreferLiveToolRouting({
             liveVoiceSession,
             runtimeState: routingTarget.runtimeState,
@@ -438,6 +554,7 @@ export function createLiveBrainBridge({ runtime, liveVoiceSession }) {
       );
 
       if (
+        !shouldForceDelegateBackend(routingTarget.runtimeState, routingTarget.text) &&
         shouldPreferLiveToolRouting({
           liveVoiceSession,
           runtimeState: routingTarget.runtimeState,
@@ -459,12 +576,32 @@ export function createLiveBrainBridge({ runtime, liveVoiceSession }) {
           routingTarget.text,
           "voice"
         );
-        if (shouldUseDelegateBackend(routingTarget.runtimeState, routingTarget.text)) {
+        if (
+          shouldUseDelegateBackend(routingTarget.runtimeState, routingTarget.text) ||
+          shouldForceDelegateBackend(routingTarget.runtimeState, routingTarget.text)
+        ) {
+          logDesktop(
+            `[live-brain-bridge] delegate backend request: ${JSON.stringify({
+              source: "voice",
+              request: routingTarget.text,
+              mode: "auto",
+              runtimeState: summarizeRuntimeState(routingTarget.runtimeState)
+            })}`
+          );
           const delegated = await runtime.handleDelegateToGeminiCli({
             request: routingTarget.text,
             mode: "auto",
             now: createdAt
           });
+          noteDelegateActivity();
+          logDesktop(
+            `[live-brain-bridge] delegate backend result: ${JSON.stringify({
+              source: "voice",
+              request: routingTarget.text,
+              output: summarizeToolOutput(delegated.result),
+              runtimeState: summarizeRuntimeState(delegated.state)
+            })}`
+          );
           await liveVoiceSession.noteBridgeDecision(
             `voice delegate backend: ${delegated.result.action} ${delegated.result.status}`
           );
@@ -473,7 +610,7 @@ export function createLiveBrainBridge({ runtime, liveVoiceSession }) {
             mode: "runtime-first",
             assistant: {
               text: delegated.result.message,
-              tone: delegated.result.accepted ? "reply" : "clarify"
+              tone: mapDelegateResultToAssistantTone(delegated.result)
             },
             sessionState: delegated.state
           };
@@ -516,31 +653,15 @@ export function createLiveBrainBridge({ runtime, liveVoiceSession }) {
       await liveVoiceSession.connect();
       const initialRuntimeState = await runtime.collectState();
       await applyRuntimeContextFromState(initialRuntimeState);
-      const createdAt = new Date().toISOString();
-      const intent = await runtime.resolveIntent(normalizedText);
-      logDesktop(`[live-brain-bridge] typed turn -> runtime-first: ${normalizedText}`);
-      await liveVoiceSession.recordExternalUserTurn(normalizedText, createdAt);
-      await liveVoiceSession.noteRuntimeFirstDelegation(
-        normalizedText,
-        "typed"
-      );
-      const { assistant, sessionState } = await submitRuntimeFirstTurn({
-        text: normalizedText,
-        source: "typed",
-        createdAt,
-        intent
-      });
-      await applyRuntimeContextFromState(sessionState);
-      if (assistant?.text) {
-        await liveVoiceSession.injectAssistantMessage(
-          assistant.text,
-          assistant.tone
-        );
-      }
-
+      // Product invariant: every chat-box typed turn goes to Live.
+      // Typed input must never be diverted to runtime-first handling,
+      // even when there is an active task or intake state.
+      logDesktop(`[live-brain-bridge] typed turn -> live: ${normalizedText}`);
+      await liveVoiceSession.noteBridgeDecision(`typed live: ${normalizedText}`);
+      const liveState = await liveVoiceSession.sendText(normalizedText);
       return {
-        sessionState,
-        liveState: await liveVoiceSession.getState()
+        sessionState: initialRuntimeState,
+        liveState
       };
     },
 
@@ -571,6 +692,17 @@ export function createLiveBrainBridge({ runtime, liveVoiceSession }) {
           mode,
           now: new Date().toISOString()
         });
+        noteDelegateActivity();
+        logDesktop(
+          `[live-brain-bridge] live tool delegate request/result: ${JSON.stringify({
+            callId: functionCall.id,
+            request,
+            taskId: taskId ?? null,
+            mode: mode ?? "auto",
+            output: summarizeToolOutput(result),
+            runtimeState: summarizeRuntimeState(state)
+          })}`
+        );
         await liveVoiceSession.noteBridgeDecision(
           `tool delegate_to_gemini_cli: ${result.action} ${result.status}`
         );
@@ -590,6 +722,19 @@ export function createLiveBrainBridge({ runtime, liveVoiceSession }) {
             ? { willContinue: true }
             : {})
         });
+        logDesktop(
+          `[live-brain-bridge] tool response queued: ${JSON.stringify({
+            callId: functionCall.id,
+            output: summarizeToolOutput(result),
+            willContinue: TOOL_CONTINUATION_STATUSES.has(result.status),
+            scheduling:
+              result.taskId &&
+              pendingToolContinuations.has(result.taskId) &&
+              TOOL_CONTINUATION_STATUSES.has(result.status)
+                ? DUPLICATE_RUNNING_CONTINUATION_SCHEDULING
+                : null
+          })}`
+        );
 
         if (
           TOOL_CONTINUATION_STATUSES.has(result.status) &&
@@ -609,7 +754,10 @@ export function createLiveBrainBridge({ runtime, liveVoiceSession }) {
             callId: functionCall.id,
             lastStatus: result.status
           });
-        } else if (result.taskId) {
+        } else if (
+          result.taskId &&
+          !TOOL_CONTINUATION_STATUSES.has(result.status)
+        ) {
           pendingToolContinuations.delete(result.taskId);
         }
       }
