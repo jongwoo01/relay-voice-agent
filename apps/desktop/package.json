@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./main.js",
   "scripts": {
-    "dev": "electron ."
+    "dev": "npm --prefix ../.. run build:runtimes && electron ."
   },
   "dependencies": {
     "@agent/agent-api": "file:../agent-api",
