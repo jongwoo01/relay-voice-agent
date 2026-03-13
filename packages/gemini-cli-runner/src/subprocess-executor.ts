@@ -30,6 +30,7 @@ export interface ExecResult {
 
 export interface RunCommandOptions {
   cwd?: string;
+  env?: NodeJS.ProcessEnv;
   onStdoutLine?: (line: string) => void | Promise<void>;
 }
 
@@ -77,6 +78,7 @@ export function createSpawnRunner(
     await new Promise<ExecResult>((resolve, reject) => {
       const child = spawnCommand(file, args, {
         cwd: options?.cwd,
+        env: options?.env,
         stdio: "pipe"
       });
 
@@ -125,6 +127,26 @@ export function createSpawnRunner(
 
 export const defaultExecFile = createSpawnRunner();
 
+function buildGeminiCliEnvironment(
+  env: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  const nextEnv: NodeJS.ProcessEnv = {
+    ...env,
+    // Force the CLI toward cached Google OAuth auth instead of inheriting
+    // live-session API key / Vertex configuration from the desktop process.
+    GOOGLE_GENAI_USE_GCA: "true"
+  };
+
+  delete nextEnv.GEMINI_API_KEY;
+  delete nextEnv.GOOGLE_API_KEY;
+  delete nextEnv.GOOGLE_GENAI_USE_VERTEXAI;
+  delete nextEnv.GOOGLE_CLOUD_PROJECT;
+  delete nextEnv.GOOGLE_CLOUD_PROJECT_ID;
+  delete nextEnv.GOOGLE_CLOUD_LOCATION;
+
+  return nextEnv;
+}
+
 export class GeminiCliExecutor implements LocalExecutor {
   constructor(
     private readonly exec: RunCommandLike = defaultExecFile,
@@ -140,6 +162,7 @@ export class GeminiCliExecutor implements LocalExecutor {
 
     const result = await this.exec(command.command, command.args, {
       cwd: command.cwd,
+      env: buildGeminiCliEnvironment(),
       onStdoutLine: async (line) => {
         const event = parseGeminiCliEventLine(line);
         streamedEvents.push(event);

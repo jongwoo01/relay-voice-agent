@@ -84,9 +84,15 @@ describe("GeminiCliExecutor", () => {
       ],
       expect.objectContaining({
         cwd: undefined,
+        env: expect.objectContaining({
+          GOOGLE_GENAI_USE_GCA: "true"
+        }),
         onStdoutLine: expect.any(Function)
       })
     );
+    expect(exec.mock.calls[0]?.[2]?.env?.GEMINI_API_KEY).toBeUndefined();
+    expect(exec.mock.calls[0]?.[2]?.env?.GOOGLE_API_KEY).toBeUndefined();
+    expect(exec.mock.calls[0]?.[2]?.env?.GOOGLE_GENAI_USE_VERTEXAI).toBeUndefined();
     expect(result).toEqual({
       progressEvents: [
         {
@@ -165,9 +171,63 @@ describe("GeminiCliExecutor", () => {
       ],
       expect.objectContaining({
         cwd: "/tmp/work",
+        env: expect.objectContaining({
+          GOOGLE_GENAI_USE_GCA: "true"
+        }),
         onStdoutLine: expect.any(Function)
       })
     );
+  });
+
+  it("strips live api key auth env before spawning Gemini CLI", async () => {
+    const exec = vi.fn(async () => ({
+      stdout: JSON.stringify({
+        type: "result",
+        response: JSON.stringify({
+          summary: "OK",
+          verification: "verified",
+          changes: [],
+          question: ""
+        })
+      }),
+      stderr: "",
+      exitCode: 0
+    }));
+
+    vi.stubEnv("GEMINI_API_KEY", "live-key");
+    vi.stubEnv("GOOGLE_API_KEY", "google-live-key");
+    vi.stubEnv("GOOGLE_GENAI_USE_VERTEXAI", "true");
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "project-123");
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT_ID", "project-123");
+    vi.stubEnv("GOOGLE_CLOUD_LOCATION", "us-central1");
+
+    try {
+      const executor = new GeminiCliExecutor(exec);
+
+      await executor.run({
+        task: {
+          id: "task-auth",
+          title: "Auth cleanup",
+          normalizedGoal: "auth cleanup",
+          status: "queued",
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z"
+        },
+        now: "2026-03-08T00:00:00.000Z",
+        prompt: "Reply with OK"
+      });
+
+      const env = exec.mock.calls[0]?.[2]?.env;
+      expect(env?.GOOGLE_GENAI_USE_GCA).toBe("true");
+      expect(env?.GEMINI_API_KEY).toBeUndefined();
+      expect(env?.GOOGLE_API_KEY).toBeUndefined();
+      expect(env?.GOOGLE_GENAI_USE_VERTEXAI).toBeUndefined();
+      expect(env?.GOOGLE_CLOUD_PROJECT).toBeUndefined();
+      expect(env?.GOOGLE_CLOUD_PROJECT_ID).toBeUndefined();
+      expect(env?.GOOGLE_CLOUD_LOCATION).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("fails when the process exits cleanly but produces no output", async () => {
