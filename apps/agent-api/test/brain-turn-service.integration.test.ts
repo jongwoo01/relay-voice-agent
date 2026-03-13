@@ -6,7 +6,9 @@ import {
   ConversationOrchestrator,
   InMemoryTaskExecutorSessionRepository,
   TaskExecutionService,
-  TaskRuntime
+  TaskRuntime,
+  type TaskRoutingDecision,
+  type TaskRoutingResolver
 } from "../src/index.js";
 
 class CapturingExecutor implements LocalExecutor {
@@ -34,6 +36,20 @@ function utterance(text: string, intent: FinalizedUtterance["intent"]): Finalize
   };
 }
 
+function createRoutingDecision(
+  overrides: Partial<TaskRoutingDecision> = {}
+): TaskRoutingDecision {
+  return {
+    kind: "create_task",
+    targetTaskId: null,
+    clarificationNeeded: false,
+    clarificationText: null,
+    executorPrompt: null,
+    reason: "test routing decision",
+    ...overrides
+  };
+}
+
 describe("brain-turn-service", () => {
   it("returns a direct reply action for small talk", async () => {
     const service = new BrainTurnService();
@@ -49,8 +65,20 @@ describe("brain-turn-service", () => {
     expect(result.replyText).toContain("안녕하세요");
   });
 
-  it("asks a task intake follow-up when execution-critical details are missing", async () => {
-    const service = new BrainTurnService();
+  it("returns a clarify action when the routing resolver requests clarification", async () => {
+    const service = new BrainTurnService(
+      new ConversationOrchestrator(),
+      new TaskExecutionService(),
+      undefined,
+      {
+        resolve: async () =>
+          createRoutingDecision({
+            kind: "clarify",
+            clarificationNeeded: true,
+            clarificationText: "언제 할지 한 번만 더 알려줘."
+          })
+      } satisfies TaskRoutingResolver
+    );
 
     const result = await service.handle({
       brainSessionId: "brain-1",
@@ -59,10 +87,7 @@ describe("brain-turn-service", () => {
       now: "2026-03-08T00:00:00.000Z"
     });
 
-    expect(result.action).toEqual({
-      type: "task_intake_clarify",
-      missingSlots: ["time"]
-    });
+    expect(result.action).toEqual({ type: "clarify" });
     expect(result.replyText).toContain("언제 할지");
   });
 
@@ -74,7 +99,10 @@ describe("brain-turn-service", () => {
         new TaskRuntime(executor),
         new InMemoryTaskExecutorSessionRepository()
       ),
-      () => "task-new"
+      () => "task-new",
+      {
+        resolve: async () => createRoutingDecision()
+      } satisfies TaskRoutingResolver
     );
 
     const result = await service.handle({
@@ -108,7 +136,16 @@ describe("brain-turn-service", () => {
     const executor = new CapturingExecutor();
     const service = new BrainTurnService(
       new ConversationOrchestrator(),
-      new TaskExecutionService(new TaskRuntime(executor), repository)
+      new TaskExecutionService(new TaskRuntime(executor), repository),
+      undefined,
+      {
+        resolve: async () =>
+          createRoutingDecision({
+            kind: "continue_task",
+            targetTaskId: "task-existing",
+            executorPrompt: "아까 하던 거 이어서 해"
+          })
+      } satisfies TaskRoutingResolver
     );
 
     const result = await service.handle({
@@ -148,7 +185,11 @@ describe("brain-turn-service", () => {
       new TaskExecutionService(
         new TaskRuntime(executor),
         new InMemoryTaskExecutorSessionRepository()
-      )
+      ),
+      undefined,
+      {
+        resolve: async () => createRoutingDecision()
+      } satisfies TaskRoutingResolver
     );
 
     const result = await service.handle({

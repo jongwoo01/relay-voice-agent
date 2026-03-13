@@ -15,6 +15,9 @@ describe("delegate-to-gemini-cli-service", () => {
         text: "작업을 시작할게. 진행 상황은 패널에 보여줄게.",
         tone: "task_ack" as const
       },
+      action: {
+        type: "create_task" as const
+      },
       task: {
         id: "task-1",
         title: "바탕화면 정리",
@@ -175,7 +178,7 @@ describe("delegate-to-gemini-cli-service", () => {
     });
   });
 
-  it("returns running task status without re-dispatching the executor", async () => {
+  it("returns status when the shared loop reports a status action", async () => {
     const taskRepository = new InMemoryTaskRepository();
     const taskEventRepository = new InMemoryTaskEventRepository();
     await taskRepository.save("brain-1", {
@@ -195,7 +198,24 @@ describe("delegate-to-gemini-cli-service", () => {
       }
     ]);
     const dispatch = vi.fn();
-    const autoHandle = vi.fn();
+    const autoHandle = vi.fn(async () => ({
+      assistant: {
+        text: "Task is running",
+        tone: "reply" as const
+      },
+      action: {
+        type: "status" as const,
+        taskId: "task-1"
+      },
+      task: {
+        id: "task-1",
+        title: "바탕화면 확인",
+        normalizedGoal: "바탕화면 확인",
+        status: "running" as const,
+        createdAt: "2026-03-12T00:00:00.000Z",
+        updatedAt: "2026-03-12T00:02:00.000Z"
+      }
+    }));
     const service = new DelegateToGeminiCliService(
       taskRepository,
       taskEventRepository,
@@ -210,7 +230,7 @@ describe("delegate-to-gemini-cli-service", () => {
     });
 
     expect(dispatch).not.toHaveBeenCalled();
-    expect(autoHandle).not.toHaveBeenCalled();
+    expect(autoHandle).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       action: "status",
       accepted: true,
@@ -241,6 +261,9 @@ describe("delegate-to-gemini-cli-service", () => {
       assistant: {
         text: "다운로드 정리를 시작할게.",
         tone: "task_ack" as const
+      },
+      action: {
+        type: "create_task" as const
       },
       task: {
         id: "task-2",
@@ -301,7 +324,15 @@ describe("delegate-to-gemini-cli-service", () => {
       taskRepository,
       taskEventRepository,
       { dispatch: vi.fn() } as never,
-      vi.fn()
+      vi.fn(async () => ({
+        assistant: {
+          text: "진행 중인 작업이 여러 개라서 어떤 작업인지 먼저 집어줘.",
+          tone: "clarify" as const
+        },
+        action: {
+          type: "clarify" as const
+        }
+      }))
     );
 
     const result = await service.handle({
@@ -314,5 +345,44 @@ describe("delegate-to-gemini-cli-service", () => {
     expect(result.accepted).toBe(false);
     expect(result.action).toBe("clarify");
     expect(result.message).toContain("여러 개");
+  });
+
+  it("surfaces explicit Vertex routing failures instead of clarify", async () => {
+    const taskRepository = new InMemoryTaskRepository();
+    const taskEventRepository = new InMemoryTaskEventRepository();
+    const service = new DelegateToGeminiCliService(
+      taskRepository,
+      taskEventRepository,
+      { dispatch: vi.fn() } as never,
+      vi.fn(async () => ({
+        assistant: {
+          text: "Vertex AI quota 제한으로 작업 라우팅이 실패했습니다.",
+          tone: "reply" as const
+        },
+        action: {
+          type: "error" as const,
+          reason: "quota_exhausted" as const
+        }
+      }))
+    );
+
+    const result = await service.handle({
+      brainSessionId: "brain-1",
+      request: "바탕화면 파일 이름 알려줘",
+      now: "2026-03-12T00:03:00.000Z"
+    });
+
+    expect(result).toEqual({
+      action: "error",
+      accepted: false,
+      status: "failed",
+      message: "Vertex AI quota 제한으로 작업 라우팅이 실패했습니다.",
+      failureReason: "quota_exhausted",
+      needsInput: false,
+      needsApproval: false,
+      summary: undefined,
+      verification: undefined,
+      changes: undefined
+    });
   });
 });

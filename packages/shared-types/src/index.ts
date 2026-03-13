@@ -45,7 +45,16 @@ export interface TaskIntakeSession {
 export type NextAction =
   | { type: "reply" }
   | { type: "clarify" }
+  | {
+      type: "error";
+      reason:
+        | "auth_failed"
+        | "quota_exhausted"
+        | "config_invalid"
+        | "upstream_error";
+    }
   | { type: "task_intake_clarify"; missingSlots: TaskIntakeSlot[] }
+  | { type: "status"; taskId: string }
   | { type: "create_task" }
   | { type: "resume_task"; taskId: string }
   | { type: "set_completion_notification"; taskId: string };
@@ -80,6 +89,13 @@ export interface TaskEvent {
   createdAt: string;
 }
 
+export interface TaskRoutingTaskContext {
+  task: Task;
+  isActive: boolean;
+  isRecentCompleted: boolean;
+  latestEventPreview?: string;
+}
+
 export interface TaskTransitionResult {
   task: Task;
   event: TaskEvent;
@@ -96,6 +112,8 @@ export interface BrainTurnInput {
   brainSessionId: string;
   utterance: FinalizedUtterance;
   activeTasks: Task[];
+  recentTasks?: Task[];
+  taskContexts?: TaskRoutingTaskContext[];
   now: string;
 }
 
@@ -124,6 +142,7 @@ export interface ConversationMessage {
   text: string;
   createdAt: string;
   tone?: AssistantEnvelope["tone"];
+  taskId?: string;
 }
 
 export interface AssistantNotification {
@@ -142,6 +161,9 @@ export interface AssistantDeliveryPlan {
   uiText: string;
   speechText?: string;
   delivery: AssistantDeliveryPolicy;
+  reason?: AssistantNotificationReason;
+  taskId?: string;
+  createdAt?: string;
 }
 
 export type MemoryItemType =
@@ -170,10 +192,79 @@ export type MainAvatarState =
   | "waiting_user"
   | "reflecting";
 
-export interface SubAvatarViewModel {
+export interface TaskRunnerViewModel {
   taskId: string;
   label: string;
+  title: string;
   status: TaskStatus;
   progressSummary?: string;
   blockingReason?: string;
+  lastUpdatedAt?: string;
+}
+
+export type SubAvatarViewModel = TaskRunnerViewModel;
+
+export type ConversationInputMode = "typed" | "voice";
+
+export type ConversationTurnStage =
+  | "capturing"
+  | "thinking"
+  | "responding"
+  | "delegated"
+  | "waiting_input"
+  | "completed"
+  | "failed";
+
+export type ConversationTimelineItemKind =
+  | "user_message"
+  | "assistant_message"
+  | "task_event";
+
+export type ConversationResponseSource = "live" | "runtime" | "delegate";
+
+export interface ConversationTimelineItem {
+  id: string;
+  turnId: string;
+  kind: ConversationTimelineItemKind;
+  inputMode: ConversationInputMode;
+  speaker: "user" | "assistant" | "system";
+  text: string;
+  partial: boolean;
+  streaming: boolean;
+  interrupted: boolean;
+  tone?: AssistantEnvelope["tone"];
+  taskId?: string;
+  taskStatus?: TaskStatus;
+  responseSource?: ConversationResponseSource;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationTurnViewModel {
+  turnId: string;
+  inputMode: ConversationInputMode;
+  stage: ConversationTurnStage;
+  userMessageId?: string;
+  assistantMessageId?: string;
+  taskId?: string;
+  startedAt?: string;
+  updatedAt?: string;
+}
+
+export type DebugEventSource =
+  | "transport"
+  | "live"
+  | "bridge"
+  | "runtime"
+  | "executor";
+
+export interface DebugEventViewModel {
+  id: string;
+  source: DebugEventSource;
+  kind: string;
+  summary: string;
+  detail?: string;
+  turnId?: string;
+  taskId?: string;
+  createdAt: string;
 }

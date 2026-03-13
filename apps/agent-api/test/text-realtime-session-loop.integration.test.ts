@@ -10,6 +10,11 @@ import type {
   FinalizedUtterance
 } from "@agent/shared-types";
 import { TextRealtimeSessionLoop } from "../src/index.js";
+import type {
+  TaskRoutingDecision,
+  TaskRoutingResolver,
+  TaskRoutingResolverInput
+} from "../src/index.js";
 
 function utterance(text: string, intent: FinalizedUtterance["intent"]): FinalizedUtterance {
   return {
@@ -18,6 +23,40 @@ function utterance(text: string, intent: FinalizedUtterance["intent"]): Finalize
     createdAt: "2026-03-08T00:00:00.000Z"
   };
 }
+
+function createRoutingDecision(
+  overrides: Partial<TaskRoutingDecision> = {}
+): TaskRoutingDecision {
+  return {
+    kind: "create_task",
+    targetTaskId: null,
+    clarificationNeeded: false,
+    clarificationText: null,
+    executorPrompt: null,
+    reason: "test routing decision",
+    ...overrides
+  };
+}
+
+const defaultTaskRoutingResolver = {
+  resolve: async ({
+    utterance,
+    activeTasks
+  }: TaskRoutingResolverInput): Promise<TaskRoutingDecision> => {
+    if (utterance.text.includes("이어서") && activeTasks[0]) {
+      return createRoutingDecision({
+        kind:
+          activeTasks[0].status === "waiting_input"
+            ? "continue_blocked_task"
+            : "continue_task",
+        targetTaskId: activeTasks[0].id,
+        executorPrompt: utterance.text
+      });
+    }
+
+    return createRoutingDecision();
+  }
+} satisfies TaskRoutingResolver;
 
 describe("text-realtime-session-loop", () => {
   it("can suppress direct assistant reply persistence for companion-style surfaces", async () => {
@@ -92,6 +131,9 @@ describe("text-realtime-session-loop", () => {
       undefined,
       async (notification) => {
         notifications.push(notification);
+      },
+      {
+        taskRoutingResolver: defaultTaskRoutingResolver
       }
     );
 
@@ -209,7 +251,9 @@ describe("text-realtime-session-loop", () => {
     }
 
     const executor = new CapturingExecutor();
-    const loop = new TextRealtimeSessionLoop(executor);
+    const loop = new TextRealtimeSessionLoop(executor, undefined, undefined, {
+      taskRoutingResolver: defaultTaskRoutingResolver
+    });
 
     const firstTurn = await loop.handleTurn({
       brainSessionId: "brain-3",
@@ -228,6 +272,42 @@ describe("text-realtime-session-loop", () => {
     expect(secondTurn.assistant.tone).toBe("task_ack");
     expect(executor.lastPrompt).toBe("메일 보내줘 민수한테");
     await expect(loop.getActiveTaskIntake("brain-3")).resolves.toBeNull();
+  });
+
+  it("clears a ready intake even when downstream routing clarifies instead of creating a task", async () => {
+    class NoopExecutor implements LocalExecutor {
+      async run(): Promise<ExecutorRunResult> {
+        throw new Error("run should not be called when routing clarifies");
+      }
+    }
+
+    const clarifyingResolver: TaskRoutingResolver = {
+      resolve: async (): Promise<TaskRoutingDecision> =>
+        createRoutingDecision({
+          kind: "clarify",
+          clarificationNeeded: true,
+          clarificationText: "어떤 작업으로 이해하면 될지 한 번만 더 짚어줘."
+        })
+    };
+
+    const loop = new TextRealtimeSessionLoop(new NoopExecutor(), undefined, undefined, {
+      taskRoutingResolver: clarifyingResolver
+    });
+
+    await loop.handleTurn({
+      brainSessionId: "brain-3b",
+      utterance: utterance("메일 보내줘", "task_request"),
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    const secondTurn = await loop.handleTurn({
+      brainSessionId: "brain-3b",
+      utterance: utterance("민수한테", "small_talk"),
+      now: "2026-03-08T00:00:01.000Z"
+    });
+
+    expect(secondTurn.assistant.tone).toBe("clarify");
+    await expect(loop.getActiveTaskIntake("brain-3b")).resolves.toBeNull();
   });
 
   it("replaces an active intake when a new standalone task request arrives", async () => {
@@ -282,7 +362,9 @@ describe("text-realtime-session-loop", () => {
     }
 
     const executor = new CapturingExecutor();
-    const loop = new TextRealtimeSessionLoop(executor);
+    const loop = new TextRealtimeSessionLoop(executor, undefined, undefined, {
+      taskRoutingResolver: defaultTaskRoutingResolver
+    });
 
     const turn = await loop.handleTurn({
       brainSessionId: "brain-5",
@@ -316,7 +398,9 @@ describe("text-realtime-session-loop", () => {
     }
 
     const executor = new CapturingExecutor();
-    const loop = new TextRealtimeSessionLoop(executor);
+    const loop = new TextRealtimeSessionLoop(executor, undefined, undefined, {
+      taskRoutingResolver: defaultTaskRoutingResolver
+    });
 
     const firstTurn = await loop.handleTurn({
       brainSessionId: "brain-6",

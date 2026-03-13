@@ -1,5 +1,6 @@
 import type {
   AssistantEnvelope,
+  NextAction,
   Task,
   TaskEvent,
   TaskStatus
@@ -9,9 +10,15 @@ import type { TaskEventRepository } from "../persistence/task-event-repository.j
 import { InMemoryTaskRepository } from "../persistence/task-repository.js";
 import { InMemoryTaskEventRepository } from "../persistence/task-event-repository.js";
 import {
-  TaskExecutionService,
-  type ExecuteTaskResult
+  TaskExecutionService
 } from "./task-execution-service.js";
+import { buildTaskStatusMessage } from "./task-status-message.js";
+import type { TaskRoutingDecision } from "../conversation/task-routing-resolver.js";
+import type { VertexAiFailureReason } from "../config/vertex-ai-config.js";
+import {
+  buildVertexAiFailureMessage,
+  classifyVertexAiFailure
+} from "../config/vertex-ai-config.js";
 
 export type DelegateToGeminiCliMode =
   | "auto"
@@ -28,11 +35,12 @@ export interface DelegateToGeminiCliInput {
 }
 
 export interface DelegateToGeminiCliResult {
-  action: "clarify" | "created" | "resumed" | "status";
+  action: "clarify" | "created" | "resumed" | "status" | "error";
   accepted: boolean;
   taskId?: string;
   status: TaskStatus;
   message: string;
+  failureReason?: VertexAiFailureReason;
   needsInput?: boolean;
   needsApproval?: boolean;
   summary?: string;
@@ -44,80 +52,33 @@ export interface DelegateAutoHandleResult {
   assistant: AssistantEnvelope;
   task?: Task;
   taskEvents?: TaskEvent[];
+  action?: NextAction;
+  routingDecision?: TaskRoutingDecision;
 }
 
 export type DelegateAutoHandle = (
   input: Pick<DelegateToGeminiCliInput, "brainSessionId" | "request" | "now">
 ) => Promise<DelegateAutoHandleResult>;
 
-const STATUS_QUESTION_PATTERN =
-  /(상태|진행 상황|어디까지|다 됐|완료|끝났|결과|뭐가 있었|확인했|읽어|읽었|보고|보고해|브리핑|요약|말해|설명|개수|갯수|몇 개|이름|목록|뭐였|무엇|어떤|다시|status|progress|result|update)/i;
-
-const GENERIC_FOLLOW_UP_PATTERN =
-  /(그거|그 작업|그 일|아까|방금|이어서|계속|resume|continue)/i;
-
-function normalize(text: string): string {
-  return text.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function looksLikeStatusQuestion(text: string): boolean {
-  return STATUS_QUESTION_PATTERN.test(text.trim());
-}
-
-function looksLikeGenericFollowUp(text: string): boolean {
-  return GENERIC_FOLLOW_UP_PATTERN.test(text.trim());
-}
-
-function matchesTaskText(text: string, task: Task): boolean {
-  const normalizedText = normalize(text);
-  if (!normalizedText) {
-    return false;
+function truncateForLog(value: string | null | undefined, max = 160): string | null {
+  if (!value) {
+    return null;
   }
 
-  return (
-    normalizedText.includes(task.normalizedGoal) ||
-    task.normalizedGoal.includes(normalizedText) ||
-    normalizedText.includes(task.title.toLowerCase())
-  );
+  return value.length > max ? `${value.slice(0, max)}...` : value;
 }
 
-function shouldTargetExistingTask(text: string, task: Task): boolean {
-  return (
-    looksLikeStatusQuestion(text) ||
-    looksLikeGenericFollowUp(text) ||
-    matchesTaskText(text, task)
-  );
+function summarizeTasks(tasks: Task[]): Array<Record<string, unknown>> {
+  return tasks.map((task) => ({
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    completionSummary: truncateForLog(task.completionReport?.summary)
+  }));
 }
 
-function isBlockedTaskStatus(status: TaskStatus): boolean {
-  return status === "waiting_input" || status === "approval_required";
-}
-
-function buildStatusMessage(task: Task, latestEvent?: TaskEvent): string {
-  if (task.completionReport?.summary) {
-    return task.completionReport.summary;
-  }
-
-  if (latestEvent?.message) {
-    return latestEvent.message;
-  }
-
-  switch (task.status) {
-    case "queued":
-      return "작업을 큐에 넣었어요.";
-    case "running":
-      return "작업을 계속 확인하고 있어요.";
-    case "waiting_input":
-      return "작업을 이어가려면 입력이 더 필요해요.";
-    case "approval_required":
-      return "작업을 이어가려면 승인이 필요해요.";
-    case "completed":
-      return "작업이 완료됐어요.";
-    case "failed":
-      return "작업이 실패했어요.";
-    default:
-      return "작업 상태를 확인했어요.";
-  }
+function logDelegate(label: string, details: Record<string, unknown>): void {
+  console.log(`[delegate-to-gemini-cli] ${label} ${JSON.stringify(details)}`);
 }
 
 function toToolResult(
@@ -126,18 +87,31 @@ function toToolResult(
   latestEvent?: TaskEvent,
   accepted = true
 ): DelegateToGeminiCliResult {
-  return {
+  const result = {
     action,
     accepted,
     taskId: task.id,
     status: task.status,
-    message: buildStatusMessage(task, latestEvent),
+    message: buildTaskStatusMessage(task, latestEvent),
     needsInput: task.status === "waiting_input",
     needsApproval: task.status === "approval_required",
     summary: task.completionReport?.summary,
     verification: task.completionReport?.verification,
     changes: task.completionReport?.changes
   };
+  logDelegate("result", {
+    action: result.action,
+    accepted: result.accepted,
+    taskId: result.taskId,
+    status: result.status,
+    message: truncateForLog(result.message),
+    summary: truncateForLog(result.summary)
+  });
+  return result;
+}
+
+function createTaskId(): string {
+  return `task-${crypto.randomUUID()}`;
 }
 
 export class DelegateToGeminiCliService {
@@ -160,6 +134,14 @@ export class DelegateToGeminiCliService {
       input.brainSessionId,
       8
     );
+    logDelegate("handle start", {
+      brainSessionId: input.brainSessionId,
+      mode,
+      taskId: input.taskId ?? null,
+      request,
+      activeTasks: summarizeTasks(activeTasks),
+      recentTasks: summarizeTasks(recentTasks)
+    });
 
     if (!request) {
       return this.buildClarifyResult(
@@ -168,121 +150,135 @@ export class DelegateToGeminiCliService {
       );
     }
 
-    const target = await this.resolveTargetTask({
-      request,
-      taskId: input.taskId,
-      activeTasks,
-      recentTasks
-    });
-
-    if (target.kind === "clarify") {
-      return this.buildClarifyResult(
-        "진행 중인 작업이 여러 개라서 어떤 작업인지 먼저 집어줘.",
-        activeTasks[0] ?? recentTasks[0]
-      );
+    if (mode === "status" && input.taskId) {
+      return this.handleExplicitStatus(input.taskId, activeTasks, recentTasks);
     }
 
-    if (mode === "status" || looksLikeStatusQuestion(request)) {
-      const statusTask = target.task ?? recentTasks[0] ?? activeTasks[0];
-      if (!statusTask) {
-        return this.buildClarifyResult(
-          "지금 확인할 작업이 없어요. 새 작업을 요청해줘."
-        );
-      }
-
-      const latestEvent = await this.getLatestEvent(statusTask.id);
-      return toToolResult("status", statusTask, latestEvent);
+    if (mode === "resume" && input.taskId) {
+      return this.handleExplicitResume(input, activeTasks, recentTasks);
     }
 
-    if (
-      target.task &&
-      target.task.status === "running"
-    ) {
-      const latestEvent = await this.getLatestEvent(target.task.id);
-      return toToolResult("status", target.task, latestEvent);
-    }
-
-    if (
-      target.task &&
-      (mode === "resume" ||
-        (isBlockedTaskStatus(target.task.status) &&
-          !looksLikeStatusQuestion(request)))
-    ) {
-      const execution = await this.taskExecutionService.dispatch({
+    if (mode === "new_task") {
+      const created = await this.taskExecutionService.dispatch({
         brainSessionId: input.brainSessionId,
-        taskId: target.task.id,
+        taskId: createTaskId(),
         text: request,
-        now: input.now,
-        existingTask: target.task
+        now: input.now
       });
-      return toToolResult("resumed", execution.task, execution.events.at(-1));
+
+      return toToolResult("created", created.task, created.events.at(-1));
     }
 
-    const autoHandled = await this.autoHandle({
+    let autoHandled: DelegateAutoHandleResult;
+    try {
+      autoHandled = await this.autoHandle({
+        brainSessionId: input.brainSessionId,
+        request,
+        now: input.now
+      });
+    } catch (error) {
+      const reason = classifyVertexAiFailure(error);
+      return this.buildErrorResult(
+        buildVertexAiFailureMessage(reason),
+        reason,
+        activeTasks[0] ?? recentTasks[0]
+      );
+    }
+    logDelegate("auto handle result", {
       brainSessionId: input.brainSessionId,
+      mode,
       request,
-      now: input.now
+      action: autoHandled.action?.type ?? null,
+      taskId: autoHandled.task?.id ?? null,
+      taskStatus: autoHandled.task?.status ?? null,
+      assistantText: truncateForLog(autoHandled.assistant.text),
+      routingDecision: autoHandled.routingDecision
+        ? {
+            kind: autoHandled.routingDecision.kind,
+            targetTaskId: autoHandled.routingDecision.targetTaskId,
+            clarificationNeeded: autoHandled.routingDecision.clarificationNeeded,
+            clarificationText: truncateForLog(
+              autoHandled.routingDecision.clarificationText
+            ),
+            executorPrompt: truncateForLog(
+              autoHandled.routingDecision.executorPrompt
+            ),
+            reason: truncateForLog(autoHandled.routingDecision.reason, 240)
+          }
+        : null
     });
 
-    if (!autoHandled.task) {
-      return this.buildClarifyResult(
+    if (autoHandled.action?.type === "status" && autoHandled.task) {
+      const latestEvent = await this.getLatestEvent(autoHandled.task.id);
+      return toToolResult("status", autoHandled.task, latestEvent);
+    }
+
+    if (autoHandled.action?.type === "create_task" && autoHandled.task) {
+      return toToolResult("created", autoHandled.task, autoHandled.taskEvents?.at(-1));
+    }
+
+    if (autoHandled.action?.type === "resume_task" && autoHandled.task) {
+      return toToolResult("resumed", autoHandled.task, autoHandled.taskEvents?.at(-1));
+    }
+
+    if (autoHandled.action?.type === "error") {
+      return this.buildErrorResult(
         autoHandled.assistant.text,
+        autoHandled.action.reason,
         activeTasks[0] ?? recentTasks[0]
       );
     }
 
-    const action =
-      activeTasks.some((task) => task.id === autoHandled.task?.id) ||
-      target.task
-        ? "resumed"
-        : "created";
-
-    return toToolResult(
-      action,
-      autoHandled.task,
-      autoHandled.taskEvents?.at(-1)
+    return this.buildClarifyResult(
+      autoHandled.assistant.text,
+      activeTasks[0] ?? recentTasks[0]
     );
   }
 
-  private async resolveTargetTask(input: {
-    request: string;
-    taskId?: string;
-    activeTasks: Task[];
-    recentTasks: Task[];
-  }): Promise<{ kind: "task"; task?: Task } | { kind: "clarify" }> {
-    if (input.taskId) {
-      return {
-        kind: "task",
-        task: (await this.taskRepository.getById(input.taskId)) ?? undefined
-      };
+  private async handleExplicitStatus(
+    taskId: string,
+    activeTasks: Task[],
+    recentTasks: Task[]
+  ): Promise<DelegateToGeminiCliResult> {
+    const task =
+      (await this.taskRepository.getById(taskId)) ??
+      activeTasks.find((candidate) => candidate.id === taskId) ??
+      recentTasks.find((candidate) => candidate.id === taskId);
+
+    if (!task) {
+      return this.buildClarifyResult("확인할 작업을 찾지 못했어.", activeTasks[0] ?? recentTasks[0]);
     }
 
-    if (input.activeTasks.length === 0) {
-      return { kind: "task", task: undefined };
+    const latestEvent = await this.getLatestEvent(task.id);
+    return toToolResult("status", task, latestEvent);
+  }
+
+  private async handleExplicitResume(
+    input: DelegateToGeminiCliInput,
+    activeTasks: Task[],
+    recentTasks: Task[]
+  ): Promise<DelegateToGeminiCliResult> {
+    const task =
+      (input.taskId ? await this.taskRepository.getById(input.taskId) : null) ??
+      activeTasks.find((candidate) => candidate.id === input.taskId) ??
+      recentTasks.find((candidate) => candidate.id === input.taskId);
+
+    if (!task) {
+      return this.buildClarifyResult(
+        "이어갈 작업을 찾지 못했어.",
+        activeTasks[0] ?? recentTasks[0]
+      );
     }
 
-    const explicitMatches = input.activeTasks.filter((task) =>
-      matchesTaskText(input.request, task)
-    );
-    if (explicitMatches.length === 1) {
-      return { kind: "task", task: explicitMatches[0] };
-    }
+    const execution = await this.taskExecutionService.dispatch({
+      brainSessionId: input.brainSessionId,
+      taskId: task.id,
+      text: input.request.trim(),
+      now: input.now,
+      existingTask: task
+    });
 
-    if (explicitMatches.length > 1) {
-      return { kind: "clarify" };
-    }
-
-    if (input.activeTasks.length === 1) {
-      return shouldTargetExistingTask(input.request, input.activeTasks[0])
-        ? { kind: "task", task: input.activeTasks[0] }
-        : { kind: "task", task: undefined };
-    }
-
-    if (looksLikeGenericFollowUp(input.request)) {
-      return { kind: "clarify" };
-    }
-
-    return { kind: "task", task: undefined };
+    return toToolResult("resumed", execution.task, execution.events.at(-1));
   }
 
   private async getLatestEvent(taskId: string): Promise<TaskEvent | undefined> {
@@ -294,14 +290,47 @@ export class DelegateToGeminiCliService {
     message: string,
     fallbackTask?: Task
   ): DelegateToGeminiCliResult {
+    logDelegate("clarify result", {
+      message: truncateForLog(message),
+      fallbackTaskId: fallbackTask?.id ?? null,
+      fallbackTaskStatus: fallbackTask?.status ?? null,
+      fallbackTaskTitle: fallbackTask?.title ?? null
+    });
     return {
       action: "clarify",
       accepted: false,
       taskId: fallbackTask?.id,
-      status: fallbackTask?.status ?? "running",
+      status: fallbackTask?.status ?? "failed",
       message,
       needsInput: fallbackTask?.status === "waiting_input",
       needsApproval: fallbackTask?.status === "approval_required",
+      summary: fallbackTask?.completionReport?.summary,
+      verification: fallbackTask?.completionReport?.verification,
+      changes: fallbackTask?.completionReport?.changes
+    };
+  }
+
+  private buildErrorResult(
+    message: string,
+    failureReason: VertexAiFailureReason,
+    fallbackTask?: Task
+  ): DelegateToGeminiCliResult {
+    logDelegate("error result", {
+      message: truncateForLog(message),
+      failureReason,
+      fallbackTaskId: fallbackTask?.id ?? null,
+      fallbackTaskStatus: fallbackTask?.status ?? null,
+      fallbackTaskTitle: fallbackTask?.title ?? null
+    });
+    return {
+      action: "error",
+      accepted: false,
+      taskId: fallbackTask?.id,
+      status: "failed",
+      message,
+      failureReason,
+      needsInput: false,
+      needsApproval: false,
       summary: fallbackTask?.completionReport?.summary,
       verification: fallbackTask?.completionReport?.verification,
       changes: fallbackTask?.completionReport?.changes

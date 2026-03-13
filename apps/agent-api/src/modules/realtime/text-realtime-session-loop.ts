@@ -35,6 +35,14 @@ import {
 import { buildAssistantFollowUpMessage } from "../tasks/task-event-announcer.js";
 import { TaskIntakeService } from "../conversation/task-intake-service.js";
 import type { TaskIntakeResolver } from "../conversation/task-intake-resolver.js";
+import {
+  createDefaultTaskRoutingResolver,
+  type TaskRoutingResolver
+} from "../conversation/task-routing-resolver.js";
+import {
+  buildVertexAiFailureMessage,
+  classifyVertexAiFailure
+} from "../config/vertex-ai-config.js";
 
 export interface HandleTurnInput {
   brainSessionId: string;
@@ -49,6 +57,7 @@ export type AssistantMessageListener = (
 export interface TextRealtimeSessionLoopOptions {
   persistDirectAssistantReplies?: boolean;
   taskIntakeResolver?: TaskIntakeResolver;
+  taskRoutingResolver?: TaskRoutingResolver;
 }
 
 export class TextRealtimeSessionLoop {
@@ -61,6 +70,7 @@ export class TextRealtimeSessionLoop {
   private readonly delegateToGeminiCliService: DelegateToGeminiCliService;
   private readonly gateway: RealtimeGatewayService;
   private readonly persistDirectAssistantReplies: boolean;
+  private readonly taskRoutingResolver: TaskRoutingResolver;
 
   constructor(
     executor: LocalExecutor = new MockExecutor(),
@@ -104,6 +114,8 @@ export class TextRealtimeSessionLoop {
         }
       }
     );
+    this.taskRoutingResolver =
+      options.taskRoutingResolver ?? createDefaultTaskRoutingResolver();
     this.delegateToGeminiCliService = new DelegateToGeminiCliService(
       this.taskRepository,
       this.taskEventRepository,
@@ -125,11 +137,17 @@ export class TextRealtimeSessionLoop {
     const handler = new FinalizedUtteranceHandler(
       new BrainTurnService(
         new ConversationOrchestrator(),
-        this.taskExecutionService
+        this.taskExecutionService,
+        undefined,
+        this.taskRoutingResolver
       )
     );
 
-    this.gateway = new RealtimeGatewayService(handler, this.taskRepository);
+    this.gateway = new RealtimeGatewayService(
+      handler,
+      this.taskRepository,
+      this.taskEventRepository
+    );
   }
 
   async handleTurn(input: HandleTurnInput): Promise<FinalizedUtteranceHandled> {
@@ -143,12 +161,51 @@ export class TextRealtimeSessionLoop {
     const activeTasks = await this.taskRepository.listActiveByBrainSessionId(
       input.brainSessionId
     );
-    const intakeResolution = await this.taskIntakeService.handleTurn({
-      brainSessionId: input.brainSessionId,
-      utterance: input.utterance,
-      activeTasks,
-      now: input.now
-    });
+    let intakeResolution: Awaited<ReturnType<TaskIntakeService["handleTurn"]>>;
+    try {
+      intakeResolution = await this.taskIntakeService.handleTurn({
+        brainSessionId: input.brainSessionId,
+        utterance: input.utterance,
+        activeTasks,
+        now: input.now
+      });
+    } catch (error) {
+      const reason = classifyVertexAiFailure(error);
+      const replyText = buildVertexAiFailureMessage(reason);
+      console.log(
+        `[text-realtime-loop] intake error ${JSON.stringify({
+          brainSessionId: input.brainSessionId,
+          utterance: input.utterance.text,
+          reason,
+          error:
+            error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+        })}`
+      );
+      if (this.persistDirectAssistantReplies) {
+        await this.conversationRepository.save({
+          brainSessionId: input.brainSessionId,
+          speaker: "assistant",
+          text: replyText,
+          tone: "reply",
+          createdAt: input.now
+        });
+      }
+
+      return {
+        assistant: {
+          text: replyText,
+          tone: "reply"
+        },
+        action: { type: "error", reason }
+      };
+    }
+    console.log(
+      `[text-realtime-loop] intake resolution ${JSON.stringify({
+        brainSessionId: input.brainSessionId,
+        utterance: input.utterance.text,
+        kind: intakeResolution.kind
+      })}`
+    );
 
     if (intakeResolution.kind === "clarify") {
       if (this.persistDirectAssistantReplies) {
@@ -169,6 +226,17 @@ export class TextRealtimeSessionLoop {
       };
     }
 
+    if (intakeResolution.kind === "ready") {
+      await this.taskIntakeService.clear(input.brainSessionId);
+      console.log(
+        `[text-realtime-loop] intake cleared ${JSON.stringify({
+          brainSessionId: input.brainSessionId,
+          utterance: input.utterance.text,
+          reason: "ready_for_gateway"
+        })}`
+      );
+    }
+
     const gatewayInput =
       intakeResolution.kind === "ready"
         ? {
@@ -186,10 +254,24 @@ export class TextRealtimeSessionLoop {
       utterance: gatewayInput.utterance,
       now: gatewayInput.now
     });
-
-    if (intakeResolution.kind === "ready" && result.task) {
-      await this.taskIntakeService.clear(input.brainSessionId);
-    }
+    console.log(
+      `[text-realtime-loop] gateway result ${JSON.stringify({
+        brainSessionId: gatewayInput.brainSessionId,
+        utterance: gatewayInput.utterance.text,
+        assistantTone: result.assistant.tone,
+        action: result.action?.type ?? null,
+        taskId: result.task?.id ?? null,
+        taskStatus: result.task?.status ?? null,
+        routingDecision: result.routingDecision
+          ? {
+              kind: result.routingDecision.kind,
+              targetTaskId: result.routingDecision.targetTaskId,
+              clarificationNeeded: result.routingDecision.clarificationNeeded,
+              reason: result.routingDecision.reason
+            }
+          : null
+      })}`
+    );
 
     if (this.persistDirectAssistantReplies) {
       await this.conversationRepository.save({

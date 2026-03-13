@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { FinalizedUtterance, Task } from "@agent/shared-types";
-import { FinalizedUtteranceHandler } from "../src/index.js";
+import {
+  BrainTurnService,
+  FinalizedUtteranceHandler,
+  type TaskRoutingDecision,
+  type TaskRoutingResolver
+} from "../src/index.js";
 
 function utterance(text: string, intent: FinalizedUtterance["intent"]): FinalizedUtterance {
   return {
@@ -19,6 +24,20 @@ const activeTask: Task = {
   updatedAt: "2026-03-08T00:00:00.000Z"
 };
 
+function createRoutingDecision(
+  overrides: Partial<TaskRoutingDecision> = {}
+): TaskRoutingDecision {
+  return {
+    kind: "create_task",
+    targetTaskId: null,
+    clarificationNeeded: false,
+    clarificationText: null,
+    executorPrompt: null,
+    reason: "test routing decision",
+    ...overrides
+  };
+}
+
 describe("finalized-utterance-handler", () => {
   it("returns a normal assistant reply envelope for small talk", async () => {
     const handler = new FinalizedUtteranceHandler();
@@ -35,7 +54,16 @@ describe("finalized-utterance-handler", () => {
   });
 
   it("returns a task acknowledgement envelope and task metadata for a fresh task", async () => {
-    const handler = new FinalizedUtteranceHandler();
+    const handler = new FinalizedUtteranceHandler(
+      new BrainTurnService(
+        undefined,
+        undefined,
+        undefined,
+        {
+          resolve: async () => createRoutingDecision()
+        } satisfies TaskRoutingResolver
+      )
+    );
 
     const result = await handler.handle({
       brainSessionId: "brain-1",
@@ -57,7 +85,21 @@ describe("finalized-utterance-handler", () => {
   });
 
   it("returns a clarify-style envelope for task intake follow-ups", async () => {
-    const handler = new FinalizedUtteranceHandler();
+    const handler = new FinalizedUtteranceHandler(
+      new BrainTurnService(
+        undefined,
+        undefined,
+        undefined,
+        {
+          resolve: async () =>
+            createRoutingDecision({
+              kind: "clarify",
+              clarificationNeeded: true,
+              clarificationText: "언제 할지 한 번만 더 알려줘."
+            })
+        } satisfies TaskRoutingResolver
+      )
+    );
 
     const result = await handler.handle({
       brainSessionId: "brain-1",
@@ -72,7 +114,21 @@ describe("finalized-utterance-handler", () => {
   });
 
   it("returns a resume acknowledgement when the utterance maps to an active task", async () => {
-    const handler = new FinalizedUtteranceHandler();
+    const handler = new FinalizedUtteranceHandler(
+      new BrainTurnService(
+        undefined,
+        undefined,
+        undefined,
+        {
+          resolve: async () =>
+            createRoutingDecision({
+              kind: "continue_task",
+              targetTaskId: "task-existing",
+              executorPrompt: "아까 하던 거 이어서 해"
+            })
+        } satisfies TaskRoutingResolver
+      )
+    );
 
     const result = await handler.handle({
       brainSessionId: "brain-1",
@@ -87,5 +143,39 @@ describe("finalized-utterance-handler", () => {
     });
     expect(result.task?.id).toBe("task-existing");
     expect(result.taskEvents?.map((event) => event.type)).toEqual(["task_started"]);
+  });
+
+  it("preserves task metadata when the turn resolves to a status action", async () => {
+    const handler = new FinalizedUtteranceHandler(
+      new BrainTurnService(
+        undefined,
+        undefined,
+        undefined,
+        {
+          resolve: async () =>
+            createRoutingDecision({
+              kind: "status",
+              targetTaskId: "task-existing"
+            })
+        } satisfies TaskRoutingResolver
+      )
+    );
+
+    const result = await handler.handle({
+      brainSessionId: "brain-1",
+      utterance: utterance("그 작업 상태 알려줘", "task_request"),
+      activeTasks: [activeTask],
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    expect(result.action).toEqual({
+      type: "status",
+      taskId: "task-existing"
+    });
+    expect(result.assistant).toEqual({
+      text: "작업을 계속 확인하고 있어요.",
+      tone: "reply"
+    });
+    expect(result.task).toEqual(activeTask);
   });
 });
