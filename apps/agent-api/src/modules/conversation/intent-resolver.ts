@@ -1,5 +1,8 @@
-import { GoogleGenAI } from "@google/genai";
 import type { IntentType } from "@agent/shared-types";
+import {
+  createDefaultGenAiClientFactory,
+  type GenAiClientFactory
+} from "../config/genai-client-factory.js";
 
 const ENGLISH_TASK_PREFIXES = [
   "code ",
@@ -215,22 +218,32 @@ export class FallbackIntentResolver implements IntentResolver {
   }
 }
 
-export function createGeminiIntentClient(apiKey: string): IntentModelClientLike {
-  return new GoogleGenAI({ apiKey });
+export class ErrorIntentResolver implements IntentResolver {
+  constructor(private readonly errorFactory: () => Error) {}
+
+  async resolve(_text: string): Promise<IntentType> {
+    throw this.errorFactory();
+  }
+}
+
+export function createGeminiIntentClient(
+  factory: GenAiClientFactory = createDefaultGenAiClientFactory()
+): IntentModelClientLike {
+  return factory.createModelsClient();
 }
 
 export function createDefaultIntentResolver(): IntentResolver {
-  const apiKey = process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY;
-  const heuristic = new HeuristicIntentResolver();
-
-  if (!apiKey) {
-    return heuristic;
+  try {
+    const factory = createDefaultGenAiClientFactory();
+    return new GeminiIntentResolver(
+      createGeminiIntentClient(factory),
+      factory.getConfig().intentModel
+    );
+  } catch (error) {
+    return new ErrorIntentResolver(() =>
+      error instanceof Error ? error : new Error(String(error))
+    );
   }
-
-  return new FallbackIntentResolver(
-    new GeminiIntentResolver(createGeminiIntentClient(apiKey)),
-    heuristic
-  );
 }
 
 export { DEFAULT_INTENT_MODEL };

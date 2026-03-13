@@ -1,5 +1,4 @@
 import {
-  GoogleGenAI,
   type Content,
   type FunctionCall,
   type FunctionResponse,
@@ -12,12 +11,24 @@ import {
   LiveSessionController,
   type LiveSessionTurnResult
 } from "./live-session-controller.js";
+import {
+  extractVertexAiFailureDetail
+} from "../config/vertex-ai-config.js";
+import { DEFAULT_GEMINI_LIVE_MODEL } from "../config/gemini-api-config.js";
+import {
+  createDefaultGenAiClientFactory,
+  type GenAiClientFactory
+} from "../config/genai-client-factory.js";
 
-export const DEFAULT_LIVE_MODEL =
-  process.env.LIVE_MODEL ?? "gemini-2.5-flash-native-audio-preview-12-2025";
+export function resolveDefaultLiveModel(): string {
+  return process.env.LIVE_MODEL?.trim() || DEFAULT_GEMINI_LIVE_MODEL;
+}
+
+export const DEFAULT_LIVE_MODEL = resolveDefaultLiveModel();
 
 export type GoogleLiveTransportEvent =
   | { type: "raw_server_message"; summary: string }
+  | { type: "live_error"; code?: string; message?: string; raw: unknown }
   | { type: "input_transcription_partial"; text: string }
   | {
       type: "input_transcription_final";
@@ -55,7 +66,6 @@ export interface GoogleLiveApiTransportCallbacks {
 }
 
 export interface GoogleLiveApiTransportConnectInput {
-  apiKey?: string;
   brainSessionId: string;
   model?: string;
   config?: LiveConnectConfig;
@@ -148,6 +158,7 @@ function collectOutputAudioParts(
 
 function summarizeServerMessage(message: LiveServerMessage): string {
   const summary = {
+    setupComplete: message.setupComplete ?? false,
     inputText: message.serverContent?.inputTranscription?.text ?? null,
     inputFinished: message.serverContent?.inputTranscription?.finished ?? null,
     outputText: message.serverContent?.outputTranscription?.text ?? null,
@@ -178,58 +189,164 @@ function summarizeServerMessage(message: LiveServerMessage): string {
         name: call.name ?? null
       })) ?? [],
     toolCallCancellationIds: message.toolCallCancellation?.ids ?? [],
+    usageMetadata: message.usageMetadata ?? null,
+    sessionResumptionUpdate: message.sessionResumptionUpdate
+      ? {
+          newHandle: message.sessionResumptionUpdate.newHandle ?? null,
+          resumable: message.sessionResumptionUpdate.resumable ?? null,
+          lastConsumedClientMessageIndex:
+            message.sessionResumptionUpdate.lastConsumedClientMessageIndex ?? null
+        }
+      : null,
     goAway: message.goAway ?? null
   };
 
   return JSON.stringify(summary);
 }
 
+function extractLiveErrorInfo(event: unknown): {
+  code?: string;
+  message?: string;
+  raw: unknown;
+} {
+  const candidate =
+    event && typeof event === "object" && "error" in event
+      ? (event as { error?: unknown }).error ?? event
+      : event;
+  const rawCode =
+    candidate &&
+    typeof candidate === "object" &&
+    "code" in candidate &&
+    (typeof (candidate as { code?: unknown }).code === "string" ||
+      typeof (candidate as { code?: unknown }).code === "number")
+      ? (candidate as { code?: string | number }).code
+      : undefined;
+  const rawMessage =
+    candidate &&
+    typeof candidate === "object" &&
+    "message" in candidate &&
+    typeof (candidate as { message?: unknown }).message === "string"
+      ? (candidate as { message: string }).message
+      : candidate instanceof Error
+        ? candidate.message
+        : typeof candidate === "string"
+          ? candidate
+          : undefined;
+
+  return {
+    code:
+      typeof rawCode === "number"
+        ? String(rawCode)
+        : typeof rawCode === "string"
+          ? rawCode
+          : undefined,
+    message: rawMessage,
+    raw: candidate
+  };
+}
+
+function serializeForLog(value: unknown): string {
+  if (value instanceof Error) {
+    return JSON.stringify({
+      name: value.name,
+      message: value.message,
+      stack: value.stack
+    });
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 export class GoogleLiveApiTransport {
   constructor(
     private readonly controller: LiveSessionController = new LiveSessionController(),
-    private readonly aiFactory: (apiKey: string) => GoogleLiveApiClientLike = (apiKey) =>
-      new GoogleGenAI({ apiKey })
+    private readonly aiFactory: (() => GoogleLiveApiClientLike) | GenAiClientFactory = () =>
+      createDefaultGenAiClientFactory().createLiveClient()
   ) {}
 
   async connect(
     input: GoogleLiveApiTransportConnectInput
   ): Promise<GoogleLiveSessionTransport> {
-    const apiKey = input.apiKey ?? process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-      throw new Error("Google Live API transport requires an API key");
-    }
-
-    const ai = this.aiFactory(apiKey);
-    const session = await ai.live.connect({
-      model: input.model ?? DEFAULT_LIVE_MODEL,
-      config: input.config,
-      callbacks: {
-        onopen: () => {
-          input.callbacks?.onopen?.();
-        },
-        onmessage: (message) => {
-          void this.handleServerMessage(
-            input.brainSessionId,
-            message,
-            input.callbacks
-          ).catch((error) => {
-            input.callbacks?.onerror?.(error);
-          });
-        },
-        onerror: (event) => {
-          input.callbacks?.onerror?.(event.error ?? event);
-        },
-        onclose: (event) => {
-          this.controller.resetSession(input.brainSessionId);
-          input.callbacks?.onclose?.({
-            code: event.code,
-            reason: event.reason,
-            wasClean: event.wasClean
-          });
+    let session: GoogleLiveSdkSessionLike;
+    const runtimeMetadata =
+      "getRuntimeMetadata" in this.aiFactory ? this.aiFactory.getRuntimeMetadata() : null;
+    try {
+      const ai =
+        "createLiveClient" in this.aiFactory
+          ? this.aiFactory.createLiveClient()
+          : this.aiFactory();
+      session = await ai.live.connect({
+        model: input.model ?? resolveDefaultLiveModel(),
+        config: input.config,
+        callbacks: {
+          onopen: () => {
+            input.callbacks?.onopen?.();
+          },
+          onmessage: (message) => {
+            void this.handleServerMessage(
+              input.brainSessionId,
+              message,
+              input.callbacks
+            ).catch((error) => {
+              input.callbacks?.onerror?.(error);
+            });
+          },
+          onerror: (event) => {
+            const liveError = extractLiveErrorInfo(event);
+            const maybeEventPromise = input.callbacks?.onevent?.({
+                type: "live_error",
+                code: liveError.code,
+                message: liveError.message,
+                raw: liveError.raw
+              });
+            if (maybeEventPromise && "catch" in maybeEventPromise) {
+              void maybeEventPromise.catch((error) => {
+                input.callbacks?.onerror?.(error);
+              });
+            }
+            input.callbacks?.onerror?.(liveError);
+          },
+          onclose: (event) => {
+            this.controller.resetSession(input.brainSessionId);
+            input.callbacks?.onclose?.({
+              code: event.code,
+              reason: event.reason,
+              wasClean: event.wasClean
+            });
+          }
         }
-      }
-    });
+      });
+    } catch (error) {
+      const detail = extractVertexAiFailureDetail(error);
+      const liveBackend = runtimeMetadata?.liveBackend ?? "gemini_api";
+      const wrappedMessage = detail.message?.trim()
+        ? `${
+            liveBackend === "gemini_api"
+              ? "Gemini Live 연결 실패"
+              : "Vertex AI live 연결 실패"
+          }: ${detail.message.trim()}`
+        : liveBackend === "gemini_api"
+          ? "Gemini Live 연결이 실패했습니다."
+          : "Vertex AI live 연결이 실패했습니다.";
+      console.error(
+        `[google-live-api-transport] connect failed ${serializeForLog({
+          reason: detail.reason,
+          code: detail.code,
+          rawCode: detail.rawCode ?? null,
+          message: detail.message,
+          liveBackend
+        })}`
+      );
+      throw new Error(wrappedMessage, { cause: error });
+    }
 
     return {
       sendText(text: string, turnComplete = true) {

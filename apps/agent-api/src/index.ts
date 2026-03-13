@@ -3,6 +3,30 @@ export {
   loadDotEnvFromRoot,
   parseDotEnv
 } from "./modules/config/env-loader.js";
+export {
+  DEFAULT_GEMINI_LIVE_MODEL,
+  GeminiApiConfigurationError,
+  resolveGeminiApiLiveConfig,
+  toGeminiApiLiveRuntimeMetadata,
+  type GeminiApiLiveConfig,
+  type GeminiApiLiveRuntimeMetadata
+} from "./modules/config/gemini-api-config.js";
+export {
+  buildVertexAiFailureMessage,
+  classifyVertexAiFailure,
+  resolveVertexAiConfig,
+  toVertexAiRuntimeMetadata,
+  VertexAiConfigurationError,
+  type VertexAiConfig,
+  type VertexAiFailureReason,
+  type VertexAiRuntimeMetadata
+} from "./modules/config/vertex-ai-config.js";
+export {
+  createDefaultGenAiClientFactory,
+  VertexAiGenAiClientFactory,
+  type GenAiClientFactory,
+  type GenAiRuntimeMetadata
+} from "./modules/config/genai-client-factory.js";
 export { BrainTurnService, type BrainTurnResult } from "./modules/conversation/brain-turn-service.js";
 export { AccountBoundaryService, type AccountBoundaryResult, type GoogleIdentityInput } from "./modules/account/account-boundary-service.js";
 export {
@@ -30,6 +54,19 @@ export {
   HeuristicTaskIntakeResolver,
   type TaskIntakeResolver
 } from "./modules/conversation/task-intake-resolver.js";
+export {
+  createDefaultTaskRoutingResolver,
+  createGeminiTaskRoutingClient,
+  FallbackTaskRoutingResolver,
+  GeminiTaskRoutingResolver,
+  SafeTaskRoutingResolver,
+  TASK_ROUTING_MODEL,
+  type TaskRoutingModelClientLike,
+  type TaskRoutingDecision,
+  type TaskRoutingDecisionKind,
+  type TaskRoutingResolver,
+  type TaskRoutingResolverInput
+} from "./modules/conversation/task-routing-resolver.js";
 export {
   InMemoryTaskRepository,
   PostgresTaskRepository,

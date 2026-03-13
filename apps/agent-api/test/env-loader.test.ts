@@ -5,14 +5,16 @@ describe("parseDotEnv", () => {
   it("parses plain and quoted entries while ignoring comments", () => {
     const parsed = parseDotEnv(`
 # comment
-GOOGLE_API_KEY=test-key
+GOOGLE_CLOUD_PROJECT=test-project
+GOOGLE_CLOUD_LOCATION=us-central1
 LIVE_MODEL="gemini-live"
 EMPTY=
 INVALID
 `);
 
     expect(parsed).toEqual({
-      GOOGLE_API_KEY: "test-key",
+      GOOGLE_CLOUD_PROJECT: "test-project",
+      GOOGLE_CLOUD_LOCATION: "us-central1",
       LIVE_MODEL: "gemini-live",
       EMPTY: ""
     });

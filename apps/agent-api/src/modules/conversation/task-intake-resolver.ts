@@ -1,4 +1,3 @@
-import { GoogleGenAI } from "@google/genai";
 import type { TaskIntakeSession, TaskIntakeSlot } from "@agent/shared-types";
 import {
   extractFilledSlots,
@@ -7,6 +6,10 @@ import {
   type TaskIntakeAnalysis,
   type TaskIntakeFilledSlots
 } from "@agent/brain-domain";
+import {
+  createDefaultGenAiClientFactory,
+  type GenAiClientFactory
+} from "../config/genai-client-factory.js";
 
 const TASK_INTAKE_MODEL = process.env.GEMINI_TASK_INTAKE_MODEL ?? "gemini-2.5-flash";
 const SLOT_LABELS = [
@@ -280,24 +283,39 @@ export class FallbackTaskIntakeResolver implements TaskIntakeResolver {
   }
 }
 
+export class ErrorTaskIntakeResolver implements TaskIntakeResolver {
+  constructor(private readonly errorFactory: () => Error) {}
+
+  async analyzeStart(_text: string): Promise<TaskIntakeAnalysis> {
+    throw this.errorFactory();
+  }
+
+  async analyzeUpdate(
+    _session: TaskIntakeSession,
+    _text: string
+  ): Promise<TaskIntakeUpdateResponse> {
+    throw this.errorFactory();
+  }
+}
+
 export function createGeminiTaskIntakeClient(
-  apiKey: string
+  factory: GenAiClientFactory = createDefaultGenAiClientFactory()
 ): TaskIntakeModelClientLike {
-  return new GoogleGenAI({ apiKey });
+  return factory.createModelsClient();
 }
 
 export function createDefaultTaskIntakeResolver(): TaskIntakeResolver {
-  const apiKey = process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY;
-  const heuristic = new HeuristicTaskIntakeResolver();
-
-  if (!apiKey) {
-    return heuristic;
+  try {
+    const factory = createDefaultGenAiClientFactory();
+    return new GeminiTaskIntakeResolver(
+      createGeminiTaskIntakeClient(factory),
+      factory.getConfig().taskIntakeModel
+    );
+  } catch (error) {
+    return new ErrorTaskIntakeResolver(() =>
+      error instanceof Error ? error : new Error(String(error))
+    );
   }
-
-  return new FallbackTaskIntakeResolver(
-    new GeminiTaskIntakeResolver(createGeminiTaskIntakeClient(apiKey)),
-    heuristic
-  );
 }
 
 export { TASK_INTAKE_MODEL };
