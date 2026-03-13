@@ -1,5 +1,6 @@
 import {
   createDefaultTaskIntakeResolver,
+  createDefaultTaskRoutingResolver,
   createDefaultIntentResolver,
   extractMemorySignals,
   planAssistantNotificationDelivery,
@@ -94,7 +95,7 @@ function deriveMainAvatarState({
   return "idle";
 }
 
-function buildSubAvatarViewModels(tasks, taskTimelines) {
+function buildTaskRunnerViewModels(tasks, taskTimelines) {
   const latestEventByTaskId = new Map(
     taskTimelines.map((timeline) => [timeline.taskId, timeline.events.at(-1)])
   );
@@ -103,9 +104,11 @@ function buildSubAvatarViewModels(tasks, taskTimelines) {
     const latestEvent = latestEventByTaskId.get(task.id);
     return {
       taskId: task.id,
-      label: `Worker ${index + 1}`,
+      label: `Task Runner ${index + 1}`,
+      title: task.title,
       status: task.status,
       progressSummary: latestEvent?.message,
+      lastUpdatedAt: latestEvent?.createdAt ?? task.updatedAt,
       blockingReason:
         task.status === "waiting_input" || task.status === "approval_required"
           ? latestEvent?.message
@@ -132,6 +135,7 @@ export class DesktopSessionRuntime {
     this.memorySignals = options.memorySignals ?? [];
     this.lastAssistantEnvelope =
       options.lastAssistantEnvelope ?? createInitialLastAssistantEnvelope();
+    this.onDebugEvent = options.onDebugEvent;
     this.pendingTurns = [];
     this.processingTurns = false;
   }
@@ -147,6 +151,8 @@ export class DesktopSessionRuntime {
       options.intentResolver ?? createDefaultIntentResolver();
     const taskIntakeResolver =
       options.taskIntakeResolver ?? createDefaultTaskIntakeResolver();
+    const taskRoutingResolver =
+      options.taskRoutingResolver ?? createDefaultTaskRoutingResolver();
 
     const loop = new TextRealtimeSessionLoop(
       execution.executor,
@@ -162,7 +168,8 @@ export class DesktopSessionRuntime {
       },
       {
         persistDirectAssistantReplies: false,
-        taskIntakeResolver
+        taskIntakeResolver,
+        taskRoutingResolver
       }
     );
 
@@ -170,7 +177,8 @@ export class DesktopSessionRuntime {
       brainSessionId,
       loop,
       intentResolver,
-      onStateChange: options.onStateChange
+      onStateChange: options.onStateChange,
+      onDebugEvent: options.onDebugEvent
     });
 
     runtime.execution = execution;
@@ -178,7 +186,7 @@ export class DesktopSessionRuntime {
   }
 
   async collectState() {
-  const [messages, tasks, recentTasks] = await Promise.all([
+    const [messages, tasks, recentTasks] = await Promise.all([
       this.loop.listConversation(this.brainSessionId),
       this.loop.listActiveTasks(this.brainSessionId),
       this.loop.listRecentTasks(this.brainSessionId, 5)
@@ -192,7 +200,7 @@ export class DesktopSessionRuntime {
         events: await this.loop.listTaskEvents(task.id)
       }))
     );
-    const subAvatars = buildSubAvatarViewModels(tasks, taskTimelines);
+    const taskRunners = buildTaskRunnerViewModels(tasks, taskTimelines);
     const intake = intakeSession
       ? {
           active: true,
@@ -233,7 +241,7 @@ export class DesktopSessionRuntime {
       intake,
       avatar: {
         mainState: mainAvatarState,
-        subAvatars
+        taskRunners
       },
       debug:
         this.execution.debug?.enabled
@@ -250,6 +258,12 @@ export class DesktopSessionRuntime {
     const line = details ? `${at} ${label}: ${details}` : `${at} ${label}`;
     this.decisionTrace = [...this.decisionTrace, line].slice(-30);
     logDesktop(`[desktop-runtime] ${line}`);
+    this.onDebugEvent?.({
+      source: "runtime",
+      kind: label,
+      summary: details ?? label,
+      createdAt: at
+    });
   }
 
   async init() {
@@ -506,15 +520,19 @@ export class DesktopSessionRuntime {
             },
             now: turn.createdAt
           });
-          this.appendDecisionTrace(
-            "loop result",
-            `${handled.assistant.tone}${handled.task ? ` · task:${handled.task.status}` : ""} · ${handled.assistant.text}`
-          );
-          this.lastAssistantEnvelope = {
-            text: handled.assistant.text,
-            tone: handled.assistant.tone,
-            createdAt: turn.createdAt
-          };
+          if (handled?.assistant) {
+            this.appendDecisionTrace(
+              "loop result",
+              `${handled.assistant.tone}${handled.task ? ` · task:${handled.task.status}` : ""} · ${handled.assistant.text}`
+            );
+            this.lastAssistantEnvelope = {
+              text: handled.assistant.text,
+              tone: handled.assistant.tone,
+              createdAt: turn.createdAt
+            };
+          } else {
+            this.appendDecisionTrace("loop result", "no assistant envelope");
+          }
         } catch (error) {
           this.appendDecisionTrace(
             "loop error",

@@ -211,7 +211,7 @@ describe("desktop-session-runtime", () => {
     );
   });
 
-  it("derives main and sub avatar state from task and notification state", async () => {
+  it("derives main and task runner state from task and notification state", async () => {
     const runtime = new DesktopSessionRuntime({
       brainSessionId: "desktop-session-test",
       loop: {
@@ -269,9 +269,10 @@ describe("desktop-session-runtime", () => {
 
     const state = await runtime.collectState();
     expect(state.avatar.mainState).toBe("waiting_user");
-    expect(state.avatar.subAvatars).toEqual([
+    expect(state.avatar.taskRunners).toEqual([
       expect.objectContaining({
         taskId: "task-1",
+        title: "브라우저 정리",
         status: "approval_required",
         blockingReason: "이 탭들을 닫아도 될지 확인해줘"
       })
@@ -315,6 +316,6 @@ describe("desktop-session-runtime", () => {
         lastQuestion: "누구에게 할지 알려줘."
       })
     );
-    expect(state.avatar.subAvatars).toEqual([]);
+    expect(state.avatar.taskRunners).toEqual([]);
   });
 });

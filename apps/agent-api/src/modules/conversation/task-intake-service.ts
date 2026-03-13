@@ -79,6 +79,10 @@ function withQuestion(
   };
 }
 
+function logTaskIntake(label: string, details: Record<string, unknown>): void {
+  console.log(`[task-intake] ${label} ${JSON.stringify(details)}`);
+}
+
 export interface HandleTaskIntakeInput {
   brainSessionId: string;
   utterance: FinalizedUtterance;
@@ -113,6 +117,14 @@ export class TaskIntakeService {
         active,
         input.utterance.text
       );
+      logTaskIntake("update analysis", {
+        brainSessionId: input.brainSessionId,
+        utterance: input.utterance.text,
+        activeSourceText: active.sourceText,
+        resolution: updateAnalysis.resolution,
+        requiredSlots: updateAnalysis.requiredSlots,
+        filledSlots: updateAnalysis.filledSlots
+      });
 
       if (updateAnalysis.resolution === "replace_task") {
         const replacement = buildTaskIntakeSession(
@@ -155,6 +167,12 @@ export class TaskIntakeService {
     }
 
     const startAnalysis = await this.resolver.analyzeStart(input.utterance.text);
+    logTaskIntake("start analysis", {
+      brainSessionId: input.brainSessionId,
+      utterance: input.utterance.text,
+      requiredSlots: startAnalysis.requiredSlots,
+      filledSlots: startAnalysis.filledSlots
+    });
     const session = buildTaskIntakeSession(input.utterance.text, input.brainSessionId, input.now, {
       requiredSlots: startAnalysis.requiredSlots,
       filledSlots: startAnalysis.filledSlots
@@ -171,6 +189,12 @@ export class TaskIntakeService {
         status: "ready" as const
       };
       await this.repository.save(readySession);
+      logTaskIntake("resolved ready", {
+        brainSessionId: session.brainSessionId,
+        workingText: readySession.workingText,
+        requiredSlots: readySession.requiredSlots,
+        filledSlots: readySession.filledSlots
+      });
       return {
         kind: "ready",
         session: readySession,
@@ -187,6 +211,12 @@ export class TaskIntakeService {
       replyText
     );
     await this.repository.save(collectingSession);
+    logTaskIntake("resolved clarify", {
+      brainSessionId: session.brainSessionId,
+      workingText: collectingSession.workingText,
+      missingSlots: collectingSession.missingSlots,
+      lastQuestion: replyText
+    });
     return {
       kind: "clarify",
       session: collectingSession,

@@ -20,7 +20,8 @@ export function buildAssistantFollowUpMessage(
         speaker: "assistant",
         text: `이건 실행 전에 확인이 필요해. ${input.event.message}`,
         tone: "reply",
-        createdAt: input.event.createdAt
+        createdAt: input.event.createdAt,
+        taskId: input.task.id
       },
       priority: "high",
       delivery: "interrupt_if_speaking",
@@ -35,7 +36,8 @@ export function buildAssistantFollowUpMessage(
         speaker: "assistant",
         text: `이어가려면 답이 하나 더 필요해. ${input.event.message}`,
         tone: "reply",
-        createdAt: input.event.createdAt
+        createdAt: input.event.createdAt,
+        taskId: input.task.id
       },
       priority: "high",
       delivery: "interrupt_if_speaking",
@@ -50,7 +52,8 @@ export function buildAssistantFollowUpMessage(
         speaker: "assistant",
         text: `좋아, 끝냈어. ${input.event.message}`,
         tone: "reply",
-        createdAt: input.event.createdAt
+        createdAt: input.event.createdAt,
+        taskId: input.task.id
       },
       priority: "normal",
       delivery: "next_turn",
@@ -65,7 +68,8 @@ export function buildAssistantFollowUpMessage(
         speaker: "assistant",
         text: `앗, 여기서 막혔어. ${input.event.message}`,
         tone: "reply",
-        createdAt: input.event.createdAt
+        createdAt: input.event.createdAt,
+        taskId: input.task.id
       },
       priority: "high",
       delivery: "interrupt_if_speaking",
