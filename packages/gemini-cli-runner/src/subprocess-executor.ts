@@ -86,6 +86,20 @@ export function createSpawnRunner(
       let stderr = "";
       let stdoutBuffer = "";
       let lineWork = Promise.resolve();
+      let settled = false;
+
+      const fail = (error: unknown) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          // Ignore kill failures during shutdown.
+        }
+        reject(error);
+      };
 
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
@@ -100,27 +114,35 @@ export function createSpawnRunner(
             await options?.onStdoutLine?.(line);
           }
         });
+        lineWork.catch(fail);
       });
 
       child.stderr.on("data", (chunk: string) => {
         stderr += chunk;
       });
 
-      child.on("error", reject);
+      child.on("error", fail);
       child.on("close", (exitCode) => {
+        if (settled) {
+          return;
+        }
         lineWork
           .then(async () => {
             if (stdoutBuffer.trim()) {
               await Promise.resolve(options?.onStdoutLine?.(stdoutBuffer.trim()));
             }
 
+            if (settled) {
+              return;
+            }
+            settled = true;
             resolve({
               stdout,
               stderr,
               exitCode
             });
           })
-          .catch(reject);
+          .catch(fail);
       });
     });
 }
@@ -147,6 +169,57 @@ function buildGeminiCliEnvironment(
   return nextEnv;
 }
 
+function collectEventText(value: unknown): string[] {
+  if (typeof value === "string") {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectEventText(item));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.values(value).flatMap((item) => collectEventText(item));
+  }
+
+  return [];
+}
+
+function detectTerminalFailure(event: GeminiCliHeadlessEvent): string | null {
+  const combined = collectEventText(event.payload)
+    .join("\n")
+    .toLowerCase();
+
+  if (!combined) {
+    return null;
+  }
+
+  if (
+    combined.includes("insufficient authentication scopes") ||
+    combined.includes("insufficient permission") ||
+    combined.includes("permission denied")
+  ) {
+    return "Task failed: required authentication or permission is missing.";
+  }
+
+  if (
+    combined.includes("undelivered mail retu") ||
+    combined.includes("undelivered mail returned") ||
+    (combined.includes("mailer-daemon") && combined.includes("undelivered"))
+  ) {
+    return "Task failed: the attempted email delivery bounced.";
+  }
+
+  if (
+    combined.includes("delivery failure") ||
+    combined.includes("delivery status report")
+  ) {
+    return "Task failed: email delivery could not be confirmed.";
+  }
+
+  return null;
+}
+
 export class GeminiCliExecutor implements LocalExecutor {
   constructor(
     private readonly exec: RunCommandLike = defaultExecFile,
@@ -165,17 +238,29 @@ export class GeminiCliExecutor implements LocalExecutor {
       env: buildGeminiCliEnvironment(),
       onStdoutLine: async (line) => {
         const event = parseGeminiCliEventLine(line);
-        streamedEvents.push(event);
-        await this.onRawEvent?.(event);
+        const contextualEvent: GeminiCliHeadlessEvent = {
+          ...event,
+          payload: {
+            ...event.payload,
+            taskId: request.task.id
+          }
+        };
+        streamedEvents.push(contextualEvent);
+        await this.onRawEvent?.(contextualEvent);
 
         const progressEvent = toExecutorProgressEvent(
           request.task.id,
           request.now,
-          event
+          contextualEvent
         );
 
         if (progressEvent && onProgress) {
           await onProgress(progressEvent);
+        }
+
+        const terminalFailure = detectTerminalFailure(contextualEvent);
+        if (terminalFailure) {
+          throw new Error(terminalFailure);
         }
       }
     });

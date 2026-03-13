@@ -230,6 +230,59 @@ describe("GeminiCliExecutor", () => {
     }
   });
 
+  it("attaches taskId to raw executor events", async () => {
+    const exec = vi.fn(async (_file, _args, options) => {
+      await options?.onStdoutLine?.(
+        JSON.stringify({
+          type: "tool_use",
+          name: "run_shell_command"
+        })
+      );
+      await options?.onStdoutLine?.(
+        JSON.stringify({
+          type: "result",
+          response: JSON.stringify({
+            summary: "OK",
+            verification: "verified",
+            changes: [],
+            question: ""
+          })
+        })
+      );
+
+      return {
+        stdout: "",
+        stderr: "",
+        exitCode: 0
+      };
+    });
+    const onRawEvent = vi.fn();
+    const executor = new GeminiCliExecutor(exec, onRawEvent);
+
+    await executor.run({
+      task: {
+        id: "task-raw",
+        title: "Attach task id",
+        normalizedGoal: "attach task id",
+        status: "queued",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z"
+      },
+      now: "2026-03-08T00:00:00.000Z",
+      prompt: "Reply with OK"
+    });
+
+    expect(onRawEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "tool_use",
+        payload: expect.objectContaining({
+          name: "run_shell_command",
+          taskId: "task-raw"
+        })
+      })
+    );
+  });
+
   it("fails when the process exits cleanly but produces no output", async () => {
     const exec = vi.fn(async () => ({
       stdout: "",
@@ -284,5 +337,41 @@ describe("GeminiCliExecutor", () => {
       "작업은 끝났지만 구조화된 결과 보고가 없어서 실제 변경 사항 확인이 더 필요해."
     );
     expect(result.report).toBeUndefined();
+  });
+
+  it("fails fast when streamed output contains hard delivery failure evidence", async () => {
+    const exec = vi.fn(async (_file, _args, options) => {
+      await options?.onStdoutLine?.(
+        JSON.stringify({
+          type: "tool_result",
+          status: "success",
+          output:
+            "MAILER-DAEMON: Undelivered Mail Returned to Sender for hijw0328@gmail.com"
+        })
+      );
+
+      return {
+        stdout: "",
+        stderr: "",
+        exitCode: 0
+      };
+    });
+
+    const executor = new GeminiCliExecutor(exec);
+
+    await expect(
+      executor.run({
+        task: {
+          id: "task-mail-fail",
+          title: "Send email",
+          normalizedGoal: "send email",
+          status: "queued",
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z"
+        },
+        now: "2026-03-08T00:00:00.000Z",
+        prompt: "Send the email"
+      })
+    ).rejects.toThrow("Task failed: the attempted email delivery bounced.");
   });
 });
