@@ -228,7 +228,6 @@ export function createAgentServer(options: CreateAgentServerOptions) {
 
       const history = await readJudgeHistory({
         userId: payload.userId,
-        limit: 6,
         sql: options.sql
       });
       sendJson(res, 200, history);

@@ -43,7 +43,7 @@ export class JudgeHistoryService {
 
   async readByUserId(
     userId: string,
-    limit = 6
+    limit?: number
   ): Promise<JudgeHistorySnapshot> {
     const sessions = await this.brainSessionRepository.listRecentByUserId(
       userId,

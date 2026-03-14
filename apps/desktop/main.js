@@ -240,6 +240,10 @@ function createWindow() {
     onAudioChunk: async (chunk) => {
       broadcastToWindow("live:audio-chunk", chunk);
     },
+    onDebugEvent: async (event) => {
+      desktopUiState.appendDebugEvent(event);
+      broadcastUiState();
+    },
     onRawExecutorEvent: async (event) => {
       const summary = buildRawExecutorEventSummary(event);
       logDesktop(

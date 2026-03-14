@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DesktopUiStateStore } from "../src/main/ui/desktop-ui-state.js";
 
 describe("desktop-ui-state", () => {
-  it("merges live turn timeline with runtime notifications and debug events", () => {
+  it("keeps the chat feed limited to live conversation while preserving task notifications separately", () => {
     const store = new DesktopUiStateStore();
 
     store.setSessionState({
@@ -89,10 +89,8 @@ describe("desktop-ui-state", () => {
           partial: false,
           streaming: false,
           interrupted: false,
-          tone: "task_ack",
-          responseSource: "delegate",
-          taskId: "task-1",
-          taskStatus: "running",
+          tone: "reply",
+          responseSource: "live",
           createdAt: "2026-03-13T05:00:01.000Z",
           updatedAt: "2026-03-13T05:00:01.000Z"
         }
@@ -132,13 +130,7 @@ describe("desktop-ui-state", () => {
         expect.objectContaining({
           id: "turn-1:assistant",
           kind: "assistant_message",
-          responseSource: "delegate"
-        }),
-        expect.objectContaining({
-          turnId: "turn-1",
-          kind: "assistant_message",
-          taskId: "task-1",
-          taskStatus: "completed"
+          responseSource: "live"
         })
       ])
     );
@@ -147,7 +139,7 @@ describe("desktop-ui-state", () => {
         expect.objectContaining({
           turnId: "turn-1",
           taskId: "task-1",
-          stage: "completed"
+          stage: "delegated"
         })
       ])
     );
@@ -166,6 +158,14 @@ describe("desktop-ui-state", () => {
           taskId: "task-1",
           statusLabel: "Completed",
           resultSummary: "Finished cleaning up the desktop."
+        })
+      ])
+    );
+    expect(uiState.taskSummary.notifications.delivered).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskId: "task-1",
+          reason: "task_completed"
         })
       ])
     );
@@ -271,18 +271,7 @@ describe("desktop-ui-state", () => {
       mic: { mode: "idle", enabled: true },
       activity: { userSpeaking: false, assistantSpeaking: false },
       input: { inFlight: false, queueSize: 0, activeText: null, lastError: null },
-      notifications: {
-        delivered: [
-          {
-            uiText: "Done. I finished the first task.",
-            delivery: "immediate",
-            reason: "task_completed",
-            taskId: "task-1",
-            createdAt: "2026-03-13T05:00:10.000Z"
-          }
-        ],
-        pending: []
-      },
+      notifications: { delivered: [], pending: [] },
       pendingBriefingCount: 0,
       tasks: [],
       recentTasks: [],
@@ -356,7 +345,6 @@ describe("desktop-ui-state", () => {
 
     expect(uiState.conversationTimeline.map((item) => item.id)).toEqual([
       "turn-1:user",
-      "turn-1:assistant:task_completed:2026-03-13T05:00:10.000Z",
       "turn-2:user"
     ]);
   });

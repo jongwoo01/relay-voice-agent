@@ -28,15 +28,16 @@ export class InMemoryBrainSessionRepository implements BrainSessionRepository {
 
   async listRecentByUserId(
     userId: string,
-    limit = 6
+    limit?: number
   ): Promise<BrainSessionRecord[]> {
-    return Array.from(this.sessions.values())
+    const sessions = Array.from(this.sessions.values())
       .filter((session) => session.userId === userId)
       .sort(
         (left, right) =>
           new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-      )
-      .slice(0, limit);
+      );
+
+    return typeof limit === "number" ? sessions.slice(0, limit) : sessions;
   }
 
   async create(session: BrainSessionRecord): Promise<void> {
@@ -117,8 +118,17 @@ export class PostgresBrainSessionRepository implements BrainSessionRepository {
 
   async listRecentByUserId(
     userId: string,
-    limit = 6
+    limit?: number
   ): Promise<BrainSessionRecord[]> {
+    const params: unknown[] = [userId];
+    const limitClause =
+      typeof limit === "number"
+        ? (() => {
+            params.push(limit);
+            return `limit $${params.length}`;
+          })()
+        : "";
+
     const result = await this.sql.query<{
       id: string;
       user_id: string;
@@ -140,9 +150,9 @@ export class PostgresBrainSessionRepository implements BrainSessionRepository {
         from brain_sessions
         where user_id = $1
         order by updated_at desc
-        limit $2
+        ${limitClause}
       `,
-      [userId, limit]
+      params
     );
 
     return result.rows.map((row) => ({

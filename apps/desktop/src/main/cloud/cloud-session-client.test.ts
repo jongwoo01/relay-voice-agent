@@ -407,6 +407,51 @@ describe("CloudSessionClient", () => {
     });
   });
 
+  it("emits runtime debug events for intake clarifications from task state", async () => {
+    const debugEvents: unknown[] = [];
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host",
+      onConversationState: async () => undefined,
+      onTaskState: async () => undefined,
+      onDebugEvent: async (event: unknown) => {
+        debugEvents.push(event);
+      }
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState(),
+      tasks: createTaskState()
+    });
+    await connectPromise;
+
+    socket.emitMessage({
+      type: "task_state",
+      state: {
+        ...createTaskState(),
+        intake: {
+          active: true,
+          workingText: "check my desktop and tell me the name and count of folders and files",
+          missingSlots: ["scope"],
+          lastQuestion: "Tell me what rule or scope to use."
+        }
+      }
+    });
+    await Promise.resolve();
+
+    expect(debugEvents).toContainEqual(
+      expect.objectContaining({
+        source: "runtime",
+        kind: "task_intake",
+        summary: "Tell me what rule or scope to use."
+      })
+    );
+  });
+
   it("sends an explicit end_session event before disconnecting", async () => {
     const client = new CloudSessionClient({
       baseUrl: "http://judge-host"

@@ -21,65 +21,7 @@ const liveMicSelectEl = document.getElementById("live-mic-select");
 const pendingBriefingsCountEl = document.getElementById(
   "pending-briefings-count"
 );
-const mainAvatarStateEl = document.getElementById("main-avatar-state");
-const workspaceStatePillEl = document.getElementById("workspace-state-pill");
-const liveRouteSummaryEl = document.getElementById("live-route-summary");
-const liveRouteDetailEl = document.getElementById("live-route-detail");
-const voiceIntakeSummaryEl = document.getElementById("voice-intake-summary");
 const taskRunnerListEl = document.getElementById("task-runner-list");
-const taskRunnerDetailCardEl = document.getElementById(
-  "task-runner-detail-card"
-);
-const taskRunnerDetailLabelEl = document.getElementById(
-  "task-runner-detail-label"
-);
-const taskRunnerDetailTitleEl = document.getElementById(
-  "task-runner-detail-title"
-);
-const taskRunnerDetailHeroEl = document.getElementById("task-runner-detail-hero");
-const taskRunnerDetailStatusEl = document.getElementById(
-  "task-runner-detail-status"
-);
-const taskRunnerDetailIdEl = document.getElementById("task-runner-detail-id");
-const taskRunnerDetailRequestEl = document.getElementById(
-  "task-runner-detail-request"
-);
-const taskRunnerDetailNeedsActionEl = document.getElementById(
-  "task-runner-detail-needs-action"
-);
-const taskRunnerDetailNeedsActionTextEl = document.getElementById(
-  "task-runner-detail-needs-action-text"
-);
-const taskRunnerDetailUpdatedAtEl = document.getElementById(
-  "task-runner-detail-updated-at"
-);
-const taskRunnerDetailTimelineListEl = document.getElementById(
-  "task-runner-detail-timeline-list"
-);
-const taskRunnerDetailResultEl = document.getElementById(
-  "task-runner-detail-result"
-);
-const taskRunnerDetailResultSummaryEl = document.getElementById(
-  "task-runner-detail-result-summary"
-);
-const taskRunnerDetailResultVerificationEl = document.getElementById(
-  "task-runner-detail-result-verification"
-);
-const taskRunnerDetailResultChangesEl = document.getElementById(
-  "task-runner-detail-result-changes"
-);
-const taskRunnerDetailResultChangesListEl = document.getElementById(
-  "task-runner-detail-result-changes-list"
-);
-const taskRunnerDetailAdvancedEl = document.getElementById(
-  "task-runner-detail-advanced"
-);
-const taskRunnerDetailExecutionEl = document.getElementById(
-  "task-runner-detail-execution"
-);
-const taskRunnerDetailExecutionListEl = document.getElementById(
-  "task-runner-detail-execution-list"
-);
 const taskDrawerCountEl = document.getElementById("task-drawer-count");
 const taskDrawerDescriptionEl = document.getElementById(
   "task-drawer-description"
@@ -117,6 +59,7 @@ let liveRecorderGainNode;
 let liveAudioQueue = [];
 let liveAudioQueueProcessing = false;
 let liveAudioNextStartTime = 0;
+let liveAudioIgnoreUntil = 0;
 let liveLastProducedAudioAt = null;
 let liveUserSpeakingTimer;
 let liveUserSpeakingActive = false;
@@ -307,7 +250,10 @@ function buildTaskRunnerSignature(summary, debugInspector) {
       heroSummary: detail.heroSummary,
       lastUpdatedAt: detail.lastUpdatedAt ?? null,
       timelineCount: detail.timeline?.length ?? 0,
-      resultSummary: detail.resultSummary ?? null
+      resultSummary: detail.resultSummary ?? null,
+      detailedAnswer: detail.detailedAnswer ?? null,
+      keyFindingsCount: detail.keyFindings?.length ?? 0,
+      executionTraceCount: detail.executionTrace?.length ?? 0
     })),
     activeTasks: (summary.activeTasks ?? []).map((task) => ({
       id: task.id,
@@ -318,8 +264,92 @@ function buildTaskRunnerSignature(summary, debugInspector) {
   });
 }
 
+function createConversationRoleLabel(item) {
+  return item.kind === "task_event"
+    ? "task event"
+    : item.speaker === "user"
+      ? "you"
+      : item.responseSource
+        ? `assistant · ${item.responseSource}`
+        : "assistant";
+}
+
+function createConversationRow(item, turn) {
+  const row = document.createElement("article");
+  row.className = `conversation-row ${item.speaker}`;
+  row.dataset.key = buildConversationKey(item);
+
+  const bubble = document.createElement("div");
+  bubble.className = `conversation-bubble${item.partial ? " partial" : ""}${item.streaming ? " streaming" : ""}${item.interrupted ? " interrupted" : ""}`;
+
+  const meta = document.createElement("div");
+  meta.className = "conversation-meta";
+
+  const role = document.createElement("p");
+  role.className = "message-role";
+  role.textContent = createConversationRoleLabel(item);
+  meta.appendChild(role);
+
+  const modeChip = document.createElement("span");
+  modeChip.className = "turn-chip";
+  modeChip.textContent = item.inputMode;
+  meta.appendChild(modeChip);
+
+  if (turn?.stage) {
+    const stage = document.createElement("span");
+    stage.className = "bubble-status";
+    stage.textContent = turn.stage;
+    meta.appendChild(stage);
+  }
+
+  if (item.partial) {
+    const partial = document.createElement("span");
+    partial.className = "bubble-status";
+    partial.textContent = "partial";
+    meta.appendChild(partial);
+  }
+
+  if (item.interrupted) {
+    const interrupted = document.createElement("span");
+    interrupted.className = "bubble-status";
+    interrupted.textContent = "interrupted";
+    meta.appendChild(interrupted);
+  }
+
+  const time = document.createElement("span");
+  time.className = "bubble-status";
+  time.textContent = formatTime(item.updatedAt || item.createdAt);
+  meta.appendChild(time);
+
+  const text = document.createElement("p");
+  text.className = "message-text";
+  text.textContent = item.text;
+
+  bubble.appendChild(meta);
+  bubble.appendChild(text);
+
+  if (item.taskId || item.taskStatus) {
+    const chip = document.createElement("div");
+    chip.className = `task-chip ${item.taskStatus ?? ""}`.trim();
+    chip.textContent = item.taskId
+      ? `${item.taskId}${item.taskStatus ? ` · ${item.taskStatus}` : ""}`
+      : item.taskStatus;
+    bubble.appendChild(chip);
+  }
+
+  row.appendChild(bubble);
+  return row;
+}
+
+function patchConversationRow(row, item, turn) {
+  row.className = `conversation-row ${item.speaker}`;
+  row.dataset.key = buildConversationKey(item);
+  row.replaceChildren(createConversationRow(item, turn).firstElementChild);
+}
+
 function buildTaskDrawerSignature(summary) {
   return JSON.stringify({
+    selectedTaskId: selectedTaskRunnerId,
     recentTasks: (summary.recentTasks ?? []).map((task) => ({
       id: task.id,
       status: task.status,
@@ -329,8 +359,11 @@ function buildTaskDrawerSignature(summary) {
       taskId: detail.taskId,
       heroSummary: detail.heroSummary,
       resultSummary: detail.resultSummary ?? null,
+      detailedAnswer: detail.detailedAnswer ?? null,
       verification: detail.verification ?? null,
-      changes: detail.changes ?? []
+      changes: detail.changes ?? [],
+      keyFindingsCount: detail.keyFindings?.length ?? 0,
+      executionTraceCount: detail.executionTrace?.length ?? 0
     })),
     activeTaskIds: (summary.activeTasks ?? []).map((task) => task.id),
     notifications: [
@@ -433,6 +466,8 @@ function stopPlayback() {
   });
   liveAudioNextStartTime = 0;
   liveAudioQueueProcessing = false;
+  liveAudioIgnoreUntil = Date.now() + 250;
+  void setRuntimeAssistantSpeaking(false).catch(showRuntimeError);
 }
 
 async function setRuntimeUserSpeaking(speaking) {
@@ -476,6 +511,7 @@ function handleLiveUserAudioActivity(peak) {
   }
 
   if (!liveUserSpeakingActive) {
+    stopPlayback();
     liveUserSpeakingActive = true;
     void setRuntimeUserSpeaking(true).catch(showRuntimeError);
   }
@@ -548,6 +584,13 @@ async function playQueuedAudio() {
 }
 
 async function handleAudioChunk(chunk) {
+  if (
+    liveUserSpeakingActive ||
+    Date.now() < liveAudioIgnoreUntil ||
+    getVoiceState().status === "interrupted"
+  ) {
+    return;
+  }
   liveAudioQueue.push(base64ToFloat32AudioData(chunk.data));
   await playQueuedAudio();
 }
@@ -695,105 +738,25 @@ function renderConversationFeed(state) {
 
   for (const item of timeline) {
     const key = buildConversationKey(item);
+    const turn = turnsById.get(item.turnId);
 
     const existing = existingByKey.get(key);
     let row = existing;
 
     if (existing) {
-      // PATCH existing node in-place → no flicker
-      const bubble = existing.querySelector(".conversation-bubble");
-      if (bubble) {
-        const wantClass = `conversation-bubble${item.partial ? " partial" : ""}${item.streaming ? " streaming" : ""}${item.interrupted ? " interrupted" : ""}`;
-        if (bubble.className !== wantClass) bubble.className = wantClass;
+      const previousText =
+        existing.querySelector(".message-text")?.textContent ?? "";
+      const previousBubbleClass =
+        existing.querySelector(".conversation-bubble")?.className ?? "";
+      const nextBubbleClass = `conversation-bubble${item.partial ? " partial" : ""}${item.streaming ? " streaming" : ""}${item.interrupted ? " interrupted" : ""}`;
 
-        const textEl = bubble.querySelector(".message-text");
-        if (textEl && textEl.textContent !== item.text) {
-          textEl.textContent = item.text;
-          shouldScroll = true;
-        }
-
-        // Update time badge
-        const timeBadges = bubble.querySelectorAll(".bubble-status");
-        const timeStr = formatTime(item.updatedAt || item.createdAt);
-        const lastBadge = timeBadges[timeBadges.length - 1];
-        if (lastBadge && lastBadge.textContent !== timeStr) {
-          lastBadge.textContent = timeStr;
-        }
+      patchConversationRow(existing, item, turn);
+      if (previousText !== item.text || previousBubbleClass !== nextBubbleClass) {
+        shouldScroll = true;
       }
       existingByKey.delete(key);
     } else {
-      // CREATE new row
-      row = document.createElement("article");
-      row.className = `conversation-row ${item.speaker}`;
-      row.dataset.key = key;
-
-      const bubble = document.createElement("div");
-      bubble.className = `conversation-bubble${item.partial ? " partial" : ""}${item.streaming ? " streaming" : ""}${item.interrupted ? " interrupted" : ""}`;
-
-      const meta = document.createElement("div");
-      meta.className = "conversation-meta";
-
-      const role = document.createElement("p");
-      role.className = "message-role";
-      role.textContent =
-        item.kind === "task_event"
-          ? "task event"
-          : item.speaker === "user"
-            ? "you"
-            : item.responseSource
-              ? `assistant · ${item.responseSource}`
-              : "assistant";
-      meta.appendChild(role);
-
-      const modeChip = document.createElement("span");
-      modeChip.className = "turn-chip";
-      modeChip.textContent = item.inputMode;
-      meta.appendChild(modeChip);
-
-      const turn = turnsById.get(item.turnId);
-      if (turn?.stage) {
-        const stage = document.createElement("span");
-        stage.className = "bubble-status";
-        stage.textContent = turn.stage;
-        meta.appendChild(stage);
-      }
-
-      if (item.partial) {
-        const partial = document.createElement("span");
-        partial.className = "bubble-status";
-        partial.textContent = "partial";
-        meta.appendChild(partial);
-      }
-
-      if (item.interrupted) {
-        const interrupted = document.createElement("span");
-        interrupted.className = "bubble-status";
-        interrupted.textContent = "interrupted";
-        meta.appendChild(interrupted);
-      }
-
-      const time = document.createElement("span");
-      time.className = "bubble-status";
-      time.textContent = formatTime(item.updatedAt || item.createdAt);
-      meta.appendChild(time);
-
-      const text = document.createElement("p");
-      text.className = "message-text";
-      text.textContent = item.text;
-
-      bubble.appendChild(meta);
-      bubble.appendChild(text);
-
-      if (item.taskId || item.taskStatus) {
-        const chip = document.createElement("div");
-        chip.className = `task-chip ${item.taskStatus ?? ""}`.trim();
-        chip.textContent = item.taskId
-          ? `${item.taskId}${item.taskStatus ? ` · ${item.taskStatus}` : ""}`
-          : item.taskStatus;
-        bubble.appendChild(chip);
-      }
-
-      row.appendChild(bubble);
+      row = createConversationRow(item, turn);
       shouldScroll = true;
     }
 
@@ -813,72 +776,7 @@ function renderConversationFeed(state) {
   }
 }
 
-function renderSummaryCardState(state) {
-  const summary = getTaskSummary();
-  const voiceState = getVoiceState();
-  const activeRunnerCount = summary.avatar?.taskRunners?.length ?? 0;
-  const latestBlockingTask = (summary.activeTasks ?? []).find(
-    (task) =>
-      task.status === "waiting_input" || task.status === "approval_required"
-  );
-
-  let companionStateText = "Idle";
-  let companionRouteText = "No request is being reviewed yet.";
-  let companionIntakeText = "No task is waiting for clarification.";
-
-  if (summary.intake?.active) {
-    companionStateText = "Waiting for input";
-    companionRouteText = "Gathering the details needed before starting the task.";
-    const missing = (summary.intake.missingSlots ?? []).join(", ");
-    companionIntakeText = missing
-      ? `${summary.intake.workingText} · missing: ${missing}`
-      : summary.intake.workingText;
-  } else if (latestBlockingTask) {
-    companionStateText = "Needs attention";
-    companionRouteText = "An active task is waiting for user input or approval.";
-    companionIntakeText = latestBlockingTask.title;
-  } else if (activeRunnerCount > 0) {
-    companionStateText = `${activeRunnerCount} active task${activeRunnerCount === 1 ? "" : "s"}`;
-    companionRouteText =
-      voiceState.routing?.summary ?? "Background task runners are working.";
-    companionIntakeText = "Results will appear in the chat and drawers when they are ready.";
-  }
-
-  mainAvatarStateEl.textContent = companionStateText;
-  mainAvatarStateEl.className = companionStateText
-    ? "summary-text"
-    : "summary-text empty-state";
-  workspaceStatePillEl.textContent = summary.avatar?.mainState ?? "idle";
-  workspaceStatePillEl.className = `task-runner-status-pill ${
-    latestBlockingTask
-      ? "waiting"
-      : activeRunnerCount > 0
-        ? "running"
-        : "completed"
-  }`;
-
-  liveRouteSummaryEl.textContent =
-    companionRouteText;
-  liveRouteSummaryEl.className = companionRouteText
-    ? "summary-text"
-    : "summary-text empty-state";
-
-  liveRouteDetailEl.textContent = voiceState.routing?.detail ?? "";
-  liveRouteDetailEl.className = voiceState.routing?.detail
-    ? "summary-detail"
-    : "summary-detail empty-state";
-
-  if (summary.intake?.active) {
-    voiceIntakeSummaryEl.textContent = companionIntakeText;
-    voiceIntakeSummaryEl.className = "summary-text";
-  } else {
-    voiceIntakeSummaryEl.textContent = companionIntakeText;
-    voiceIntakeSummaryEl.className =
-      activeRunnerCount > 0 || latestBlockingTask
-        ? "summary-detail"
-        : "summary-detail empty-state";
-  }
-
+function renderTaskWorkspaceHeader(summary) {
   pendingBriefingsCountEl.textContent = `pending briefing ${
     summary.pendingBriefingCount ?? 0
   }`;
@@ -982,6 +880,15 @@ function getTaskRunnerDetailMap(summary) {
 
 function buildAdvancedTraceEntries(taskId, selectedRunner) {
   const events = desktopUiState?.debugInspector?.events ?? [];
+  const executionPayloadEntries = (selectedRunner?.executionTrace ?? [])
+    .filter((entry) => entry.payloadJson && Object.keys(entry.payloadJson).length > 0)
+    .map((entry) => ({
+      id: `${taskId}:payload:${entry.seq}`,
+      kind: `${entry.kind}_payload`,
+      createdAt: entry.createdAt,
+      body: entry.title,
+      meta: JSON.stringify(entry.payloadJson, null, 2)
+    }));
   const detailEntries = (selectedRunner?.advancedTrace ?? []).map((entry, index) => ({
     id: `${taskId}:detail:${entry.createdAt}:${index}`,
     kind: entry.kind,
@@ -1015,7 +922,7 @@ function buildAdvancedTraceEntries(taskId, selectedRunner) {
       };
     });
 
-  return [...detailEntries, ...debugEntries].sort(
+  return [...executionPayloadEntries, ...detailEntries, ...debugEntries].sort(
     (left, right) =>
       new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
   );
@@ -1057,153 +964,136 @@ function getTaskRunnerPriority(status) {
   return 4;
 }
 
-function buildTaskRunnerEntries(summary) {
+function hydrateTaskRunnerEntry(baseEntry, summary, index = 0) {
   const timelineByTaskId = buildTaskTimelineMap(summary);
   const detailByTaskId = getTaskRunnerDetailMap(summary);
   const activeTasksById = new Map(
     (summary.activeTasks ?? []).map((task) => [task.id, task])
   );
+  const task = activeTasksById.get(baseEntry.taskId);
+  const detail = detailByTaskId.get(baseEntry.taskId);
+  const latestEvent = (timelineByTaskId.get(baseEntry.taskId) ?? []).at(-1);
+  const executionTrace = detail?.executionTrace ?? [];
+  const advancedTrace = detail?.advancedTrace ?? [];
+  const latestExecutionTrace = executionTrace.at(-1) ?? null;
 
-  return (summary.avatar?.taskRunners ?? [])
-    .map((runner, index) => {
-      const task = activeTasksById.get(runner.taskId);
-      const detail = detailByTaskId.get(runner.taskId);
-      const latestEvent = (timelineByTaskId.get(runner.taskId) ?? []).at(-1);
-
-      return {
-        ...runner,
-        label: runner.label ?? `Task Runner ${index + 1}`,
-        title: detail?.title ?? runner.title ?? task?.title ?? "Untitled task",
-        headline: detail?.headline ?? runner.headline ?? runner.title ?? task?.title ?? "Untitled task",
-        statusLabel:
-          detail?.statusLabel ?? runner.statusLabel ?? formatTaskRunnerStatus(runner.status),
-        heroSummary:
-          detail?.heroSummary ??
-          runner.latestHumanUpdate ??
-          runner.progressSummary ??
-          latestEvent?.message ??
-          "Summarizing the current progress for this task.",
-        latestHumanUpdate:
-          detail?.latestHumanUpdate ??
-          runner.latestHumanUpdate ??
-          runner.progressSummary ??
-          latestEvent?.message ??
-          "A progress update will appear here shortly.",
-        needsUserAction:
-          detail?.needsUserAction ??
-          runner.needsUserAction ??
-          runner.blockingReason ??
-          null,
-        requestSummary: detail?.requestSummary ?? null,
-        timeline: detail?.timeline ?? [],
-        resultSummary:
-          detail?.resultSummary ?? task?.completionReport?.summary ?? null,
-        verification:
-          detail?.verification ?? task?.completionReport?.verification ?? null,
-        changes: detail?.changes ?? task?.completionReport?.changes ?? [],
-        question: detail?.question ?? task?.completionReport?.question ?? null,
-        advancedTrace: detail?.advancedTrace ?? [],
-        lastUpdatedAt:
-          detail?.lastUpdatedAt ??
-          runner.lastUpdatedAt ??
-          latestEvent?.createdAt ??
-          task?.updatedAt ??
-          null
-      };
-    })
-    .sort((left, right) => {
-      const priorityDiff =
-        getTaskRunnerPriority(left.status) - getTaskRunnerPriority(right.status);
-      if (priorityDiff !== 0) {
-        return priorityDiff;
-      }
-
-      const leftTime = left.lastUpdatedAt ? new Date(left.lastUpdatedAt).getTime() : 0;
-      const rightTime = right.lastUpdatedAt ? new Date(right.lastUpdatedAt).getTime() : 0;
-      return rightTime - leftTime;
-    });
+  return {
+    ...baseEntry,
+    label: baseEntry.label ?? `Task Runner ${index + 1}`,
+    title: detail?.title ?? baseEntry.title ?? task?.title ?? "Untitled task",
+    headline:
+      detail?.headline ??
+      baseEntry.headline ??
+      baseEntry.title ??
+      task?.title ??
+      "Untitled task",
+    statusLabel:
+      detail?.statusLabel ??
+      baseEntry.statusLabel ??
+      formatTaskRunnerStatus(baseEntry.status),
+    heroSummary:
+      detail?.heroSummary ??
+      baseEntry.latestHumanUpdate ??
+      baseEntry.progressSummary ??
+      latestEvent?.message ??
+      "Summarizing the current progress for this task.",
+    latestHumanUpdate:
+      detail?.latestHumanUpdate ??
+      baseEntry.latestHumanUpdate ??
+      baseEntry.progressSummary ??
+      latestEvent?.message ??
+      "A progress update will appear here shortly.",
+    needsUserAction:
+      detail?.needsUserAction ??
+      baseEntry.needsUserAction ??
+      baseEntry.blockingReason ??
+      null,
+    requestSummary: detail?.requestSummary ?? null,
+    timeline: detail?.timeline ?? [],
+    resultSummary: detail?.resultSummary ?? task?.completionReport?.summary ?? null,
+    detailedAnswer:
+      detail?.detailedAnswer ?? task?.completionReport?.detailedAnswer ?? null,
+    keyFindings: detail?.keyFindings ?? task?.completionReport?.keyFindings ?? [],
+    verification:
+      detail?.verification ?? task?.completionReport?.verification ?? null,
+    changes: detail?.changes ?? task?.completionReport?.changes ?? [],
+    question: detail?.question ?? task?.completionReport?.question ?? null,
+    executionTrace,
+    advancedTrace,
+    traceCount: executionTrace.length + advancedTrace.length,
+    timelinePreview:
+      detail?.timeline?.at(-1)?.body ??
+      detail?.timeline?.at(-1)?.title ??
+      latestExecutionTrace?.body ??
+      latestExecutionTrace?.title ??
+      latestEvent?.message ??
+      null,
+    latestExecutionTraceTitle: latestExecutionTrace?.title ?? null,
+    latestExecutionTraceBody: latestExecutionTrace?.body ?? null,
+    lastUpdatedAt:
+      detail?.lastUpdatedAt ??
+      baseEntry.lastUpdatedAt ??
+      latestExecutionTrace?.createdAt ??
+      latestEvent?.createdAt ??
+      task?.updatedAt ??
+      null
+  };
 }
 
-function buildDrawerEntries(summary) {
-  const detailByTaskId = getTaskRunnerDetailMap(summary);
-  const activeTaskIds = new Set((summary.activeTasks ?? []).map((task) => task.id));
-  const latestNotificationByTaskId = new Map();
-
-  for (const plan of [
-    ...(summary.notifications?.delivered ?? []),
-    ...(summary.notifications?.pending ?? [])
-  ]) {
-    if (plan.taskId && !latestNotificationByTaskId.has(plan.taskId)) {
-      latestNotificationByTaskId.set(plan.taskId, plan);
+function sortTaskRunnerEntries(entries) {
+  return [...entries].sort((left, right) => {
+    const priorityDiff =
+      getTaskRunnerPriority(left.status) - getTaskRunnerPriority(right.status);
+    if (priorityDiff !== 0) {
+      return priorityDiff;
     }
-  }
 
-  const taskEntries = (summary.recentTasks ?? [])
-    .filter((task) => !activeTaskIds.has(task.id))
-    .map((task) => {
-      const detail = detailByTaskId.get(task.id);
-      const relatedNotification = latestNotificationByTaskId.get(task.id);
-      const primaryText =
-        detail?.resultSummary ??
-        detail?.heroSummary ??
-        relatedNotification?.uiText ??
-        "No saved result summary yet.";
-      const detailLines = uniqueNonEmptyLines([
-        detail?.needsUserAction,
-        relatedNotification?.uiText,
-        detail?.changes?.length
-          ? `changes · ${detail.changes.join(", ")}`
-          : null,
-        detail?.verification
-          ? `verification · ${formatVerificationStatus(detail.verification)}`
-          : null
-      ]).filter((line) => line !== primaryText);
-
-      return {
-        kind: "task",
-        id: `task:${task.id}`,
-        title: task.title,
-        subtitle: [
-          task.id,
-          formatTaskRunnerStatus(task.status),
-          task.updatedAt ? formatTime(task.updatedAt) : null
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        text: primaryText,
-        meta: detailLines.join(" · "),
-        updatedAt:
-          relatedNotification?.createdAt ??
-          detail?.lastUpdatedAt ??
-          task.updatedAt
-      };
-    });
-
-  const notificationOnlyEntries = [
-    ...(summary.notifications?.delivered ?? []),
-    ...(summary.notifications?.pending ?? [])
-  ]
-    .filter((plan) => !plan.taskId || !taskEntries.some((entry) => entry.id === `task:${plan.taskId}`))
-    .map((plan, index) => ({
-      kind: "briefing",
-      id: `briefing:${plan.taskId ?? plan.reason ?? index}`,
-      title: plan.taskId ? `Task ${plan.taskId}` : plan.reason ?? "briefing",
-      subtitle: [
-        plan.reason ?? plan.delivery ?? "briefing",
-        typeof plan.createdAt === "string" ? formatTime(plan.createdAt) : null
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      text: plan.uiText ?? "No briefing to show.",
-      meta: plan.delivery ? `delivery · ${plan.delivery}` : "",
-      updatedAt: plan.createdAt ?? null
-    }));
-
-  return [...taskEntries, ...notificationOnlyEntries].sort((left, right) => {
-    const leftTime = left.updatedAt ? new Date(left.updatedAt).getTime() : 0;
-    const rightTime = right.updatedAt ? new Date(right.updatedAt).getTime() : 0;
+    const leftTime = left.lastUpdatedAt ? new Date(left.lastUpdatedAt).getTime() : 0;
+    const rightTime = right.lastUpdatedAt ? new Date(right.lastUpdatedAt).getTime() : 0;
     return rightTime - leftTime;
   });
+}
+
+function sortArchivedTaskEntries(entries) {
+  return [...entries].sort((left, right) => {
+    const leftTime = left.lastUpdatedAt ? new Date(left.lastUpdatedAt).getTime() : 0;
+    const rightTime = right.lastUpdatedAt ? new Date(right.lastUpdatedAt).getTime() : 0;
+    return rightTime - leftTime;
+  });
+}
+
+function buildTaskRunnerEntries(summary) {
+  return sortTaskRunnerEntries(
+    (summary.avatar?.taskRunners ?? []).map((runner, index) =>
+      hydrateTaskRunnerEntry(runner, summary, index)
+    )
+  );
+}
+
+function buildArchivedTaskEntries(summary) {
+  const activeTaskIds = new Set((summary.activeTasks ?? []).map((task) => task.id));
+
+  return sortArchivedTaskEntries(
+    (summary.recentTasks ?? [])
+      .filter((task) => !activeTaskIds.has(task.id))
+      .map((task, index) =>
+        hydrateTaskRunnerEntry(
+          {
+            taskId: task.id,
+            label: `Task ${task.id.slice(-4)}`,
+            title: task.title,
+            status: task.status,
+            headline: task.title,
+            statusLabel: formatTaskRunnerStatus(task.status),
+            latestHumanUpdate:
+              task.completionReport?.summary ?? "Open this task to review its logs.",
+            lastUpdatedAt: task.updatedAt
+          },
+          summary,
+          index
+        )
+      )
+  );
 }
 
 function reconcileSelectedTaskRunner(taskRunners) {
@@ -1219,78 +1109,368 @@ function reconcileSelectedTaskRunner(taskRunners) {
     }
   }
 
-  selectedTaskRunnerId = taskRunners[0].taskId;
-  return taskRunners[0];
+  selectedTaskRunnerId = null;
+  return null;
 }
 
-function renderTaskRunnerDetail(selectedRunner) {
-  if (!selectedRunner) {
-    taskRunnerDetailCardEl.hidden = true;
-    taskRunnerDetailNeedsActionEl.hidden = true;
-    taskRunnerDetailResultEl.hidden = true;
-    taskRunnerDetailExecutionEl.hidden = true;
-    taskRunnerDetailTimelineListEl.innerHTML = "";
-    taskRunnerDetailExecutionListEl.innerHTML = "";
-    return;
-  }
+function createTaskRunnerTimelineList(entries) {
+  const container = document.createElement("div");
+  container.className = "task-runner-detail-timeline-list";
 
-  taskRunnerDetailCardEl.hidden = false;
-  taskRunnerDetailCardEl.dataset.status = selectedRunner.status;
-  taskRunnerDetailLabelEl.textContent = selectedRunner.label;
-  taskRunnerDetailTitleEl.textContent = selectedRunner.headline;
-  taskRunnerDetailHeroEl.textContent = selectedRunner.heroSummary;
-  taskRunnerDetailStatusEl.textContent =
-    selectedRunner.statusLabel ?? formatTaskRunnerStatus(selectedRunner.status);
-  taskRunnerDetailStatusEl.className = `task-runner-status-pill ${
-    getTaskRunnerAccent(selectedRunner.status)
-  }`;
-  taskRunnerDetailIdEl.textContent = `taskId · ${selectedRunner.taskId}`;
-  if (selectedRunner.requestSummary) {
-    taskRunnerDetailRequestEl.hidden = false;
-    taskRunnerDetailRequestEl.textContent = `Request summary · ${selectedRunner.requestSummary}`;
-  } else {
-    taskRunnerDetailRequestEl.hidden = true;
-    taskRunnerDetailRequestEl.textContent = "";
-  }
-  taskRunnerDetailUpdatedAtEl.textContent = selectedRunner.lastUpdatedAt
-    ? `Last updated · ${formatTime(selectedRunner.lastUpdatedAt)}`
-    : "";
-
-  if (selectedRunner.needsUserAction) {
-    taskRunnerDetailNeedsActionEl.hidden = false;
-    taskRunnerDetailNeedsActionTextEl.textContent = selectedRunner.needsUserAction;
-  } else {
-    taskRunnerDetailNeedsActionEl.hidden = true;
-    taskRunnerDetailNeedsActionTextEl.textContent = "";
-  }
-
-  taskRunnerDetailTimelineListEl.innerHTML = "";
-  if ((selectedRunner.timeline ?? []).length === 0) {
+  if (!entries || entries.length === 0) {
     const empty = document.createElement("p");
     empty.className = "stack-empty";
     empty.textContent = "No progress log is available yet.";
-    taskRunnerDetailTimelineListEl.appendChild(empty);
-  } else {
-    for (const entry of selectedRunner.timeline) {
-      const item = document.createElement("article");
-      item.className = `task-runner-timeline-item ${entry.emphasis ?? "normal"}`.trim();
-      item.innerHTML = `
-        <span class="task-runner-timeline-dot" aria-hidden="true"></span>
-        <div class="task-runner-timeline-copy">
-          <div class="task-runner-timeline-head">
-            <p class="task-runner-timeline-title"></p>
-            <p class="task-runner-timeline-time"></p>
-          </div>
-          <p class="task-runner-timeline-body"></p>
+    container.appendChild(empty);
+    return container;
+  }
+
+  for (const entry of entries) {
+    const item = document.createElement("article");
+    item.className = `task-runner-timeline-item ${entry.emphasis ?? "normal"}`.trim();
+    item.innerHTML = `
+      <span class="task-runner-timeline-dot" aria-hidden="true"></span>
+      <div class="task-runner-timeline-copy">
+        <div class="task-runner-timeline-head">
+          <p class="task-runner-timeline-title"></p>
+          <p class="task-runner-timeline-time"></p>
         </div>
-      `;
-      item.querySelector(".task-runner-timeline-title").textContent = entry.title;
-      item.querySelector(".task-runner-timeline-time").textContent = formatTime(
-        entry.createdAt
+        <p class="task-runner-timeline-body"></p>
+      </div>
+    `;
+    item.querySelector(".task-runner-timeline-title").textContent = entry.title;
+    item.querySelector(".task-runner-timeline-time").textContent = formatTime(
+      entry.createdAt
+    );
+    item.querySelector(".task-runner-timeline-body").textContent = entry.body;
+    container.appendChild(item);
+  }
+
+  return container;
+}
+
+function buildTaskRunnerDisplayTimeline(selectedRunner) {
+  const baseEntries = [...(selectedRunner.timeline ?? [])];
+  const executionTraceEntries = (selectedRunner.executionTrace ?? []).map((entry) => ({
+    kind:
+      entry.kind === "error"
+        ? "failure"
+        : entry.kind === "tool_use" || entry.kind === "tool_result" || entry.kind === "message"
+          ? "progress_update"
+          : entry.kind === "result"
+            ? "completion_received"
+            : "progress_update",
+    title:
+      entry.kind === "tool_use" || entry.kind === "tool_result"
+        ? entry.title
+        : entry.kind === "message"
+          ? "Executor note"
+          : entry.title,
+    body:
+      entry.body ??
+      entry.detail ??
+      entry.title,
+    createdAt: entry.createdAt,
+    emphasis:
+      entry.kind === "error"
+        ? "error"
+        : entry.kind === "result"
+          ? "success"
+          : "info",
+    source: "executor"
+  }));
+  const summary = getTaskSummary();
+  const notifications = [
+    ...(summary.notifications?.delivered ?? []),
+    ...(summary.notifications?.pending ?? [])
+  ]
+    .filter((plan) => plan?.taskId === selectedRunner.taskId && plan.uiText)
+    .map((plan) => ({
+      kind:
+        plan.reason === "approval_required"
+          ? "needs_approval"
+          : plan.reason === "task_waiting_input"
+            ? "needs_input"
+            : plan.reason === "task_failed"
+              ? "failure"
+              : plan.reason === "task_completed"
+                ? "completion_received"
+                : "progress_update",
+      title:
+        plan.reason === "approval_required"
+          ? "Runtime asked for approval"
+          : plan.reason === "task_waiting_input"
+            ? "Runtime asked for more input"
+            : plan.reason === "task_failed"
+              ? "Runtime reported a blocker"
+              : plan.reason === "task_completed"
+                ? "Runtime completion briefing"
+                : "Runtime note",
+      body: plan.uiText,
+      createdAt: plan.createdAt ?? selectedRunner.lastUpdatedAt ?? new Date().toISOString(),
+      emphasis:
+        plan.reason === "task_failed"
+          ? "error"
+          : plan.reason === "approval_required" || plan.reason === "task_waiting_input"
+            ? "warning"
+            : plan.reason === "task_completed"
+              ? "success"
+              : "info",
+      source: "system"
+    }));
+
+  const runtimeEvents = (desktopUiState?.debugInspector?.events ?? [])
+    .filter((event) => event.source === "runtime" && event.taskId === selectedRunner.taskId)
+    .map((event) => ({
+      kind:
+        event.kind === "task_intake"
+          ? "needs_input"
+          : selectedRunner.status === "failed"
+            ? "failure"
+            : "progress_update",
+      title:
+        event.kind === "task_intake"
+          ? "Runtime clarification"
+          : "Runtime note",
+      body: event.summary,
+      createdAt: event.createdAt,
+      emphasis:
+        event.kind === "task_intake"
+          ? "warning"
+          : "info",
+      source: "system"
+    }));
+
+  const merged = [...baseEntries, ...executionTraceEntries, ...notifications, ...runtimeEvents]
+    .sort(
+      (left, right) =>
+        new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+    )
+    .filter((entry, index, list) => {
+      const previous = list[index - 1];
+      return !(
+        previous &&
+        previous.kind === entry.kind &&
+        previous.title === entry.title &&
+        previous.body === entry.body &&
+        previous.createdAt === entry.createdAt
       );
-      item.querySelector(".task-runner-timeline-body").textContent = entry.body;
-      taskRunnerDetailTimelineListEl.appendChild(item);
+    });
+
+  return merged;
+}
+
+function createAdvancedTraceList(selectedRunner) {
+  const executionTrace = buildAdvancedTraceEntries(selectedRunner.taskId, selectedRunner);
+  const list = document.createElement("div");
+  list.className = "task-runner-detail-execution-list";
+
+  if (executionTrace.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "stack-empty";
+    empty.textContent = "No advanced execution trace is available yet.";
+    list.appendChild(empty);
+    return list;
+  }
+
+  for (const entry of executionTrace) {
+    const item = document.createElement("article");
+    item.className = "task-runner-detail-event";
+    item.innerHTML = `
+      <div class="task-runner-detail-event-head">
+        <p class="task-runner-detail-event-kind"></p>
+        <p class="task-runner-detail-event-time"></p>
+      </div>
+      <p class="task-runner-detail-event-text"></p>
+      <pre class="task-runner-detail-event-meta"></pre>
+    `;
+    item.querySelector(".task-runner-detail-event-kind").textContent =
+      entry.kind.replaceAll("_", " ");
+    item.querySelector(".task-runner-detail-event-time").textContent = formatTime(
+      entry.createdAt
+    );
+    item.querySelector(".task-runner-detail-event-text").textContent =
+      entry.body ?? "No execution detail";
+    const metaEl = item.querySelector(".task-runner-detail-event-meta");
+    if (entry.meta) {
+      metaEl.textContent = entry.meta;
+    } else {
+      metaEl.remove();
     }
+    list.appendChild(item);
+  }
+
+  return list;
+}
+
+function createTaskExecutionTraceList(selectedRunner) {
+  const entries = selectedRunner.executionTrace ?? [];
+  const list = document.createElement("div");
+  list.className = "task-runner-trace-list";
+
+  if (entries.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "stack-empty";
+    empty.textContent = "No saved execution trace is available yet.";
+    list.appendChild(empty);
+    return list;
+  }
+
+  for (const entry of entries) {
+    const item = document.createElement("article");
+    item.className = "task-runner-trace-card";
+    item.innerHTML = `
+      <div class="task-runner-trace-head">
+        <div class="task-runner-trace-head-copy">
+          <p class="task-runner-trace-title"></p>
+          <p class="task-runner-trace-time"></p>
+        </div>
+        <div class="task-runner-trace-badges">
+          <span class="task-runner-trace-kind"></span>
+          <span class="task-runner-trace-status"></span>
+        </div>
+      </div>
+      <p class="task-runner-trace-body"></p>
+      <p class="task-runner-trace-meta"></p>
+    `;
+    item.querySelector(".task-runner-trace-title").textContent = entry.title;
+    item.querySelector(".task-runner-trace-time").textContent = formatTime(entry.createdAt);
+    item.querySelector(".task-runner-trace-kind").textContent =
+      entry.kind.replaceAll("_", " ");
+    const statusEl = item.querySelector(".task-runner-trace-status");
+    if (entry.status) {
+      statusEl.textContent = entry.status;
+    } else {
+      statusEl.remove();
+    }
+    const bodyEl = item.querySelector(".task-runner-trace-body");
+    if (entry.body) {
+      bodyEl.textContent = entry.body;
+    } else {
+      bodyEl.remove();
+    }
+    const metaBits = [
+      entry.toolName ? `tool=${entry.toolName}` : null,
+      entry.role ? `role=${entry.role}` : null,
+      typeof entry.seq === "number" ? `step=${entry.seq + 1}` : null
+    ].filter(Boolean);
+    const metaEl = item.querySelector(".task-runner-trace-meta");
+    if (entry.detail || metaBits.length > 0) {
+      metaEl.textContent = [metaBits.join(" · "), entry.detail ?? null]
+        .filter(Boolean)
+        .join(" · ");
+    } else {
+      metaEl.remove();
+    }
+    if (entry.payloadJson && Object.keys(entry.payloadJson).length > 0) {
+      const raw = document.createElement("details");
+      raw.className = "task-runner-trace-payload";
+      raw.innerHTML = "<summary>Raw payload</summary>";
+      const payload = document.createElement("pre");
+      payload.className = "task-runner-trace-payload-pre";
+      payload.textContent = JSON.stringify(entry.payloadJson, null, 2);
+      raw.appendChild(payload);
+      item.appendChild(raw);
+    }
+    list.appendChild(item);
+  }
+
+  return list;
+}
+
+function createTaskRunnerDetailContent(selectedRunner) {
+  const detail = document.createElement("div");
+  detail.className = "task-runner-card-detail";
+
+  const updatedAtText = selectedRunner.lastUpdatedAt
+    ? `Last updated · ${formatTime(selectedRunner.lastUpdatedAt)}`
+    : "";
+
+  detail.innerHTML = `
+    <div class="task-runner-detail-head">
+      <div class="task-runner-detail-head-copy">
+        <div class="task-runner-detail-head-top">
+          <p class="message-role">${selectedRunner.label}</p>
+          <span class="task-runner-status-pill ${getTaskRunnerAccent(selectedRunner.status)}">
+            ${selectedRunner.statusLabel ?? formatTaskRunnerStatus(selectedRunner.status)}
+          </span>
+        </div>
+        <h4 class="task-runner-detail-title">${selectedRunner.headline}</h4>
+        <p class="stack-text">${selectedRunner.heroSummary}</p>
+      </div>
+    </div>
+  `;
+
+  if (selectedRunner.needsUserAction) {
+    const callout = document.createElement("div");
+    callout.className = "task-runner-detail-callout";
+    callout.innerHTML = `
+      <p class="stack-subtitle">Needs Attention</p>
+      <p class="stack-text">${selectedRunner.needsUserAction}</p>
+    `;
+    detail.appendChild(callout);
+  }
+
+  if (selectedRunner.status !== "completed" && (selectedRunner.executionTrace?.length ?? 0) > 0) {
+    const liveExecution = document.createElement("div");
+    liveExecution.className = "task-runner-detail-section";
+    liveExecution.innerHTML = `
+      <div class="task-runner-detail-section-head">
+        <p class="stack-subtitle">Live Execution Feed</p>
+        <p class="stack-subtitle">${
+          selectedRunner.executionTrace?.length ?? 0
+        } saved events</p>
+      </div>
+    `;
+    liveExecution.appendChild(createTaskExecutionTraceList(selectedRunner));
+    detail.appendChild(liveExecution);
+  }
+
+  const timelineSection = document.createElement("div");
+  timelineSection.className = "task-runner-detail-section";
+  timelineSection.innerHTML = `
+    <div class="task-runner-detail-section-head">
+      <p class="stack-subtitle">Progress Log</p>
+      <p class="stack-subtitle">${updatedAtText}</p>
+    </div>
+  `;
+  timelineSection.appendChild(
+    createTaskRunnerTimelineList(buildTaskRunnerDisplayTimeline(selectedRunner))
+  );
+  detail.appendChild(timelineSection);
+
+  if (selectedRunner.detailedAnswer) {
+    const answer = document.createElement("div");
+    answer.className = "task-runner-detail-section";
+    answer.innerHTML = `
+      <div class="task-runner-detail-section-head">
+        <p class="stack-subtitle">Full Answer</p>
+      </div>
+      <article class="task-runner-detail-answer-card">
+        <p class="stack-text"></p>
+      </article>
+    `;
+    answer.querySelector(".stack-text").textContent = selectedRunner.detailedAnswer;
+    detail.appendChild(answer);
+  }
+
+  if ((selectedRunner.keyFindings?.length ?? 0) > 0) {
+    const findings = document.createElement("div");
+    findings.className = "task-runner-detail-section";
+    findings.innerHTML = `
+      <div class="task-runner-detail-section-head">
+        <p class="stack-subtitle">Key Findings</p>
+      </div>
+      <div class="task-runner-key-findings"></div>
+    `;
+    const findingsList = findings.querySelector(".task-runner-key-findings");
+    for (const finding of selectedRunner.keyFindings) {
+      const chip = document.createElement("article");
+      chip.className = "task-runner-key-finding";
+      chip.textContent = finding;
+      findingsList.appendChild(chip);
+    }
+    detail.appendChild(findings);
   }
 
   const hasResult =
@@ -1298,148 +1478,229 @@ function renderTaskRunnerDetail(selectedRunner) {
     Boolean(selectedRunner.verification) ||
     (selectedRunner.changes?.length ?? 0) > 0;
   if (hasResult) {
-    taskRunnerDetailResultEl.hidden = false;
-    taskRunnerDetailResultSummaryEl.textContent =
-      selectedRunner.resultSummary ?? "No result summary yet.";
-    taskRunnerDetailResultVerificationEl.textContent = formatVerificationStatus(
-      selectedRunner.verification
-    );
-    taskRunnerDetailResultChangesListEl.innerHTML = "";
+    const result = document.createElement("div");
+    result.className = "task-runner-detail-result";
+    result.innerHTML = `
+      <p class="stack-subtitle">Result</p>
+      <div class="task-runner-detail-result-grid">
+        <article class="task-runner-detail-result-card">
+          <p class="task-runner-detail-result-label">What Changed</p>
+          <p class="task-runner-detail-result-text">${
+            selectedRunner.resultSummary ?? "No result summary yet."
+          }</p>
+        </article>
+        <article class="task-runner-detail-result-card">
+          <p class="task-runner-detail-result-label">Confidence</p>
+          <p class="task-runner-detail-result-text">${formatVerificationStatus(
+            selectedRunner.verification
+          )}</p>
+        </article>
+      </div>
+    `;
+
     if ((selectedRunner.changes?.length ?? 0) > 0) {
-      taskRunnerDetailResultChangesEl.hidden = false;
+      const changes = document.createElement("div");
+      changes.className = "task-runner-detail-result-card";
+      changes.innerHTML = `
+        <p class="task-runner-detail-result-label">Changes</p>
+        <ul class="task-runner-detail-change-list"></ul>
+      `;
+      const list = changes.querySelector(".task-runner-detail-change-list");
       for (const change of selectedRunner.changes) {
         const item = document.createElement("li");
         item.textContent = change;
-        taskRunnerDetailResultChangesListEl.appendChild(item);
+        list.appendChild(item);
       }
-    } else {
-      taskRunnerDetailResultChangesEl.hidden = true;
+      result.appendChild(changes);
     }
-  } else {
-    taskRunnerDetailResultEl.hidden = true;
-    taskRunnerDetailResultChangesEl.hidden = true;
-    taskRunnerDetailResultSummaryEl.textContent = "";
-    taskRunnerDetailResultVerificationEl.textContent = "";
-    taskRunnerDetailResultChangesListEl.innerHTML = "";
+
+    detail.appendChild(result);
   }
 
-  const executionTrace = buildAdvancedTraceEntries(selectedRunner.taskId, selectedRunner);
-  taskRunnerDetailExecutionListEl.innerHTML = "";
-  taskRunnerDetailExecutionEl.hidden = false;
-  if (executionTrace.length > 0) {
-    for (const entry of executionTrace) {
-      const item = document.createElement("article");
-      item.className = "task-runner-detail-event";
-      item.innerHTML = `
-        <div class="task-runner-detail-event-head">
-          <p class="task-runner-detail-event-kind"></p>
-          <p class="task-runner-detail-event-time"></p>
-        </div>
-        <p class="task-runner-detail-event-text"></p>
-        <p class="task-runner-detail-event-meta"></p>
-      `;
-      item.querySelector(".task-runner-detail-event-kind").textContent =
-        entry.kind.replaceAll("_", " ");
-      item.querySelector(".task-runner-detail-event-time").textContent = formatTime(
-        entry.createdAt
-      );
-      item.querySelector(".task-runner-detail-event-text").textContent =
-        entry.body ?? "No execution detail";
-      const metaEl = item.querySelector(".task-runner-detail-event-meta");
-      if (entry.meta) {
-        metaEl.textContent = entry.meta;
-      } else {
-        metaEl.remove();
-      }
-      taskRunnerDetailExecutionListEl.appendChild(item);
+  const executionSection = document.createElement("div");
+  executionSection.className = "task-runner-detail-section";
+  executionSection.innerHTML = `
+    <div class="task-runner-detail-section-head">
+      <p class="stack-subtitle">Execution Trace</p>
+      <p class="stack-subtitle">${
+        selectedRunner.executionTrace?.length ?? 0
+      } saved events</p>
+    </div>
+  `;
+  executionSection.appendChild(createTaskExecutionTraceList(selectedRunner));
+  detail.appendChild(executionSection);
+
+  const advanced = document.createElement("details");
+  advanced.className = "task-runner-detail-advanced";
+  advanced.innerHTML = `
+    <summary>Advanced Details</summary>
+    <div class="task-runner-detail-advanced-copy">
+      <p class="stack-subtitle">taskId · ${selectedRunner.taskId}</p>
+    </div>
+  `;
+  if (selectedRunner.requestSummary) {
+    const request = document.createElement("p");
+    request.className = "stack-text";
+    request.textContent = `Request summary · ${selectedRunner.requestSummary}`;
+    advanced.querySelector(".task-runner-detail-advanced-copy").appendChild(request);
+  }
+  const execution = document.createElement("div");
+  execution.className = "task-runner-detail-execution";
+  execution.innerHTML = `<p class="stack-subtitle">execution trace</p>`;
+  execution.appendChild(createAdvancedTraceList(selectedRunner));
+  advanced.appendChild(execution);
+  detail.appendChild(advanced);
+
+  return detail;
+}
+
+function createTaskRunnerShell() {
+  const shell = document.createElement("article");
+  const card = document.createElement("button");
+  card.type = "button";
+  card.innerHTML = `
+    <span class="task-runner-avatar" aria-hidden="true">
+      <span class="task-runner-avatar-core"></span>
+    </span>
+    <span class="task-runner-copy">
+      <span class="task-runner-title"></span>
+      <span class="task-runner-meta-row">
+        <span class="task-runner-pill"></span>
+        <span class="task-runner-update"></span>
+      </span>
+      <span class="task-runner-supporting"></span>
+    </span>
+  `;
+  shell.appendChild(card);
+  return shell;
+}
+
+function patchTaskRunnerShell(shell, runner, selected) {
+  const accent = getTaskRunnerAccent(runner.status);
+  shell.className = `task-runner-card-shell ${accent}${selected ? " selected" : ""}`;
+  shell.dataset.taskId = runner.taskId;
+
+  const card = shell.querySelector(".task-runner-card") ?? shell.firstElementChild;
+  card.className = `task-runner-card ${accent}${selected ? " selected" : ""}`;
+  card.setAttribute("aria-expanded", selected ? "true" : "false");
+  card.onclick = () => {
+    selectedTaskRunnerId = selectedTaskRunnerId === runner.taskId ? null : runner.taskId;
+    renderTaskRunnerCards();
+    renderTaskLists();
+  };
+
+  const runnerPill = card.querySelector(".task-runner-pill");
+  runnerPill.textContent = runner.statusLabel ?? formatTaskRunnerStatus(runner.status);
+  runnerPill.className = `task-runner-pill ${accent}`;
+  card.querySelector(".task-runner-title").textContent = runner.headline;
+  card.querySelector(".task-runner-update").textContent = runner.latestHumanUpdate;
+  const supporting = card.querySelector(".task-runner-supporting");
+  const supportingParts = [
+    runner.latestExecutionTraceTitle
+      ? `${runner.latestExecutionTraceTitle}${
+          runner.latestExecutionTraceBody ? ` · ${runner.latestExecutionTraceBody}` : ""
+        }`
+      : runner.timelinePreview,
+    typeof runner.traceCount === "number" && runner.traceCount > 0
+      ? `${runner.traceCount} saved trace item${runner.traceCount === 1 ? "" : "s"}`
+      : null,
+    runner.lastUpdatedAt ? `Updated ${formatTime(runner.lastUpdatedAt)}` : null
+  ].filter(Boolean);
+  supporting.textContent = supportingParts.join(" · ");
+  supporting.hidden = supportingParts.length === 0;
+
+  const existingDetail = shell.querySelector(".task-runner-card-detail");
+  if (selected) {
+    const nextDetail = createTaskRunnerDetailContent(runner);
+    if (existingDetail) {
+      existingDetail.replaceWith(nextDetail);
+    } else {
+      shell.appendChild(nextDetail);
     }
-  } else {
+  } else if (existingDetail) {
+    existingDetail.remove();
+  }
+}
+
+function renderTaskRunnerCardList(container, entries, emptyText) {
+  const existingByTaskId = new Map();
+  for (const child of [...container.children]) {
+    const taskId = child.dataset?.taskId;
+    if (taskId) {
+      existingByTaskId.set(taskId, child);
+    }
+  }
+
+  const existingEmpty = container.querySelector(".stack-empty");
+  if (!entries || entries.length === 0) {
+    for (const [, node] of existingByTaskId) {
+      node.remove();
+    }
+    if (existingEmpty) {
+      existingEmpty.textContent = emptyText;
+      return;
+    }
     const empty = document.createElement("p");
     empty.className = "stack-empty";
-    empty.textContent = "No advanced execution trace is available yet.";
-    taskRunnerDetailExecutionListEl.appendChild(empty);
+    empty.textContent = emptyText;
+    container.replaceChildren(empty);
+    return;
+  }
+
+  if (existingEmpty) {
+    existingEmpty.remove();
+  }
+
+  let anchorNode = container.firstElementChild;
+  for (const runner of entries) {
+    const selected = runner.taskId === selectedTaskRunnerId;
+    const existingShell = existingByTaskId.get(runner.taskId);
+    const shell = existingShell ?? createTaskRunnerShell();
+
+    patchTaskRunnerShell(shell, runner, selected);
+    existingByTaskId.delete(runner.taskId);
+
+    if (shell !== anchorNode) {
+      container.insertBefore(shell, anchorNode);
+    }
+    anchorNode = shell.nextElementSibling;
+  }
+
+  for (const [, staleNode] of existingByTaskId) {
+    staleNode.remove();
   }
 }
 
 function renderTaskRunnerCards() {
   const summary = getTaskSummary();
   const taskRunners = buildTaskRunnerEntries(summary);
-  const selectedRunner = reconcileSelectedTaskRunner(taskRunners);
+  const archivedEntries = buildArchivedTaskEntries(summary);
+  reconcileSelectedTaskRunner([...taskRunners, ...archivedEntries]);
 
-  taskRunnerListEl.innerHTML = "";
-
-  if (taskRunners.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "stack-empty";
-    empty.textContent = "There is no active task runner right now.";
-    taskRunnerListEl.appendChild(empty);
-    renderTaskRunnerDetail(null);
-    return;
-  }
-
-  for (const runner of taskRunners) {
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = `task-runner-card ${getTaskRunnerAccent(runner.status)}${
-      runner.taskId === selectedTaskRunnerId ? " selected" : ""
-    }`;
-    card.setAttribute("aria-pressed", runner.taskId === selectedTaskRunnerId ? "true" : "false");
-    card.innerHTML = `
-      <span class="task-runner-avatar" aria-hidden="true">
-        <span class="task-runner-avatar-core"></span>
-      </span>
-      <span class="task-runner-copy">
-        <span class="task-runner-title"></span>
-        <span class="task-runner-meta-row">
-          <span class="task-runner-pill"></span>
-          <span class="task-runner-update"></span>
-        </span>
-      </span>
-    `;
-    const runnerPill = card.querySelector(".task-runner-pill");
-    runnerPill.textContent =
-      runner.statusLabel ?? formatTaskRunnerStatus(runner.status);
-    runnerPill.className = `task-runner-pill ${getTaskRunnerAccent(runner.status)}`;
-    card.querySelector(".task-runner-title").textContent = runner.headline;
-    card.querySelector(".task-runner-update").textContent =
-      runner.latestHumanUpdate;
-    card.addEventListener("click", () => {
-      selectedTaskRunnerId = runner.taskId;
-      renderTaskRunnerCards();
-    });
-    taskRunnerListEl.appendChild(card);
-  }
-
-  renderTaskRunnerDetail(selectedRunner);
+  renderTaskRunnerCardList(
+    taskRunnerListEl,
+    taskRunners,
+    "There is no active task runner right now."
+  );
 }
 
-function renderTaskLists(state) {
+function renderTaskLists() {
   const summary = getTaskSummary();
-  const drawerEntries = buildDrawerEntries(summary);
+  const archivedEntries = buildArchivedTaskEntries(summary);
 
-  taskDrawerCountEl.textContent = `${drawerEntries.length} items`;
+  taskDrawerCountEl.textContent = `${archivedEntries.length} items`;
   taskDrawerDescriptionEl.textContent =
-    drawerEntries.length > 0
-      ? "Completed or paused task results are collected here for quick review."
-      : "Completed or paused tasks will appear here.";
+    archivedEntries.length > 0
+      ? "Finished tasks stay here as scrollable cards, ready to reopen with full detail."
+      : "Finished tasks will move here once they are done.";
   taskDrawerDescriptionEl.className =
-    drawerEntries.length > 0 ? "summary-detail" : "summary-detail empty-state";
+    archivedEntries.length > 0 ? "summary-detail" : "summary-detail empty-state";
 
-  renderStackList(taskDrawerListEl, drawerEntries, {
-    emptyText: "There are no tasks in the drawer yet.",
-    renderEntry(item, entry) {
-      item.innerHTML = `
-        <p class="stack-title"></p>
-        <p class="stack-subtitle"></p>
-        <p class="stack-text"></p>
-        <p class="stack-meta"></p>
-      `;
-      item.querySelector(".stack-title").textContent = entry.title;
-      item.querySelector(".stack-subtitle").textContent = entry.subtitle;
-      item.querySelector(".stack-text").textContent = entry.text;
-      item.querySelector(".stack-meta").textContent = entry.meta ?? "";
-    }
-  });
+  renderTaskRunnerCardList(
+    taskDrawerListEl,
+    archivedEntries,
+    "There are no archived tasks in the drawer yet."
+  );
 }
 
 function buildHistoryEntries(historySummary) {
@@ -1489,19 +1750,19 @@ function renderHistoryList() {
     historyDrawerDescriptionEl.textContent = `history error · ${historySummary.error}`;
     historyDrawerDescriptionEl.className = "summary-detail";
   } else if (historySummary.loading) {
-    historyDrawerDescriptionEl.textContent = "Loading recent session summaries.";
+    historyDrawerDescriptionEl.textContent = "Loading saved session summaries.";
     historyDrawerDescriptionEl.className = "summary-detail";
   } else if (historyEntries.length > 0) {
     historyDrawerDescriptionEl.textContent =
-      "These are the recent sessions and task summaries saved for the current judge user.";
+      "These are the saved sessions and task summaries for the current judge user.";
     historyDrawerDescriptionEl.className = "summary-detail";
   } else {
-    historyDrawerDescriptionEl.textContent = "No saved recent session summaries.";
+    historyDrawerDescriptionEl.textContent = "No saved session summaries.";
     historyDrawerDescriptionEl.className = "summary-detail empty-state";
   }
 
   renderStackList(historyDrawerListEl, historyEntries, {
-    emptyText: "No saved recent sessions.",
+    emptyText: "No saved sessions.",
     renderEntry(item, entry) {
       item.innerHTML = `
         <p class="stack-title"></p>
@@ -1573,12 +1834,23 @@ function renderDebugInspector(state) {
 }
 
 function performUiRender(nextState) {
+  const previousVoiceState = getVoiceState();
   desktopUiState = nextState;
   const voiceState = getVoiceState();
   const inputState = desktopUiState.inputState ?? {};
   const summary = getTaskSummary();
   const historySummary = getHistorySummary();
   const debugInspector = desktopUiState.debugInspector ?? { events: [] };
+
+  const becameInterrupted =
+    previousVoiceState.status !== "interrupted" &&
+    voiceState.status === "interrupted";
+  const disconnectedWhilePlaying =
+    previousVoiceState.connected &&
+    !voiceState.connected;
+  if (becameInterrupted || disconnectedWhilePlaying) {
+    stopPlayback();
+  }
 
   const chromeSignature = buildChromeSignature(desktopUiState, voiceState, inputState);
   if (renderStateCache.chrome !== chromeSignature) {
@@ -1644,7 +1916,7 @@ function performUiRender(nextState) {
   const summarySignature = buildSummarySignature(summary, voiceState);
   if (renderStateCache.summary !== summarySignature) {
     renderStateCache.summary = summarySignature;
-    renderSummaryCardState(desktopUiState);
+    renderTaskWorkspaceHeader(summary);
   }
 
   const taskRunnerSignature = buildTaskRunnerSignature(summary, debugInspector);
@@ -1656,7 +1928,7 @@ function performUiRender(nextState) {
   const taskDrawerSignature = buildTaskDrawerSignature(summary);
   if (renderStateCache.taskDrawer !== taskDrawerSignature) {
     renderStateCache.taskDrawer = taskDrawerSignature;
-    renderTaskLists(desktopUiState);
+    renderTaskLists();
   }
 
   const historySignature = buildHistorySignature(historySummary);

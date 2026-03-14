@@ -26,90 +26,6 @@ function getTurnStartTime(turnsById, item) {
   return turnsById.get(item.turnId)?.startedAt ?? item.createdAt ?? "";
 }
 
-function buildTaskTurnIndex(turns = []) {
-  const byTaskId = new Map();
-
-  for (const turn of turns) {
-    if (!turn?.taskId || byTaskId.has(turn.taskId)) {
-      continue;
-    }
-    byTaskId.set(turn.taskId, turn);
-  }
-
-  return byTaskId;
-}
-
-function normalizeNotificationItems(
-  notifications = { delivered: [], pending: [] },
-  existingTurns = []
-) {
-  const all = [...(notifications.delivered ?? []), ...(notifications.pending ?? [])];
-  const turnsByTaskId = buildTaskTurnIndex(existingTurns);
-
-  return all.map((plan, index) => {
-    const createdAt =
-      typeof plan.createdAt === "string" && plan.createdAt
-        ? plan.createdAt
-        : new Date(Date.now() + index).toISOString();
-    const taskId = typeof plan.taskId === "string" ? plan.taskId : undefined;
-    const existingTurn = taskId ? turnsByTaskId.get(taskId) : undefined;
-    const turnId =
-      existingTurn?.turnId ??
-      (taskId
-        ? `task-turn:${taskId}:${createdAt}`
-        : `task-turn:${plan.reason ?? "notification"}:${createdAt}:${index}`);
-    const actionable =
-      plan.reason === "approval_required" || plan.reason === "task_waiting_input";
-    const timelineItemId = actionable
-      ? `${turnId}:task-event:${plan.reason ?? "pending"}:${createdAt}`
-      : `${turnId}:assistant:${plan.reason ?? "notification"}:${createdAt}`;
-    const inputMode = existingTurn?.inputMode ?? "voice";
-
-    return {
-      timelineItem: {
-        id: timelineItemId,
-        turnId,
-        kind: actionable ? "task_event" : "assistant_message",
-        inputMode,
-        speaker: actionable ? "system" : "assistant",
-        text: plan.uiText ?? "",
-        partial: false,
-        streaming: false,
-        interrupted: false,
-        tone: actionable ? "clarify" : "reply",
-        taskId,
-        taskStatus:
-          plan.reason === "task_completed"
-            ? "completed"
-            : plan.reason === "task_failed"
-              ? "failed"
-              : plan.reason === "approval_required"
-                ? "approval_required"
-                : plan.reason === "task_waiting_input"
-                  ? "waiting_input"
-                  : undefined,
-        responseSource: "delegate",
-        createdAt,
-        updatedAt: createdAt
-      },
-      turn: {
-        turnId,
-        inputMode,
-        stage:
-          plan.reason === "task_completed"
-            ? "completed"
-            : plan.reason === "task_failed"
-              ? "failed"
-              : "waiting_input",
-        assistantMessageId: actionable ? existingTurn?.assistantMessageId : timelineItemId,
-        taskId,
-        startedAt: existingTurn?.startedAt ?? createdAt,
-        updatedAt: createdAt
-      }
-    };
-  });
-}
-
 function dedupeTimeline(items, turns = []) {
   const byId = new Map();
   const turnsById = new Map(turns.map((turn) => [turn.turnId, turn]));
@@ -245,20 +161,9 @@ export class DesktopUiStateStore {
       sessions: []
     };
 
-    const liveConversationTurns = liveState.conversationTurns ?? [];
-    const notificationItems = normalizeNotificationItems(
-      sessionState.notifications,
-      liveConversationTurns
-    );
-    const conversationTurns = dedupeTurns([
-      ...liveConversationTurns,
-      ...notificationItems.map((item) => item.turn)
-    ]);
+    const conversationTurns = dedupeTurns(liveState.conversationTurns ?? []);
     const conversationTimeline = dedupeTimeline(
-      [
-        ...(liveState.conversationTimeline ?? []),
-        ...notificationItems.map((item) => item.timelineItem)
-      ],
+      [...(liveState.conversationTimeline ?? [])],
       conversationTurns
     );
 

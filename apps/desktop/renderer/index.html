@@ -146,87 +146,11 @@
         </header>
 
         <section class="side-section">
-          <h3>Companion</h3>
-          <article class="summary-card workspace-card">
-            <div class="main-avatar">
-              <div class="main-avatar-face">
-                <div class="main-avatar-mouth"></div>
-                <span class="cheek-left"></span>
-                <span class="cheek-right"></span>
-              </div>
-              <div class="main-avatar-info">
-                <div class="workspace-head">
-                  <div>
-                    <p class="message-role">Now</p>
-                    <p id="main-avatar-state" class="summary-text empty-state">Idle</p>
-                  </div>
-                  <span id="workspace-state-pill" class="task-runner-status-pill">idle</span>
-                </div>
-              </div>
-            </div>
-            <p id="live-route-summary" class="summary-text empty-state">No request is being reviewed yet.</p>
-            <p id="live-route-detail" class="summary-detail"></p>
-            <p id="voice-intake-summary" class="summary-detail empty-state">No task is waiting for clarification.</p>
-          </article>
-        </section>
-
-        <section class="side-section">
-          <h3>Active Task Runners</h3>
+          <div class="side-section-head">
+            <h3>Active Task Runners</h3>
+            <p class="summary-detail">Only tasks still in progress stay here and update live.</p>
+          </div>
           <div id="task-runner-list" class="task-runner-grid"></div>
-          <article id="task-runner-detail-card" class="side-card task-runner-detail-card" hidden>
-            <div class="task-runner-detail-head">
-              <span class="task-runner-avatar task-runner-detail-avatar" aria-hidden="true">
-                <span class="task-runner-avatar-core"></span>
-              </span>
-              <div class="task-runner-detail-head-copy">
-                <div class="task-runner-detail-head-top">
-                  <p id="task-runner-detail-label" class="message-role">Task Runner</p>
-                  <span id="task-runner-detail-status" class="task-runner-status-pill">idle</span>
-                </div>
-                <h4 id="task-runner-detail-title" class="task-runner-detail-title">No runner selected.</h4>
-                <p id="task-runner-detail-hero" class="stack-text"></p>
-              </div>
-            </div>
-            <div id="task-runner-detail-needs-action" class="task-runner-detail-callout" hidden>
-              <p class="stack-subtitle">Needs Attention</p>
-              <p id="task-runner-detail-needs-action-text" class="stack-text"></p>
-            </div>
-            <div class="task-runner-detail-section">
-              <div class="task-runner-detail-section-head">
-                <p class="stack-subtitle">Progress Log</p>
-                <p id="task-runner-detail-updated-at" class="stack-subtitle"></p>
-              </div>
-              <div id="task-runner-detail-timeline-list" class="task-runner-detail-timeline-list"></div>
-            </div>
-            <div id="task-runner-detail-result" class="task-runner-detail-result" hidden>
-              <p class="stack-subtitle">Result</p>
-              <div class="task-runner-detail-result-grid">
-                <article class="task-runner-detail-result-card">
-                  <p class="task-runner-detail-result-label">What Changed</p>
-                  <p id="task-runner-detail-result-summary" class="task-runner-detail-result-text"></p>
-                </article>
-                <article class="task-runner-detail-result-card">
-                  <p class="task-runner-detail-result-label">Confidence</p>
-                  <p id="task-runner-detail-result-verification" class="task-runner-detail-result-text"></p>
-                </article>
-              </div>
-              <div id="task-runner-detail-result-changes" class="task-runner-detail-result-card" hidden>
-                <p class="task-runner-detail-result-label">Changes</p>
-                <ul id="task-runner-detail-result-changes-list" class="task-runner-detail-change-list"></ul>
-              </div>
-            </div>
-            <details id="task-runner-detail-advanced" class="task-runner-detail-advanced">
-              <summary>Advanced Details</summary>
-              <div class="task-runner-detail-advanced-copy">
-                <p id="task-runner-detail-id" class="stack-subtitle"></p>
-                <p id="task-runner-detail-request" class="stack-text" hidden></p>
-              </div>
-              <div id="task-runner-detail-execution" class="task-runner-detail-execution" hidden>
-                <p class="stack-subtitle">execution trace</p>
-                <div id="task-runner-detail-execution-list" class="task-runner-detail-execution-list"></div>
-              </div>
-            </details>
-          </article>
         </section>
 
         <section class="side-section">
@@ -236,9 +160,9 @@
               <span id="task-drawer-count" class="pending-count">0 items</span>
             </summary>
             <p id="task-drawer-description" class="summary-detail empty-state">
-              You can revisit completed or paused tasks here.
+              Finished tasks are archived here as the same cards, with full logs still available.
             </p>
-            <div id="task-drawer-list" class="stack-list"></div>
+            <div id="task-drawer-list" class="task-runner-grid task-drawer-grid"></div>
           </details>
         </section>
 
@@ -250,7 +174,7 @@
             </summary>
             <div class="voice-controls">
               <p id="history-drawer-description" class="summary-detail empty-state">
-                No saved recent session summaries.
+                No saved session summaries.
               </p>
               <button id="history-refresh-button" type="button" class="voice-button">
                 Refresh

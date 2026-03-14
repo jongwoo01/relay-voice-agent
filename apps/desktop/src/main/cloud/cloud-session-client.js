@@ -90,6 +90,8 @@ export class CloudSessionClient {
       mode: process.env.DESKTOP_EXECUTOR,
       onRawEvent: options.onRawExecutorEvent
     });
+    this.seenConversationDebugIds = new Set();
+    this.lastIntakeDebugKey = null;
   }
 
   async getState() {
@@ -356,6 +358,8 @@ export class CloudSessionClient {
         this.state = {
           ...event.conversation
         };
+        await this.emitConversationDebugEvents(event.conversation);
+        await this.emitTaskStateDebugEvents(event.tasks);
         await this.onTaskState?.(event.tasks, event.brainSessionId);
         await this.publishConversationState();
         return;
@@ -363,9 +367,11 @@ export class CloudSessionClient {
         this.state = {
           ...event.state
         };
+        await this.emitConversationDebugEvents(event.state);
         await this.publishConversationState();
         return;
       case "task_state":
+        await this.emitTaskStateDebugEvents(event.state);
         await this.onTaskState?.(event.state, this.brainSessionId);
         return;
       case "live_output_audio_chunk":
@@ -380,6 +386,14 @@ export class CloudSessionClient {
         await this.handleExecutorRequest(event.request);
         return;
       case "error":
+        await this.onDebugEvent?.({
+          source: "transport",
+          kind: "session_error",
+          summary: event.message || "Cloud session error",
+          detail: this.brainSessionId
+            ? `brain session ${this.brainSessionId}`
+            : "before session ready"
+        });
         this.state = {
           ...this.state,
           connecting: false,
@@ -392,6 +406,76 @@ export class CloudSessionClient {
       default:
         return;
     }
+  }
+
+  async emitConversationDebugEvents(state) {
+    const timeline = Array.isArray(state?.conversationTimeline)
+      ? state.conversationTimeline
+      : [];
+
+    for (const item of timeline) {
+      if (!item?.id || this.seenConversationDebugIds.has(item.id)) {
+        continue;
+      }
+
+      this.seenConversationDebugIds.add(item.id);
+
+      if (item.responseSource !== "delegate" && item.kind !== "task_event") {
+        continue;
+      }
+
+      await this.onDebugEvent?.({
+        source: "runtime",
+        kind: item.kind ?? "conversation_item",
+        summary: item.text || item.taskStatus || "Delegate update",
+        detail: [
+          item.turnId ? `turn ${item.turnId}` : null,
+          item.taskId ? `task ${item.taskId}` : null,
+          item.taskStatus ?? null
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        turnId: item.turnId,
+        taskId: item.taskId,
+        createdAt: item.createdAt
+      });
+    }
+  }
+
+  async emitTaskStateDebugEvents(state) {
+    const intake = state?.intake;
+    const isActive = intake?.active === true;
+    const intakeKey = isActive
+      ? JSON.stringify({
+          workingText: intake.workingText ?? "",
+          missingSlots: intake.missingSlots ?? [],
+          lastQuestion: intake.lastQuestion ?? ""
+        })
+      : null;
+
+    if (!isActive) {
+      this.lastIntakeDebugKey = null;
+      return;
+    }
+
+    if (intakeKey === this.lastIntakeDebugKey) {
+      return;
+    }
+
+    this.lastIntakeDebugKey = intakeKey;
+    await this.onDebugEvent?.({
+      source: "runtime",
+      kind: "task_intake",
+      summary: intake.lastQuestion || "Task intake is waiting for more detail.",
+      detail: [
+        intake.workingText ? `request: ${intake.workingText}` : null,
+        Array.isArray(intake.missingSlots) && intake.missingSlots.length > 0
+          ? `missing: ${intake.missingSlots.join(", ")}`
+          : null
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    });
   }
 
   async handleExecutorRequest(request) {
