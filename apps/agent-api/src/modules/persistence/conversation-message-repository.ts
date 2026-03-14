@@ -1,5 +1,6 @@
 import type { ConversationMessage } from "@agent/shared-types";
 import type { SqlClientLike } from "./postgres-client.js";
+import { normalizePostgresTimestamp } from "./postgres-value-normalizer.js";
 
 export interface ConversationMessageRepository {
   listByBrainSessionId(brainSessionId: string): Promise<ConversationMessage[]>;
@@ -35,7 +36,7 @@ export class PostgresConversationMessageRepository
       brain_session_id: string;
       speaker: ConversationMessage["speaker"];
       text: string;
-      created_at: string;
+      created_at: string | Date;
       tone: ConversationMessage["tone"] | null;
     }>(
       `
@@ -56,7 +57,7 @@ export class PostgresConversationMessageRepository
       brainSessionId: row.brain_session_id,
       speaker: row.speaker,
       text: row.text,
-      createdAt: row.created_at,
+      createdAt: normalizePostgresTimestamp(row.created_at)!,
       tone: row.tone ?? undefined
     }));
   }

@@ -1,5 +1,6 @@
 import type { TaskEvent } from "@agent/shared-types";
 import type { SqlClientLike } from "./postgres-client.js";
+import { normalizePostgresTimestamp } from "./postgres-value-normalizer.js";
 
 export interface TaskEventRepository {
   listByTaskId(taskId: string): Promise<TaskEvent[]>;
@@ -27,7 +28,7 @@ export class PostgresTaskEventRepository implements TaskEventRepository {
       task_id: string;
       type: TaskEvent["type"];
       message: string;
-      created_at: string;
+      created_at: string | Date;
     }>(
       `
         select
@@ -46,7 +47,7 @@ export class PostgresTaskEventRepository implements TaskEventRepository {
       taskId: row.task_id,
       type: row.type,
       message: row.message,
-      createdAt: row.created_at
+      createdAt: normalizePostgresTimestamp(row.created_at)!
     }));
   }
 

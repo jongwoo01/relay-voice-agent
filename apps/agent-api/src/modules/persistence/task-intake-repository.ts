@@ -1,5 +1,6 @@
 import type { TaskIntakeSession } from "@agent/shared-types";
 import type { SqlClientLike } from "./postgres-client.js";
+import { normalizePostgresTimestamp } from "./postgres-value-normalizer.js";
 
 export interface TaskIntakeRepository {
   getActiveByBrainSessionId(
@@ -36,8 +37,8 @@ interface StoredTaskIntakeRow {
   filled_slots_json: TaskIntakeSession["filledSlots"];
   missing_slots_json: TaskIntakeSession["missingSlots"];
   last_question: string | null;
-  created_at: string;
-  updated_at: string;
+  created_at: string | Date;
+  updated_at: string | Date;
 }
 
 export class PostgresTaskIntakeRepository implements TaskIntakeRepository {
@@ -79,8 +80,8 @@ export class PostgresTaskIntakeRepository implements TaskIntakeRepository {
       filledSlots: row.filled_slots_json,
       missingSlots: row.missing_slots_json,
       lastQuestion: row.last_question ?? undefined,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
+      createdAt: normalizePostgresTimestamp(row.created_at)!,
+      updatedAt: normalizePostgresTimestamp(row.updated_at)!
     };
   }
 

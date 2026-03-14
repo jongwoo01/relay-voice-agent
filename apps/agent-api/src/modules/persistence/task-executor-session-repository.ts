@@ -1,5 +1,6 @@
 import type { TaskExecutorSession } from "@agent/shared-types";
 import type { SqlClientLike } from "./postgres-client.js";
+import { normalizePostgresTimestamp } from "./postgres-value-normalizer.js";
 
 export interface TaskExecutorSessionRepository {
   getByTaskId(taskId: string): Promise<TaskExecutorSession | null>;
@@ -30,7 +31,7 @@ export class PostgresTaskExecutorSessionRepository
       task_id: string;
       session_id: string | null;
       working_directory: string | null;
-      updated_at: string;
+      updated_at: string | Date;
     }>(
       `
         select
@@ -53,7 +54,7 @@ export class PostgresTaskExecutorSessionRepository
       taskId: row.task_id,
       sessionId: row.session_id ?? undefined,
       workingDirectory: row.working_directory ?? undefined,
-      updatedAt: row.updated_at
+      updatedAt: normalizePostgresTimestamp(row.updated_at)!
     };
   }
 

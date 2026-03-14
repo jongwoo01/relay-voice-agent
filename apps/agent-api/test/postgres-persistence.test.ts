@@ -7,6 +7,10 @@ import {
   PostgresTaskExecutorSessionRepository,
   PostgresTaskRepository
 } from "../src/index.js";
+import { createPostgresPool } from "../src/modules/persistence/postgres-client.js";
+import { loadDotEnvFromRoot } from "../src/modules/config/env-loader.js";
+
+loadDotEnvFromRoot(process.cwd());
 
 function createSqlMock(
   rowsQueue: unknown[][] = []
@@ -214,5 +218,61 @@ describe("postgres persistence repositories", () => {
         })
       ]
     );
+  });
+});
+
+const describeWithDatabase = process.env.DATABASE_URL?.trim()
+  ? describe
+  : describe.skip;
+
+describeWithDatabase("postgres persistence repositories (real db)", () => {
+  it("saves running tasks without timestamp parameter type conflicts", async () => {
+    const sql = createPostgresPool();
+    const repository = new PostgresTaskRepository(sql);
+    const userId = crypto.randomUUID();
+    const brainSessionId = `brain-${crypto.randomUUID()}`;
+    const taskId = `task-${crypto.randomUUID()}`;
+    const now = "2026-03-14T00:00:00.000Z";
+
+    try {
+      await sql.query(
+        `
+          insert into users (id, email, display_name, created_at, updated_at)
+          values ($1, $2, $3, $4::timestamptz, $4::timestamptz)
+        `,
+        [userId, `${userId}@example.test`, "Test User", now]
+      );
+      await sql.query(
+        `
+          insert into brain_sessions (id, user_id, status, source, created_at, updated_at)
+          values ($1, $2, 'active', 'desktop', $3::timestamptz, $3::timestamptz)
+        `,
+        [brainSessionId, userId, now]
+      );
+
+      await repository.save(brainSessionId, {
+        id: taskId,
+        title: "바탕화면 읽기",
+        normalizedGoal: "바탕화면 읽기",
+        status: "running",
+        createdAt: now,
+        updatedAt: now
+      });
+
+      await expect(repository.getById(taskId)).resolves.toEqual({
+        id: taskId,
+        title: "바탕화면 읽기",
+        normalizedGoal: "바탕화면 읽기",
+        status: "running",
+        createdAt: now,
+        updatedAt: now,
+        completionReport: undefined
+      });
+    } finally {
+      await sql.query("delete from tasks where id = $1", [taskId]);
+      await sql.query("delete from brain_sessions where id = $1", [brainSessionId]);
+      await sql.query("delete from users where id = $1", [userId]);
+      await sql.end();
+    }
   });
 });

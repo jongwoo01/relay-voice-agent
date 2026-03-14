@@ -1,4 +1,5 @@
 import type { SqlClientLike } from "./postgres-client.js";
+import { normalizePostgresTimestamp } from "./postgres-value-normalizer.js";
 
 export type UserAuthMode = "google_oauth" | "gemini_api_key";
 
@@ -33,8 +34,8 @@ export class PostgresUserAuthModeRepository implements UserAuthModeRepository {
     const result = await this.sql.query<{
       user_id: string;
       primary_mode: UserAuthMode;
-      created_at: string;
-      updated_at: string;
+      created_at: string | Date;
+      updated_at: string | Date;
     }>(
       `
         select user_id, primary_mode, created_at, updated_at
@@ -52,8 +53,8 @@ export class PostgresUserAuthModeRepository implements UserAuthModeRepository {
     return {
       userId: row.user_id,
       primaryMode: row.primary_mode,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
+      createdAt: normalizePostgresTimestamp(row.created_at)!,
+      updatedAt: normalizePostgresTimestamp(row.updated_at)!
     };
   }
 

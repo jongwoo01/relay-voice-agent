@@ -1,4 +1,5 @@
 import type { SqlClientLike } from "./postgres-client.js";
+import { normalizePostgresTimestamp } from "./postgres-value-normalizer.js";
 
 export interface UserRecord {
   id: string;
@@ -40,8 +41,8 @@ export class PostgresUserRepository implements UserRepository {
       id: string;
       email: string;
       display_name: string | null;
-      created_at: string;
-      updated_at: string;
+      created_at: string | Date;
+      updated_at: string | Date;
     }>(
       `
         select id, email, display_name, created_at, updated_at
@@ -60,8 +61,8 @@ export class PostgresUserRepository implements UserRepository {
       id: row.id,
       email: row.email,
       displayName: row.display_name ?? undefined,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
+      createdAt: normalizePostgresTimestamp(row.created_at)!,
+      updatedAt: normalizePostgresTimestamp(row.updated_at)!
     };
   }
 
@@ -70,8 +71,8 @@ export class PostgresUserRepository implements UserRepository {
       id: string;
       email: string;
       display_name: string | null;
-      created_at: string;
-      updated_at: string;
+      created_at: string | Date;
+      updated_at: string | Date;
     }>(
       `
         select id, email, display_name, created_at, updated_at
@@ -90,8 +91,8 @@ export class PostgresUserRepository implements UserRepository {
       id: row.id,
       email: row.email,
       displayName: row.display_name ?? undefined,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
+      createdAt: normalizePostgresTimestamp(row.created_at)!,
+      updatedAt: normalizePostgresTimestamp(row.updated_at)!
     };
   }
 

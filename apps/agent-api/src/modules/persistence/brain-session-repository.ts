@@ -9,6 +9,7 @@ export interface BrainSessionRecord {
 }
 
 import type { SqlClientLike } from "./postgres-client.js";
+import { normalizePostgresTimestamp } from "./postgres-value-normalizer.js";
 
 export interface BrainSessionRepository {
   getById(brainSessionId: string): Promise<BrainSessionRecord | null>;
@@ -25,9 +26,9 @@ export class PostgresBrainSessionRepository implements BrainSessionRepository {
       user_id: string;
       status: BrainSessionRecord["status"];
       source: BrainSessionRecord["source"];
-      created_at: string;
-      updated_at: string;
-      closed_at: string | null;
+      created_at: string | Date;
+      updated_at: string | Date;
+      closed_at: string | Date | null;
     }>(
       `
         select
@@ -54,9 +55,9 @@ export class PostgresBrainSessionRepository implements BrainSessionRepository {
       userId: row.user_id,
       status: row.status,
       source: row.source,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      closedAt: row.closed_at
+      createdAt: normalizePostgresTimestamp(row.created_at)!,
+      updatedAt: normalizePostgresTimestamp(row.updated_at)!,
+      closedAt: normalizePostgresTimestamp(row.closed_at) ?? null
     };
   }
 

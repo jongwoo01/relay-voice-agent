@@ -1,5 +1,6 @@
 import type { Task } from "@agent/shared-types";
 import type { SqlClientLike } from "./postgres-client.js";
+import { normalizePostgresTimestamp } from "./postgres-value-normalizer.js";
 
 export interface TaskRepository {
   getById(taskId: string): Promise<Task | null>;
@@ -64,8 +65,8 @@ export class PostgresTaskRepository implements TaskRepository {
       title: string;
       normalized_goal: string;
       status: Task["status"];
-      created_at: string;
-      updated_at: string;
+      created_at: string | Date;
+      updated_at: string | Date;
       completion_report_json: Task["completionReport"] | null;
     }>(
       `
@@ -93,8 +94,8 @@ export class PostgresTaskRepository implements TaskRepository {
       title: row.title,
       normalizedGoal: row.normalized_goal,
       status: row.status,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      createdAt: normalizePostgresTimestamp(row.created_at)!,
+      updatedAt: normalizePostgresTimestamp(row.updated_at)!,
       completionReport: row.completion_report_json ?? undefined
     };
   }
@@ -105,8 +106,8 @@ export class PostgresTaskRepository implements TaskRepository {
       title: string;
       normalized_goal: string;
       status: Task["status"];
-      created_at: string;
-      updated_at: string;
+      created_at: string | Date;
+      updated_at: string | Date;
       completion_report_json: Task["completionReport"] | null;
     }>(
       `
@@ -131,8 +132,8 @@ export class PostgresTaskRepository implements TaskRepository {
       title: row.title,
       normalizedGoal: row.normalized_goal,
       status: row.status,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      createdAt: normalizePostgresTimestamp(row.created_at)!,
+      updatedAt: normalizePostgresTimestamp(row.updated_at)!,
       completionReport: row.completion_report_json ?? undefined
     }));
   }
@@ -146,8 +147,8 @@ export class PostgresTaskRepository implements TaskRepository {
       title: string;
       normalized_goal: string;
       status: Task["status"];
-      created_at: string;
-      updated_at: string;
+      created_at: string | Date;
+      updated_at: string | Date;
       completion_report_json: Task["completionReport"] | null;
     }>(
       `
@@ -172,8 +173,8 @@ export class PostgresTaskRepository implements TaskRepository {
       title: row.title,
       normalizedGoal: row.normalized_goal,
       status: row.status,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      createdAt: normalizePostgresTimestamp(row.created_at)!,
+      updatedAt: normalizePostgresTimestamp(row.updated_at)!,
       completionReport: row.completion_report_json ?? undefined
     }));
   }
@@ -200,10 +201,10 @@ export class PostgresTaskRepository implements TaskRepository {
           $3,
           $4,
           $5,
-          $6,
-          $7,
+          $6::timestamptz,
+          $7::timestamptz,
           case
-            when $5 in ('completed', 'failed', 'cancelled') then $7
+            when $5 in ('completed', 'failed', 'cancelled') then $7::timestamptz
             else null
           end,
           $8::jsonb

@@ -1,5 +1,6 @@
 import type { SqlClientLike } from "./postgres-client.js";
 import type { StoredEncryptedSecret } from "../security/secret-encryption.js";
+import { normalizePostgresTimestamp } from "./postgres-value-normalizer.js";
 
 export interface UserApiCredentialRecord {
   userId: string;
@@ -51,8 +52,8 @@ export class PostgresUserApiCredentialRepository
       encrypted_payload: StoredEncryptedSecret;
       key_label: string | null;
       is_active: boolean;
-      created_at: string;
-      updated_at: string;
+      created_at: string | Date;
+      updated_at: string | Date;
     }>(
       `
         select
@@ -83,8 +84,8 @@ export class PostgresUserApiCredentialRepository
       encryptedPayload: row.encrypted_payload,
       keyLabel: row.key_label ?? undefined,
       isActive: row.is_active,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
+      createdAt: normalizePostgresTimestamp(row.created_at)!,
+      updatedAt: normalizePostgresTimestamp(row.updated_at)!
     };
   }
 
