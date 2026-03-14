@@ -17,6 +17,14 @@ function createInitialState() {
   };
 }
 
+function createInitialHistoryState() {
+  return {
+    loading: false,
+    error: null,
+    sessions: []
+  };
+}
+
 function normalizeError(error) {
   if (error instanceof Error) {
     return error.message;
@@ -72,7 +80,9 @@ export class CloudSessionClient {
     this.onTaskState = options.onTaskState;
     this.onAudioChunk = options.onAudioChunk;
     this.onDebugEvent = options.onDebugEvent;
+    this.onHistoryState = options.onHistoryState;
     this.state = createInitialState();
+    this.historyState = createInitialHistoryState();
     this.webSocket = null;
     this.sessionToken = null;
     this.brainSessionId = null;
@@ -84,6 +94,13 @@ export class CloudSessionClient {
 
   async getState() {
     return { ...this.state };
+  }
+
+  async getHistoryState() {
+    return {
+      ...this.historyState,
+      sessions: [...(this.historyState.sessions ?? [])]
+    };
   }
 
   async connect(passcode) {
@@ -139,6 +156,7 @@ export class CloudSessionClient {
     this.brainSessionId = payload.brainSessionId;
     const wsUrl = String(payload.wsUrl);
     await this.openWebSocket(wsUrl);
+    await this.refreshHistory();
     return this.getState();
   }
 
@@ -162,7 +180,9 @@ export class CloudSessionClient {
       ...createInitialState(),
       muted: this.state.muted
     };
+    this.historyState = createInitialHistoryState();
     await this.publishConversationState();
+    await this.publishHistoryState();
     return this.getState();
   }
 
@@ -268,6 +288,67 @@ export class CloudSessionClient {
     });
   }
 
+  async refreshHistory() {
+    if (!this.sessionToken) {
+      this.historyState = createInitialHistoryState();
+      await this.publishHistoryState();
+      return this.getHistoryState();
+    }
+
+    this.historyState = {
+      ...this.historyState,
+      loading: true,
+      error: null
+    };
+    await this.publishHistoryState();
+
+    try {
+      const response = await fetch(new URL("/judge/history", this.baseUrl), {
+        headers: {
+          authorization: `Bearer ${this.sessionToken}`
+        }
+      });
+      if (!response.ok) {
+        let message = `Judge history request failed (${response.status})`;
+        try {
+          const body = await response.json();
+          if (typeof body?.error === "string") {
+            message = body.error;
+          }
+        } catch {
+          // Ignore response parse failures.
+        }
+
+        this.historyState = {
+          loading: false,
+          error: message,
+          sessions: []
+        };
+        await this.publishHistoryState();
+        throw new Error(message);
+      }
+
+      const payload = await response.json();
+      this.historyState = {
+        loading: false,
+        error: null,
+        sessions: Array.isArray(payload?.sessions) ? payload.sessions : []
+      };
+      await this.publishHistoryState();
+      return this.getHistoryState();
+    } catch (error) {
+      if (!this.historyState.error) {
+        this.historyState = {
+          loading: false,
+          error: normalizeError(error),
+          sessions: []
+        };
+        await this.publishHistoryState();
+      }
+      throw error;
+    }
+  }
+
   async handleServerEvent(event) {
     switch (event?.type) {
       case "session_ready":
@@ -363,5 +444,9 @@ export class CloudSessionClient {
 
   async publishConversationState() {
     await this.onConversationState?.(this.state, this.brainSessionId);
+  }
+
+  async publishHistoryState() {
+    await this.onHistoryState?.(this.historyState, this.brainSessionId);
   }
 }

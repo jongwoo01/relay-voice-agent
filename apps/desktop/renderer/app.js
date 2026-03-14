@@ -63,6 +63,12 @@ const taskDrawerDescriptionEl = document.getElementById(
   "task-drawer-description"
 );
 const taskDrawerListEl = document.getElementById("task-drawer-list");
+const historyDrawerCountEl = document.getElementById("history-drawer-count");
+const historyDrawerDescriptionEl = document.getElementById(
+  "history-drawer-description"
+);
+const historyDrawerListEl = document.getElementById("history-drawer-list");
+const historyRefreshButtonEl = document.getElementById("history-refresh-button");
 const debugEventListEl = document.getElementById("debug-event-list");
 const debugTurnFilterEl = document.getElementById("debug-turn-filter");
 const debugTaskFilterEl = document.getElementById("debug-task-filter");
@@ -103,6 +109,7 @@ const renderStateCache = {
   summary: null,
   taskRunners: null,
   taskDrawer: null,
+  historyDrawer: null,
   debugInspector: null
 };
 const activeAudioSources = [];
@@ -160,6 +167,16 @@ function getTaskSummary() {
       avatar: { mainState: "idle", taskRunners: [] },
       notifications: { pending: [], delivered: [] },
       pendingBriefingCount: 0
+    }
+  );
+}
+
+function getHistorySummary() {
+  return (
+    desktopUiState?.historySummary ?? {
+      loading: false,
+      error: null,
+      sessions: []
     }
   );
 }
@@ -319,6 +336,26 @@ function buildDebugSignature(debugInspector) {
       kind: event.kind,
       taskId: event.taskId ?? null,
       turnId: event.turnId ?? null
+    }))
+  });
+}
+
+function buildHistorySignature(historySummary) {
+  return JSON.stringify({
+    loading: historySummary.loading ?? false,
+    error: historySummary.error ?? null,
+    sessions: (historySummary.sessions ?? []).map((session) => ({
+      brainSessionId: session.brainSessionId,
+      status: session.status,
+      updatedAt: session.updatedAt ?? null,
+      lastUserMessage: session.lastUserMessage ?? null,
+      lastAssistantMessage: session.lastAssistantMessage ?? null,
+      recentTasks: (session.recentTasks ?? []).map((task) => ({
+        id: task.id,
+        status: task.status,
+        updatedAt: task.updatedAt ?? null,
+        summary: task.summary ?? null
+      }))
     }))
   });
 }
@@ -1228,6 +1265,81 @@ function renderTaskLists(state) {
   });
 }
 
+function buildHistoryEntries(historySummary) {
+  return (historySummary.sessions ?? []).map((session) => {
+    const latestTask = (session.recentTasks ?? [])[0];
+    const primaryText =
+      session.lastAssistantMessage ??
+      session.lastUserMessage ??
+      latestTask?.summary ??
+      "저장된 대화 미리보기가 없습니다.";
+    const taskSummary =
+      (session.recentTasks ?? []).length > 0
+        ? (session.recentTasks ?? [])
+            .map((task) =>
+              [task.title, task.status, task.summary ?? null].filter(Boolean).join(" · ")
+            )
+            .join(" | ")
+        : "저장된 task가 없습니다.";
+
+    return {
+      id: session.brainSessionId,
+      title: session.brainSessionId,
+      subtitle: [
+        session.source ?? "live",
+        session.status ?? "unknown",
+        session.updatedAt ? formatTime(session.updatedAt) : null
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      text: primaryText,
+      meta: taskSummary
+    };
+  });
+}
+
+function renderHistoryList() {
+  const historySummary = getHistorySummary();
+  const historyEntries = buildHistoryEntries(historySummary);
+
+  historyRefreshButtonEl.disabled = historySummary.loading;
+  historyRefreshButtonEl.textContent = historySummary.loading
+    ? "Refreshing…"
+    : "Refresh";
+  historyDrawerCountEl.textContent = `${historyEntries.length} sessions`;
+
+  if (historySummary.error) {
+    historyDrawerDescriptionEl.textContent = `history error · ${historySummary.error}`;
+    historyDrawerDescriptionEl.className = "summary-detail";
+  } else if (historySummary.loading) {
+    historyDrawerDescriptionEl.textContent = "최근 세션 요약을 불러오는 중입니다.";
+    historyDrawerDescriptionEl.className = "summary-detail";
+  } else if (historyEntries.length > 0) {
+    historyDrawerDescriptionEl.textContent =
+      "현재 judge user에 저장된 최근 세션과 task 요약입니다.";
+    historyDrawerDescriptionEl.className = "summary-detail";
+  } else {
+    historyDrawerDescriptionEl.textContent = "저장된 최근 세션 요약이 없습니다.";
+    historyDrawerDescriptionEl.className = "summary-detail empty-state";
+  }
+
+  renderStackList(historyDrawerListEl, historyEntries, {
+    emptyText: "저장된 최근 세션이 없습니다.",
+    renderEntry(item, entry) {
+      item.innerHTML = `
+        <p class="stack-title"></p>
+        <p class="stack-subtitle"></p>
+        <p class="stack-text"></p>
+        <p class="stack-meta"></p>
+      `;
+      item.querySelector(".stack-title").textContent = entry.title;
+      item.querySelector(".stack-subtitle").textContent = entry.subtitle;
+      item.querySelector(".stack-text").textContent = entry.text;
+      item.querySelector(".stack-meta").textContent = entry.meta ?? "";
+    }
+  });
+}
+
 function renderDebugInspector(state) {
   const events = state.debugInspector?.events ?? [];
   const turnFilter = debugTurnFilterEl.value.trim();
@@ -1288,6 +1400,7 @@ function performUiRender(nextState) {
   const voiceState = getVoiceState();
   const inputState = desktopUiState.inputState ?? {};
   const summary = getTaskSummary();
+  const historySummary = getHistorySummary();
   const debugInspector = desktopUiState.debugInspector ?? { events: [] };
 
   const chromeSignature = buildChromeSignature(desktopUiState, voiceState, inputState);
@@ -1367,6 +1480,12 @@ function performUiRender(nextState) {
   if (renderStateCache.taskDrawer !== taskDrawerSignature) {
     renderStateCache.taskDrawer = taskDrawerSignature;
     renderTaskLists(desktopUiState);
+  }
+
+  const historySignature = buildHistorySignature(historySummary);
+  if (renderStateCache.historyDrawer !== historySignature) {
+    renderStateCache.historyDrawer = historySignature;
+    renderHistoryList();
   }
 
   const debugSignature = buildDebugSignature(debugInspector);
@@ -1534,6 +1653,15 @@ debugTurnFilterEl.addEventListener("input", () => {
 debugTaskFilterEl.addEventListener("input", () => {
   if (desktopUiState) {
     renderDebugInspector(desktopUiState);
+  }
+});
+
+historyRefreshButtonEl.addEventListener("click", async () => {
+  try {
+    hideRuntimeError();
+    await window.desktopUi.refreshHistory();
+  } catch (error) {
+    showRuntimeError(error);
   }
 });
 

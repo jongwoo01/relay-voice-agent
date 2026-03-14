@@ -19,6 +19,7 @@ let mainWindow;
 let runtime;
 let cloudSession;
 const desktopUiState = new DesktopUiStateStore();
+let historyRefreshTimer = null;
 
 loadDotEnvFromRoot(path.resolve(__dirname, "..", ".."));
 clearDesktopLog();
@@ -43,6 +44,33 @@ function broadcastToWindow(channel, payload) {
 
 function broadcastUiState() {
   broadcastToWindow("desktop-ui:state-updated", desktopUiState.compose());
+}
+
+async function refreshHistoryNow() {
+  if (!cloudSession) {
+    return;
+  }
+
+  try {
+    const state = await cloudSession.refreshHistory();
+    desktopUiState.setHistoryState(state);
+    broadcastUiState();
+  } catch (error) {
+    logDesktopError("history refresh failed", {
+      error: serializeUnknownError(error)
+    });
+  }
+}
+
+function scheduleHistoryRefresh() {
+  if (historyRefreshTimer) {
+    clearTimeout(historyRefreshTimer);
+  }
+
+  historyRefreshTimer = setTimeout(() => {
+    historyRefreshTimer = null;
+    void refreshHistoryNow();
+  }, 450);
 }
 
 function firstString(values) {
@@ -203,6 +231,11 @@ function createWindow() {
         await runtime.setBrainSessionId(brainSessionId);
       }
       await runtime.applyRemoteTaskState(state);
+      scheduleHistoryRefresh();
+    },
+    onHistoryState: async (state) => {
+      desktopUiState.setHistoryState(state);
+      broadcastUiState();
     },
     onAudioChunk: async (chunk) => {
       broadcastToWindow("live:audio-chunk", chunk);
@@ -323,12 +356,20 @@ app.whenReady().then(() => {
 
   registerIpcHandle("desktop-ui:init", async (event) => {
     assertTrustedSender(event);
-    const [sessionState, liveState] = await Promise.all([
+    const [sessionState, liveState, historyState] = await Promise.all([
       runtime.init(),
-      cloudSession.getState()
+      cloudSession.getState(),
+      cloudSession.getHistoryState()
     ]);
     desktopUiState.setSessionState(sessionState);
     desktopUiState.setLiveState(liveState);
+    desktopUiState.setHistoryState(historyState);
+    return desktopUiState.compose();
+  });
+
+  registerIpcHandle("desktop-ui:refresh-history", async (event) => {
+    assertTrustedSender(event);
+    await refreshHistoryNow();
     return desktopUiState.compose();
   });
 

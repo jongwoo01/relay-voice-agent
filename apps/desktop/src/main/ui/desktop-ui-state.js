@@ -176,6 +176,7 @@ export class DesktopUiStateStore {
   constructor() {
     this.sessionState = null;
     this.liveState = null;
+    this.historyState = null;
     this.debugEvents = [];
   }
 
@@ -185,6 +186,10 @@ export class DesktopUiStateStore {
 
   setLiveState(state) {
     this.liveState = state;
+  }
+
+  setHistoryState(state) {
+    this.historyState = state;
   }
 
   appendDebugEvent(event) {
@@ -233,6 +238,11 @@ export class DesktopUiStateStore {
       lastUserTranscript: "",
       outputTranscript: ""
     };
+    const historyState = this.historyState ?? {
+      loading: false,
+      error: null,
+      sessions: []
+    };
 
     const liveConversationTurns = liveState.conversationTurns ?? [];
     const notificationItems = normalizeNotificationItems(
@@ -271,6 +281,11 @@ export class DesktopUiStateStore {
         avatar: sessionState.avatar,
         notifications: sessionState.notifications,
         pendingBriefingCount: sessionState.pendingBriefingCount ?? 0
+      },
+      historySummary: {
+        loading: historyState.loading ?? false,
+        error: historyState.error ?? null,
+        sessions: historyState.sessions ?? []
       },
       voiceControlState: {
         connected: liveState.connected,

@@ -64,6 +64,24 @@ function createTaskState() {
   };
 }
 
+function createHistoryState() {
+  return {
+    sessions: [
+      {
+        brainSessionId: "brain-history-1",
+        status: "closed",
+        source: "live",
+        createdAt: "2026-03-14T00:00:00.000Z",
+        updatedAt: "2026-03-14T00:05:00.000Z",
+        closedAt: "2026-03-14T00:05:00.000Z",
+        lastUserMessage: "내 바탕화면 읽어줘",
+        lastAssistantMessage: "좋아, 바로 확인할게.",
+        recentTasks: []
+      }
+    ]
+  };
+}
+
 class MockWebSocket {
   static OPEN = 1;
   static CLOSED = 3;
@@ -133,17 +151,24 @@ describe("CloudSessionClient", () => {
     runMock.mockReset();
     MockWebSocket.instances.length = 0;
     vi.stubGlobal("WebSocket", MockWebSocket);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/judge/history")) {
+        return {
+          ok: true,
+          json: async () => createHistoryState()
+        };
+      }
+
+      return {
         ok: true,
         json: async () => ({
           token: "judge-token",
           brainSessionId: "brain-1",
           wsUrl: "ws://judge-host/ws"
         })
-      }))
-    );
+      };
+    }));
   });
 
   it("executes remote executor requests through the local worker and sends terminal events back", async () => {
@@ -350,5 +375,62 @@ describe("CloudSessionClient", () => {
     client.endAudioStream();
 
     expect(socket.sent).toEqual([]);
+  });
+
+  it("loads judge history after connect and publishes it", async () => {
+    const historyStates: unknown[] = [];
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host",
+      onConversationState: async () => undefined,
+      onTaskState: async () => undefined,
+      onHistoryState: async (state: unknown) => {
+        historyStates.push(state);
+      }
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState(),
+      tasks: createTaskState()
+    });
+    await connectPromise;
+
+    expect(historyStates.at(-1)).toEqual({
+      loading: false,
+      error: null,
+      sessions: createHistoryState().sessions
+    });
+  });
+
+  it("sends an explicit end_session event before disconnecting", async () => {
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host"
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState(),
+      tasks: createTaskState()
+    });
+
+    await connectPromise;
+    socket.sent.length = 0;
+
+    await client.disconnect();
+
+    expect(socket.sent).toContainEqual({
+      type: "end_session",
+      reason: "user_hangup"
+    });
+    expect(socket.readyState).toBe(MockWebSocket.CLOSED);
   });
 });

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import type { AddressInfo } from "node:net";
 import { createAgentServer } from "../src/server/create-agent-server.js";
+import type { JudgeHistorySnapshot } from "../src/modules/history/judge-history-service.js";
+import type { UserRecord } from "../src/modules/persistence/user-repository.js";
 import type { CloudServerEvent } from "../src/server/protocol.js";
 
 function createConversationState() {
@@ -411,6 +413,80 @@ describe("createAgentServer", () => {
     await expect(closePromise).resolves.toEqual({
       code: 4001,
       reason: "unauthorized"
+    });
+  });
+
+  it("returns judge history for an authenticated judge token", async () => {
+    const judgeUser: UserRecord = {
+      id: "judge-user-1",
+      email: "judge@example.com",
+      createdAt: "2026-03-14T00:00:00.000Z",
+      updatedAt: "2026-03-14T00:00:00.000Z"
+    };
+    const historySnapshot: JudgeHistorySnapshot = {
+      sessions: [
+        {
+          brainSessionId: "brain-history-1",
+          status: "closed",
+          source: "live",
+          createdAt: "2026-03-14T00:00:00.000Z",
+          updatedAt: "2026-03-14T00:05:00.000Z",
+          closedAt: "2026-03-14T00:05:00.000Z",
+          lastUserMessage: "내 바탕화면 읽어줘",
+          lastAssistantMessage: "좋아, 바로 확인할게.",
+          recentTasks: [
+            {
+              id: "task-1",
+              title: "바탕화면 읽기",
+              status: "completed",
+              updatedAt: "2026-03-14T00:05:00.000Z",
+              summary: "바탕화면 항목을 읽었어요."
+            }
+          ]
+        }
+      ]
+    };
+    const serverBundle = createAgentServer({
+      port: 8080,
+      userRepository: {
+        getByEmail: vi.fn(async () => judgeUser),
+        create: vi.fn(async () => undefined)
+      },
+      judgePasscode: "correct-passcode",
+      judgeTokenSecret: "secret",
+      judgeUserEmail: "judge@example.com",
+      judgeUserDisplayName: "Judge",
+      judgeSessionTtlSeconds: 3600,
+      readJudgeHistory: vi.fn(async () => historySnapshot)
+    });
+    servers.add(serverBundle.server);
+    const baseUrl = await listen(serverBundle.server);
+
+    const sessionResponse = await fetch(`${baseUrl}/judge/session`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        passcode: "correct-passcode"
+      })
+    });
+    const sessionPayload = (await sessionResponse.json()) as { token: string };
+
+    const historyResponse = await fetch(`${baseUrl}/judge/history`, {
+      headers: {
+        authorization: `Bearer ${sessionPayload.token}`
+      }
+    });
+
+    expect(historyResponse.status).toBe(200);
+    await expect(historyResponse.json()).resolves.toEqual({
+      sessions: [
+        expect.objectContaining({
+          brainSessionId: "brain-history-1",
+          lastUserMessage: "내 바탕화면 읽어줘"
+        })
+      ]
     });
   });
 });

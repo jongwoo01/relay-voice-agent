@@ -324,4 +324,54 @@ describe("desktop-ui-state", () => {
       "turn-2:user"
     ]);
   });
+
+  it("exposes persisted judge history summaries in the composed UI state", () => {
+    const store = new DesktopUiStateStore();
+
+    store.setHistoryState({
+      loading: false,
+      error: null,
+      sessions: [
+        {
+          brainSessionId: "judge-session-1",
+          status: "closed",
+          source: "live",
+          createdAt: "2026-03-13T05:00:00.000Z",
+          updatedAt: "2026-03-13T05:10:00.000Z",
+          closedAt: "2026-03-13T05:10:00.000Z",
+          lastUserMessage: "내 이름 기억해줘",
+          lastAssistantMessage: "좋아, 종우라고 기억할게.",
+          recentTasks: [
+            {
+              id: "task-1",
+              title: "바탕화면 정리",
+              status: "completed",
+              updatedAt: "2026-03-13T05:09:00.000Z",
+              summary: "바탕화면 파일 정리를 마쳤습니다."
+            }
+          ]
+        }
+      ]
+    });
+
+    const uiState = store.compose();
+
+    expect(uiState.historySummary).toEqual({
+      loading: false,
+      error: null,
+      sessions: [
+        expect.objectContaining({
+          brainSessionId: "judge-session-1",
+          lastAssistantMessage: "좋아, 종우라고 기억할게.",
+          recentTasks: [
+            expect.objectContaining({
+              id: "task-1",
+              title: "바탕화면 정리",
+              status: "completed"
+            })
+          ]
+        })
+      ]
+    });
+  });
 });

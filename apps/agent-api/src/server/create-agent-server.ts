@@ -2,6 +2,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomUUID } from "node:crypto";
 import { URL } from "node:url";
 import { WebSocketServer } from "ws";
+import {
+  createJudgeHistoryService,
+  type JudgeHistorySnapshot
+} from "../modules/history/judge-history-service.js";
 import type { SqlClientLike } from "../modules/persistence/postgres-client.js";
 import type { UserRepository } from "../modules/persistence/user-repository.js";
 import { CloudAgentSession } from "./cloud-agent-session.js";
@@ -33,6 +37,11 @@ export interface CreateAgentServerOptions {
   judgeUserDisplayName?: string;
   judgeUsers?: JudgeUserConfig[];
   judgeSessionTtlSeconds: number;
+  readJudgeHistory?: (input: {
+    userId: string;
+    limit?: number;
+    sql?: SqlClientLike;
+  }) => Promise<JudgeHistorySnapshot>;
   createSession?: (input: {
     brainSessionId: string;
     userId: string;
@@ -63,6 +72,14 @@ function getBaseUrl(req: IncomingMessage, port: number): URL {
 
 export function createAgentServer(options: CreateAgentServerOptions) {
   const sessions = new Map<string, AgentSessionLike>();
+  const readJudgeHistory =
+    options.readJudgeHistory ??
+    (options.sql
+      ? async (input: { userId: string; limit?: number; sql?: SqlClientLike }) =>
+          createJudgeHistoryService({
+            sql: input.sql ?? options.sql!
+          }).readByUserId(input.userId, input.limit)
+      : null);
   const createSession =
     options.createSession ??
     ((input: {
@@ -191,6 +208,30 @@ export function createAgentServer(options: CreateAgentServerOptions) {
         expiresAt: new Date(exp * 1000).toISOString(),
         wsUrl: `${wsProtocol}//${baseUrl.host}/ws`
       });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/judge/history") {
+      const authorization = req.headers.authorization ?? "";
+      const token =
+        authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+      const payload = verifyJudgeSessionToken(token, options.judgeTokenSecret);
+      if (!payload) {
+        sendJson(res, 401, { error: "Invalid or expired judge session token" });
+        return;
+      }
+
+      if (!readJudgeHistory) {
+        sendJson(res, 503, { error: "Judge history is unavailable" });
+        return;
+      }
+
+      const history = await readJudgeHistory({
+        userId: payload.userId,
+        limit: 6,
+        sql: options.sql
+      });
+      sendJson(res, 200, history);
       return;
     }
 

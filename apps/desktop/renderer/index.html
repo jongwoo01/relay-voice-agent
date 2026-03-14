@@ -205,6 +205,24 @@
             <div id="task-drawer-list" class="stack-list"></div>
           </details>
         </section>
+
+        <section class="side-section">
+          <details id="history-drawer" class="task-drawer">
+            <summary>
+              <span>Session History</span>
+              <span id="history-drawer-count" class="pending-count">0 sessions</span>
+            </summary>
+            <div class="voice-controls">
+              <p id="history-drawer-description" class="summary-detail empty-state">
+                저장된 최근 세션 요약이 없습니다.
+              </p>
+              <button id="history-refresh-button" type="button" class="voice-button">
+                Refresh
+              </button>
+            </div>
+            <div id="history-drawer-list" class="stack-list"></div>
+          </details>
+        </section>
       </aside>
     </main>
     <script type="module" src="./app.js"></script>

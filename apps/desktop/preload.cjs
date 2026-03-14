@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld("desktopCompanion", {
 
 contextBridge.exposeInMainWorld("desktopUi", {
   init: () => ipcRenderer.invoke("desktop-ui:init"),
+  refreshHistory: () => ipcRenderer.invoke("desktop-ui:refresh-history"),
   onStateUpdated: (listener) => {
     const wrapped = (_event, state) => listener(state);
     ipcRenderer.on("desktop-ui:state-updated", wrapped);
