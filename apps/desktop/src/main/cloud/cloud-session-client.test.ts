@@ -312,4 +312,37 @@ describe("CloudSessionClient", () => {
       })
     );
   });
+
+  it("does not send late audio events when the hosted session is no longer ready", async () => {
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host",
+      onConversationState: async () => undefined,
+      onTaskState: async () => undefined
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState(),
+      tasks: createTaskState()
+    });
+    await connectPromise;
+
+    socket.sent.length = 0;
+    socket.emitMessage({
+      type: "conversation_state",
+      state: createConversationState({
+        connected: false,
+        status: "idle"
+      })
+    });
+
+    client.sendAudioChunk("AAAA");
+    client.endAudioStream();
+
+    expect(socket.sent).toEqual([]);
+  });
 });

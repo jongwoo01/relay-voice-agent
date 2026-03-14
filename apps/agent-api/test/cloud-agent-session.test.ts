@@ -82,6 +82,65 @@ describe("CloudAgentSession", () => {
     );
   });
 
+  it("ignores late audio events after the live session closes", async () => {
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      close: vi.fn()
+    };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-audio-close",
+        userId: "user-audio-close",
+        send: () => undefined
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-14T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+    liveCallbacks?.onclose?.({ reason: "test close" });
+
+    await expect(
+      session.handleClientEvent({
+        type: "audio_chunk",
+        data: "AAAA",
+        mimeType: "audio/pcm;rate=16000"
+      })
+    ).resolves.toBeUndefined();
+    await expect(
+      session.handleClientEvent({
+        type: "audio_stream_end"
+      })
+    ).resolves.toBeUndefined();
+
+    expect(liveSession.sendRealtimeAudio).not.toHaveBeenCalled();
+    expect(liveSession.sendAudioStreamEnd).not.toHaveBeenCalled();
+  });
+
   it("round-trips executor requests through the connected desktop worker", async () => {
     const sentEvents: unknown[] = [];
     const persistence = createInMemorySessionPersistence();
@@ -241,6 +300,8 @@ describe("CloudAgentSession", () => {
         expect.objectContaining({
           id: "tool-1",
           name: "delegate_to_gemini_cli",
+          scheduling: "SILENT",
+          willContinue: false,
           response: {
             output: expect.objectContaining({
               accepted: true,
@@ -265,5 +326,219 @@ describe("CloudAgentSession", () => {
         })
       })
     );
+  });
+
+  it("uses silent scheduling for runtime-owned non-blocking tool calls and resolves follow-up call IDs back to tasks", async () => {
+    const sentEvents: unknown[] = [];
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      close: vi.fn()
+    };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const handleDelegateToGeminiCli = vi
+      .fn()
+      .mockImplementationOnce(async () => ({
+        action: "created" as const,
+        accepted: true,
+        taskId: "task-1",
+        status: "running" as const,
+        message: "Task is running",
+        presentation: {
+          ownership: "runtime" as const,
+          speechMode: "canonical" as const,
+          speechText: "작업을 시작했어요.",
+          allowLiveModelOutput: false
+        }
+      }))
+      .mockImplementationOnce(async () => ({
+        action: "status" as const,
+        accepted: true,
+        taskId: "task-1",
+        status: "completed" as const,
+        message: "바탕화면 항목을 확인했어요.",
+        presentation: {
+          ownership: "runtime" as const,
+          speechMode: "grounded_summary" as const,
+          speechText: "바탕화면 항목을 확인했어요.",
+          allowLiveModelOutput: false
+        },
+        summary: "바탕화면 항목을 확인했어요."
+      }));
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-3",
+        userId: "user-3",
+        send: (event) => {
+          sentEvents.push(event);
+        }
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli
+        }),
+        liveTransport,
+        now: () => "2026-03-14T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+    await liveCallbacks?.onevent?.({
+      type: "tool_call",
+      functionCalls: [
+        {
+          id: "function-call-1",
+          name: "delegate_to_gemini_cli",
+          args: {
+            request: "바탕화면 항목 읽어줘"
+          }
+        }
+      ]
+    });
+    await liveCallbacks?.onevent?.({
+      type: "tool_call",
+      functionCalls: [
+        {
+          id: "function-call-2",
+          name: "delegate_to_gemini_cli",
+          args: {
+            request: "check the status of function-call-1"
+          }
+        }
+      ]
+    });
+
+    expect(handleDelegateToGeminiCli).toHaveBeenNthCalledWith(1, {
+      brainSessionId: "brain-3",
+      request: "바탕화면 항목 읽어줘",
+      taskId: undefined,
+      mode: undefined,
+      now: "2026-03-14T00:00:00.000Z"
+    });
+    expect(handleDelegateToGeminiCli).toHaveBeenNthCalledWith(2, {
+      brainSessionId: "brain-3",
+      request: "상태 알려줘",
+      taskId: "task-1",
+      mode: "status",
+      now: "2026-03-14T00:00:00.000Z"
+    });
+    expect(liveSession.sendToolResponse).toHaveBeenNthCalledWith(1, {
+      functionResponses: [
+        expect.objectContaining({
+          id: "function-call-1",
+          name: "delegate_to_gemini_cli",
+          scheduling: "SILENT",
+          willContinue: true
+        })
+      ]
+    });
+    expect(liveSession.sendToolResponse).toHaveBeenNthCalledWith(2, {
+      functionResponses: [
+        expect.objectContaining({
+          id: "function-call-2",
+          name: "delegate_to_gemini_cli",
+          scheduling: "SILENT",
+          willContinue: false,
+          response: {
+            output: expect.objectContaining({
+              taskId: "task-1",
+              status: "completed"
+            })
+          }
+        })
+      ]
+    });
+    expect(sentEvents).toContainEqual(
+      expect.objectContaining({
+        type: "conversation_state",
+        state: expect.objectContaining({
+          connected: true
+        })
+      })
+    );
+  });
+
+  it("does not delegate unresolved internal function-call references to the desktop executor", async () => {
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      close: vi.fn()
+    };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const handleDelegateToGeminiCli = vi.fn();
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-4",
+        userId: "user-4",
+        send: () => undefined
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli
+        }),
+        liveTransport,
+        now: () => "2026-03-14T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+    await liveCallbacks?.onevent?.({
+      type: "tool_call",
+      functionCalls: [
+        {
+          id: "function-call-9",
+          name: "delegate_to_gemini_cli",
+          args: {
+            request: "get the results of function-call-does-not-exist"
+          }
+        }
+      ]
+    });
+
+    expect(handleDelegateToGeminiCli).not.toHaveBeenCalled();
+    expect(liveSession.sendToolResponse).toHaveBeenCalledWith({
+      functionResponses: [
+        {
+          id: "function-call-9",
+          name: "delegate_to_gemini_cli",
+          response: {
+            error:
+              "Unknown internal function call reference: function-call-does-not-exist"
+          },
+          scheduling: "SILENT",
+          willContinue: false
+        }
+      ]
+    });
   });
 });

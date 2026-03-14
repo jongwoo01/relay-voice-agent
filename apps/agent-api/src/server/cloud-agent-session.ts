@@ -2,6 +2,7 @@ import {
   ActivityHandling,
   Behavior,
   EndSensitivity,
+  FunctionResponseScheduling,
   Modality,
   StartSensitivity,
   Type
@@ -160,6 +161,7 @@ export class CloudAgentSession {
   private liveSession: GoogleLiveSessionTransport | null = null;
   private readonly notifications: AssistantDeliveryPlan[] = [];
   private readonly pendingToolContinuations = new Map<string, string>();
+  private readonly functionCallTaskBindings = new Map<string, string>();
   private readonly conversationState: HostedConversationStateSnapshot = {
     connected: false,
     connecting: false,
@@ -348,8 +350,22 @@ export class CloudAgentSession {
   }
 
   async handleClientEvent(event: CloudClientEvent): Promise<void> {
-    if (!this.liveSession && event.type !== "ping") {
-      throw new Error("Live session is not ready");
+    if (!this.liveSession) {
+      switch (event.type) {
+        case "ping":
+          this.input.send({
+            type: "conversation_state",
+            state: this.getConversationState()
+          });
+          return;
+        case "audio_chunk":
+        case "audio_stream_end":
+          // Mic shutdown and buffered audio can arrive after the live session
+          // has already closed. Treat these as benign late events.
+          return;
+        default:
+          throw new Error("Live session is not ready");
+      }
     }
 
     switch (event.type) {
@@ -554,17 +570,47 @@ export class CloudAgentSession {
         functionCall?.args && typeof functionCall.args === "object"
           ? functionCall.args
           : {};
-      const request =
+      const rawRequest =
         typeof args.request === "string" ? args.request.trim() : "";
       const taskId = typeof args.taskId === "string" ? args.taskId : undefined;
       const mode = typeof args.mode === "string" ? args.mode : undefined;
+      const protocolResolution = this.resolveProtocolTaskReference(
+        rawRequest,
+        taskId
+      );
+
+      if (protocolResolution?.kind === "unresolved_internal_call") {
+        functionResponses.push({
+          id: functionCall.id,
+          name: "delegate_to_gemini_cli",
+          response: {
+            error: protocolResolution.message
+          },
+          scheduling: FunctionResponseScheduling.SILENT,
+          willContinue: false
+        });
+        continue;
+      }
+
+      const request = protocolResolution?.request ?? rawRequest;
+      const resolvedTaskId = protocolResolution?.taskId ?? taskId;
+      const resolvedMode = protocolResolution?.mode ?? mode;
       const result = await loop.handleDelegateToGeminiCli({
         brainSessionId: this.input.brainSessionId,
         request,
-        taskId,
-        mode: mode as "auto" | "new_task" | "resume" | "status" | undefined,
+        taskId: resolvedTaskId,
+        mode: resolvedMode as
+          | "auto"
+          | "new_task"
+          | "resume"
+          | "status"
+          | undefined,
         now: this.now()
       });
+
+      if (result.taskId) {
+        this.functionCallTaskBindings.set(functionCall.id, result.taskId);
+      }
 
       functionResponses.push({
         id: functionCall.id,
@@ -572,22 +618,11 @@ export class CloudAgentSession {
         response: {
           output: result
         },
-        ...(result.accepted &&
-        result.taskId &&
-        (result.status === "running" ||
-          result.status === "waiting_input" ||
-          result.status === "approval_required")
-          ? { willContinue: true }
-          : {})
+        scheduling: this.resolveResponseScheduling(result),
+        willContinue: this.shouldContinueFunctionCall(result)
       });
 
-      if (
-        result.accepted &&
-        result.taskId &&
-        (result.status === "running" ||
-          result.status === "waiting_input" ||
-          result.status === "approval_required")
-      ) {
+      if (this.shouldContinueFunctionCall(result) && result.taskId) {
         this.pendingToolContinuations.set(result.taskId, functionCall.id);
       } else if (result.taskId) {
         this.pendingToolContinuations.delete(result.taskId);
@@ -646,7 +681,9 @@ export class CloudAgentSession {
           name: "delegate_to_gemini_cli",
           response: {
             output: result
-          }
+          },
+          scheduling: this.resolveResponseScheduling(result),
+          willContinue: false
         }
       ]
     });
@@ -667,6 +704,85 @@ export class CloudAgentSession {
         state: this.getConversationState()
       });
     }
+  }
+
+  private shouldContinueFunctionCall(result: {
+    accepted: boolean;
+    taskId?: string;
+    status: string;
+  }): boolean {
+    return (
+      result.accepted === true &&
+      typeof result.taskId === "string" &&
+      (result.status === "running" ||
+        result.status === "waiting_input" ||
+        result.status === "approval_required")
+    );
+  }
+
+  private resolveResponseScheduling(result: {
+    presentation?: {
+      ownership: "live" | "runtime";
+      allowLiveModelOutput: boolean;
+    };
+  }): FunctionResponseScheduling {
+    if (
+      result.presentation?.ownership === "runtime" &&
+      result.presentation.allowLiveModelOutput === false
+    ) {
+      return FunctionResponseScheduling.SILENT;
+    }
+
+    return FunctionResponseScheduling.WHEN_IDLE;
+  }
+
+  private resolveProtocolTaskReference(
+    request: string,
+    taskId?: string
+  ):
+    | {
+        kind: "resolved_internal_call";
+        request: string;
+        taskId: string;
+        mode: "status";
+      }
+    | {
+        kind: "unresolved_internal_call";
+        message: string;
+      }
+    | null {
+    const directTaskId =
+      typeof taskId === "string" && this.functionCallTaskBindings.has(taskId)
+        ? this.functionCallTaskBindings.get(taskId)
+        : null;
+    if (directTaskId) {
+      return {
+        kind: "resolved_internal_call",
+        request: "상태 알려줘",
+        taskId: directTaskId,
+        mode: "status"
+      };
+    }
+
+    const requestMatch = request.match(/\b(function-call-[A-Za-z0-9_-]+)\b/i);
+    if (!requestMatch) {
+      return null;
+    }
+
+    const mappedTaskId = this.functionCallTaskBindings.get(requestMatch[1]);
+    if (!mappedTaskId) {
+      return {
+        kind: "unresolved_internal_call",
+        message: `Unknown internal function call reference: ${requestMatch[1]}`
+      };
+    }
+
+    return {
+      kind: "resolved_internal_call",
+      request: "상태 알려줘",
+      taskId: mappedTaskId,
+      mode: "status"
+    };
   }
 
   private createUserTurn(
