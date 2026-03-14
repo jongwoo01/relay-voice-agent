@@ -31,6 +31,12 @@ describe("buildGeminiCliCommand", () => {
     });
     expect(command.args[1]).toContain("Working directory: /tmp");
     expect(command.args[1]).toContain('"summary":"string"');
+    expect(command.args[1]).toContain(
+      "Prefer built-in directory and file tools over shell commands"
+    );
+    expect(command.args[1]).toContain(
+      "Do not recurse into subdirectories, use ls -R, find, or other deep scans unless the user explicitly asked"
+    );
   });
 
   it("builds a resume command with -r", () => {
@@ -60,6 +66,31 @@ describe("buildGeminiCliCommand", () => {
     ]);
     expect(command.args[3]).toContain(
       "Working directory: current default workspace"
+    );
+  });
+
+  it("tells Gemini CLI not to broaden a simple directory listing into a deep scan", () => {
+    const command = buildGeminiCliCommand({
+      task: {
+        id: "task-dir",
+        title: "Check Desktop names and counts",
+        normalizedGoal: "check desktop names and counts",
+        status: "queued",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z"
+      },
+      now: "2026-03-08T00:00:00.000Z",
+      prompt: "check my desktop and tell me every file and folder name and count"
+    });
+
+    expect(command.args[1]).toContain(
+      "For directory inspection requests, default to the immediate children of the named directory."
+    );
+    expect(command.args[1]).toContain(
+      "Do not expand a simple listing request into a broader filesystem crawl just to be extra thorough."
+    );
+    expect(command.args[1]).toContain(
+      'If the user asked for exact names, IDs, paths, or other concrete items, include those facts in the natural-language answer and in "keyFindings".'
     );
   });
 });

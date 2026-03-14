@@ -1,6 +1,7 @@
 import type {
   Task,
   TaskCompletionReport,
+  TaskExecutionArtifact,
   TaskEvent
 } from "@agent/shared-types";
 
@@ -27,6 +28,7 @@ export interface ExecutorRunResult {
   outcome?: ExecutorOutcome;
   sessionId?: string;
   report?: TaskCompletionReport;
+  artifacts?: TaskExecutionArtifact[];
 }
 
 export interface LocalExecutor {

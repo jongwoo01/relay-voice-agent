@@ -4,6 +4,7 @@ import {
   PostgresBrainSessionRepository,
   PostgresConversationMessageRepository,
   PostgresTaskEventRepository,
+  PostgresTaskExecutionArtifactRepository,
   PostgresTaskExecutorSessionRepository,
   PostgresTaskRepository
 } from "../src/index.js";
@@ -157,6 +158,75 @@ describe("postgres persistence repositories", () => {
     expect(sql.query).toHaveBeenCalledWith(
       expect.stringContaining("insert into task_events"),
       ["task-1", "executor_progress", "Task is running", "2026-03-08T00:00:00.000Z"]
+    );
+  });
+
+  it("maps and persists task execution artifacts", async () => {
+    const sql = createSqlMock([
+      [
+        {
+          task_id: "task-1",
+          seq: 0,
+          kind: "tool_use",
+          created_at: "2026-03-08T00:00:00.000Z",
+          title: "Requested tool: list_directory",
+          body: "{\"path\":\"~/Desktop\"}",
+          detail: null,
+          tool_name: "list_directory",
+          status: null,
+          role: null,
+          payload_json: { path: "~/Desktop" }
+        }
+      ],
+      [{ seq: 0 }]
+    ]);
+
+    const repository = new PostgresTaskExecutionArtifactRepository(sql);
+    const artifacts = await repository.listByTaskId("task-1");
+
+    expect(artifacts).toEqual([
+      {
+        taskId: "task-1",
+        seq: 0,
+        kind: "tool_use",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        title: "Requested tool: list_directory",
+        body: "{\"path\":\"~/Desktop\"}",
+        detail: undefined,
+        toolName: "list_directory",
+        status: undefined,
+        role: undefined,
+        payloadJson: { path: "~/Desktop" }
+      }
+    ]);
+
+    await repository.saveMany("task-1", [
+      {
+        taskId: "task-1",
+        seq: 0,
+        kind: "result",
+        createdAt: "2026-03-08T00:00:05.000Z",
+        title: "Final result",
+        body: "I found three folders.",
+        payloadJson: { response: "I found three folders." }
+      }
+    ]);
+
+    expect(sql.query).toHaveBeenLastCalledWith(
+      expect.stringContaining("insert into task_execution_artifacts"),
+      [
+        "task-1",
+        1,
+        "result",
+        "Final result",
+        "I found three folders.",
+        null,
+        null,
+        null,
+        null,
+        JSON.stringify({ response: "I found three folders." }),
+        "2026-03-08T00:00:05.000Z"
+      ]
     );
   });
 

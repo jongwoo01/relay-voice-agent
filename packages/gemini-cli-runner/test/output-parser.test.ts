@@ -57,6 +57,7 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
     const onProgress = vi.fn();
     const structuredReport = JSON.stringify({
       summary: "Finished cleaning up the browser tabs",
+      keyFindings: ["Closed 3 noisy tabs", "Pinned 2 important tabs"],
       verification: "verified",
       changes: ["Checked the browser tab state"],
       question: ""
@@ -77,7 +78,7 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
         }),
         JSON.stringify({
           type: "result",
-          response: structuredReport
+          response: `I closed the noisy tabs and kept the important ones pinned.\nREPORT_JSON: ${structuredReport}`
         })
       ].join("\n")
     );
@@ -95,13 +96,59 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
       "Tool finished: browser.inspect_tabs"
     ]);
     expect(result.completionEvent.message).toBe("Finished cleaning up the browser tabs");
-    expect(result.report).toEqual({
-      summary: "Finished cleaning up the browser tabs",
-      verification: "verified",
-      changes: ["Checked the browser tab state"],
-      question: undefined
-    });
+    expect(result.report).toEqual(
+      expect.objectContaining({
+        summary: "Finished cleaning up the browser tabs",
+        detailedAnswer: "I closed the noisy tabs and kept the important ones pinned.",
+        keyFindings: ["Closed 3 noisy tabs", "Pinned 2 important tabs"],
+        verification: "verified",
+        changes: ["Checked the browser tab state"],
+        question: undefined
+      })
+    );
+    expect(result.artifacts?.length).toBe(4);
     expect(onProgress).toHaveBeenCalledTimes(2);
+  });
+
+  it("resolves tool_result names through tool_id when the result omits the tool name", async () => {
+    const parsed = parseGeminiCliOutput(
+      [
+        JSON.stringify({
+          type: "tool_use",
+          tool_id: "tool-123",
+          name: "list_directory"
+        }),
+        JSON.stringify({
+          type: "tool_result",
+          tool_id: "tool-123",
+          status: "success",
+          output: "Listed 5 item(s)."
+        }),
+        JSON.stringify({
+          type: "result",
+          response:
+            'I checked the Desktop items.\nREPORT_JSON: {"summary":"Checked the Desktop items.","verification":"verified","changes":["Read the Desktop directory entries"],"question":""}'
+        })
+      ].join("\n")
+    );
+
+    const result = await buildExecutorResultFromGeminiCliOutput({
+      taskId: "task-tool-id",
+      now: "2026-03-08T00:00:00.000Z",
+      output: parsed
+    });
+
+    expect(result.progressEvents.map((event) => event.message)).toEqual([
+      "Tool requested: list_directory",
+      "Tool finished: list_directory"
+    ]);
+    expect(result.artifacts?.[1]).toEqual(
+      expect.objectContaining({
+        kind: "tool_result",
+        title: "Tool result: list_directory",
+        toolName: "list_directory"
+      })
+    );
   });
 
   it("throws when a tool_result reports error status", async () => {
@@ -197,12 +244,15 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
     });
 
     expect(result.completionEvent.message).toBe("Checked the desktop items");
-    expect(result.report).toEqual({
-      summary: "Checked the desktop items",
-      verification: "verified",
-      changes: ["Read the Desktop directory entries"],
-      question: undefined
-    });
+    expect(result.report).toEqual(
+      expect.objectContaining({
+        summary: "Checked the desktop items",
+        detailedAnswer: "Here are the verified results.",
+        verification: "verified",
+        changes: ["Read the Desktop directory entries"],
+        question: undefined
+      })
+    );
   });
 
   it("falls back to assistant message chunks when the final result only carries status", async () => {
@@ -232,11 +282,14 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
     });
 
     expect(result.completionEvent.message).toBe("Checked the desktop items");
-    expect(result.report).toEqual({
-      summary: "Checked the desktop items",
-      verification: "verified",
-      changes: ["Read the Desktop directory entries"],
-      question: undefined
-    });
+    expect(result.report).toEqual(
+      expect.objectContaining({
+        summary: "Checked the desktop items",
+        verification: "verified",
+        changes: ["Read the Desktop directory entries"],
+        question: undefined
+      })
+    );
+    expect(result.report?.detailedAnswer).toBeUndefined();
   });
 });

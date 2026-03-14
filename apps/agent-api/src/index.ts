@@ -104,6 +104,11 @@ export {
   type TaskEventRepository
 } from "./modules/persistence/task-event-repository.js";
 export {
+  InMemoryTaskExecutionArtifactRepository,
+  PostgresTaskExecutionArtifactRepository,
+  type TaskExecutionArtifactRepository
+} from "./modules/persistence/task-execution-artifact-repository.js";
+export {
   InMemoryTaskExecutorSessionRepository,
   PostgresTaskExecutorSessionRepository,
   type TaskExecutorSessionRepository

@@ -71,9 +71,33 @@ export interface Task {
 
 export interface TaskCompletionReport {
   summary: string;
+  detailedAnswer?: string;
+  keyFindings?: string[];
   verification: "verified" | "uncertain";
   changes: string[];
   question?: string;
+}
+
+export type TaskExecutionArtifactKind =
+  | "init"
+  | "message"
+  | "tool_use"
+  | "tool_result"
+  | "error"
+  | "result";
+
+export interface TaskExecutionArtifact {
+  taskId: string;
+  seq: number;
+  kind: TaskExecutionArtifactKind;
+  createdAt: string;
+  title: string;
+  body?: string;
+  detail?: string;
+  toolName?: string;
+  status?: string;
+  role?: string;
+  payloadJson?: Record<string, unknown>;
 }
 
 export interface FinalizedUtterance {
@@ -249,9 +273,12 @@ export interface TaskRunnerDetailViewModel {
   lastUpdatedAt?: string;
   timeline: TaskRunnerTimelineEntry[];
   resultSummary?: string;
+  detailedAnswer?: string;
+  keyFindings?: string[];
   verification?: TaskCompletionReport["verification"];
   changes: string[];
   question?: string;
+  executionTrace?: TaskExecutionArtifact[];
   advancedTrace: TaskRunnerAdvancedTraceEntry[];
 }
 

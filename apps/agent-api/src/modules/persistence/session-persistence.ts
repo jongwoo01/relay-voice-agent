@@ -12,6 +12,11 @@ import {
   type TaskEventRepository
 } from "./task-event-repository.js";
 import {
+  InMemoryTaskExecutionArtifactRepository,
+  PostgresTaskExecutionArtifactRepository,
+  type TaskExecutionArtifactRepository
+} from "./task-execution-artifact-repository.js";
+import {
   InMemoryTaskExecutorSessionRepository,
   type TaskExecutorSessionRepository
 } from "./task-executor-session-repository.js";
@@ -35,6 +40,7 @@ export interface SessionPersistence {
   taskRepository: TaskRepository;
   taskIntakeRepository: TaskIntakeRepository;
   taskEventRepository: TaskEventRepository;
+  taskExecutionArtifactRepository: TaskExecutionArtifactRepository;
   taskExecutorSessionRepository: TaskExecutorSessionRepository;
   conversationRepository: ConversationMessageRepository;
 }
@@ -66,6 +72,7 @@ export function createInMemorySessionPersistence(input?: {
     taskRepository: new InMemoryTaskRepository(),
     taskIntakeRepository: new InMemoryTaskIntakeRepository(),
     taskEventRepository: new InMemoryTaskEventRepository(),
+    taskExecutionArtifactRepository: new InMemoryTaskExecutionArtifactRepository(),
     taskExecutorSessionRepository: new InMemoryTaskExecutorSessionRepository()
   };
 }
@@ -104,6 +111,7 @@ export async function createPostgresSessionPersistence(input: {
     taskRepository: new PostgresTaskRepository(sql),
     taskIntakeRepository: new PostgresTaskIntakeRepository(sql),
     taskEventRepository: new PostgresTaskEventRepository(sql),
+    taskExecutionArtifactRepository: new PostgresTaskExecutionArtifactRepository(sql),
     taskExecutorSessionRepository: new PostgresTaskExecutorSessionRepository(sql)
   };
 }

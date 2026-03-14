@@ -5,6 +5,7 @@ import type {
   MainAvatarState,
   Task,
   TaskCompletionReport,
+  TaskExecutionArtifact,
   TaskEvent,
   TaskIntakeSlot,
   TaskRunnerDetailViewModel,
@@ -85,6 +86,7 @@ export type CloudClientEvent =
         outcome?: "completed" | "waiting_input" | "approval_required";
         sessionId?: string;
         report?: TaskCompletionReport;
+        artifacts?: TaskExecutionArtifact[];
       };
       error?: string;
     }

@@ -110,7 +110,8 @@ export class TextRealtimeSessionLoop {
         if (this.onAssistantMessage) {
           await this.onAssistantMessage(followUpMessage);
         }
-      }
+      },
+      persistence.taskExecutionArtifactRepository
     );
     this.taskRoutingResolver =
       options.taskRoutingResolver ?? createDefaultTaskRoutingResolver();

@@ -1,6 +1,7 @@
 import type {
   Task,
   TaskCompletionReport,
+  TaskExecutionArtifact,
   TaskEvent,
   TaskExecutorSession
 } from "@agent/shared-types";
@@ -8,6 +9,10 @@ import {
   InMemoryTaskEventRepository,
   type TaskEventRepository
 } from "../persistence/task-event-repository.js";
+import {
+  InMemoryTaskExecutionArtifactRepository,
+  type TaskExecutionArtifactRepository
+} from "../persistence/task-execution-artifact-repository.js";
 import {
   InMemoryTaskRepository,
   type TaskRepository
@@ -31,6 +36,7 @@ export interface ExecuteTaskResult {
   events: TaskEvent[];
   executorSession?: TaskExecutorSession;
   report?: TaskCompletionReport;
+  artifacts: TaskExecutionArtifact[];
 }
 
 export interface TaskTerminalNotification {
@@ -52,7 +58,8 @@ export class TaskExecutionService {
     private readonly sessionRepository: TaskExecutorSessionRepository = new InMemoryTaskExecutorSessionRepository(),
     private readonly taskRepository: TaskRepository = new InMemoryTaskRepository(),
     private readonly taskEventRepository: TaskEventRepository = new InMemoryTaskEventRepository(),
-    private readonly notifyTerminalState?: TaskTerminalNotifier
+    private readonly notifyTerminalState?: TaskTerminalNotifier,
+    private readonly taskExecutionArtifactRepository: TaskExecutionArtifactRepository = new InMemoryTaskExecutionArtifactRepository()
   ) {}
 
   async execute(input: ExecuteTaskInput): Promise<ExecuteTaskResult> {
@@ -70,6 +77,9 @@ export class TaskExecutionService {
       await this.taskRepository.save(input.brainSessionId, result.task);
     }
     await this.taskEventRepository.saveMany(input.taskId, result.events);
+    if (result.artifacts.length > 0) {
+      await this.taskExecutionArtifactRepository.saveMany(input.taskId, result.artifacts);
+    }
 
     if (result.executorSession) {
       await this.sessionRepository.save(result.executorSession);
@@ -105,6 +115,9 @@ export class TaskExecutionService {
           input.taskId,
           result.events.filter((event) => event.type !== "executor_progress")
         );
+        if (result.artifacts.length > 0) {
+          await this.taskExecutionArtifactRepository.saveMany(input.taskId, result.artifacts);
+        }
 
         if (result.executorSession) {
           await this.sessionRepository.save(result.executorSession);
@@ -139,7 +152,8 @@ export class TaskExecutionService {
       task: prepared.task,
       events: prepared.initialEvents,
       executorSession: prepared.priorExecutorSession,
-      report: undefined
+      report: undefined,
+      artifacts: []
     };
   }
 

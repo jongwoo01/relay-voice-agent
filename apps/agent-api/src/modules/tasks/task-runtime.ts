@@ -18,6 +18,7 @@ import type {
 import type {
   Task,
   TaskCompletionReport,
+  TaskExecutionArtifact,
   TaskEvent,
   TaskExecutorSession
 } from "@agent/shared-types";
@@ -36,6 +37,7 @@ export interface TaskRunResult {
   events: TaskEvent[];
   executorSession?: TaskExecutorSession;
   report?: TaskCompletionReport;
+  artifacts: TaskExecutionArtifact[];
 }
 
 export interface PreparedTaskRun {
@@ -176,7 +178,8 @@ export class TaskRuntime {
       task: currentTask,
       events,
       executorSession: nextExecutorSession,
-      report: execution.report
+      report: execution.report,
+      artifacts: execution.artifacts ?? []
     };
   }
 
@@ -193,7 +196,8 @@ export class TaskRuntime {
     return {
       task: failed.task,
       events: [failed.event],
-      executorSession: prepared.priorExecutorSession
+      executorSession: prepared.priorExecutorSession,
+      artifacts: []
     };
   }
 
@@ -211,7 +215,8 @@ export class TaskRuntime {
           : result.task,
       events: [...prepared.initialEvents, ...result.events],
       executorSession: result.executorSession,
-      report: result.report
+      report: result.report,
+      artifacts: result.artifacts
     };
   }
 }

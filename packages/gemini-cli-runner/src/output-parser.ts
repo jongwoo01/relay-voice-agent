@@ -3,7 +3,11 @@ import type {
   ExecutorProgressListener,
   ExecutorRunResult
 } from "@agent/local-executor-protocol";
-import type { TaskCompletionReport, TaskEvent } from "@agent/shared-types";
+import type {
+  TaskCompletionReport,
+  TaskEvent,
+  TaskExecutionArtifact
+} from "@agent/shared-types";
 
 export type GeminiCliHeadlessEventType =
   | "init"
@@ -23,6 +27,7 @@ export interface ParsedGeminiCliOutput {
 }
 
 const HANGUL_REGEX = /[\u3131-\u318e\uac00-\ud7a3]/;
+const REPORT_JSON_MARKER = "REPORT_JSON:";
 
 function parseJsonObjectString(value: string): Record<string, unknown> | null {
   const trimmed = value.trim();
@@ -107,16 +112,35 @@ function findFirstJsonObject(value: string): string | null {
   return null;
 }
 
-function extractStructuredCompletionReport(
+function extractCompletionResponse(
   value: string | undefined
-): TaskCompletionReport | undefined {
+): {
+  naturalAnswer?: string;
+  report?: TaskCompletionReport;
+} {
   if (!value) {
-    return undefined;
+    return {};
   }
 
-  const parsed = parseJsonObjectString(value);
+  const markerIndex = value.lastIndexOf(REPORT_JSON_MARKER);
+  const trimmedValue = value.trim();
+  const embeddedObject =
+    markerIndex >= 0 ? null : findFirstJsonObject(trimmedValue);
+  const naturalAnswer =
+    markerIndex >= 0
+      ? englishOnlyValue(value.slice(0, markerIndex))
+      : embeddedObject && embeddedObject !== trimmedValue
+        ? englishOnlyValue(trimmedValue.replace(embeddedObject, "").trim())
+        : undefined;
+  const reportCandidate =
+    markerIndex >= 0
+      ? value.slice(markerIndex + REPORT_JSON_MARKER.length)
+      : value;
+  const parsed = parseJsonObjectString(reportCandidate);
   if (!parsed) {
-    return undefined;
+    return {
+      naturalAnswer: englishOnlyValue(value)
+    };
   }
 
   const summary = englishOnlyValue(firstNonEmptyString([parsed.summary]));
@@ -126,8 +150,19 @@ function extractStructuredCompletionReport(
       : undefined;
 
   if (!summary || !verification) {
-    return undefined;
+    return {
+      naturalAnswer: englishOnlyValue(value)
+    };
   }
+
+  const keyFindings = Array.isArray(parsed.keyFindings)
+    ? parsed.keyFindings
+        .filter(
+          (item): item is string => typeof item === "string" && item.trim().length > 0
+        )
+        .map((item) => englishOnlyValue(item))
+        .filter((item): item is string => typeof item === "string")
+    : [];
 
   const changes = Array.isArray(parsed.changes)
     ? parsed.changes
@@ -141,10 +176,15 @@ function extractStructuredCompletionReport(
   const question = englishOnlyValue(firstNonEmptyString([parsed.question]));
 
   return {
-    summary,
-    verification,
-    changes,
-    question
+    naturalAnswer,
+    report: {
+      summary,
+      detailedAnswer: naturalAnswer,
+      keyFindings,
+      verification,
+      changes,
+      question
+    }
   };
 }
 
@@ -214,6 +254,26 @@ function extractToolName(event: GeminiCliHeadlessEvent): string | undefined {
   ]);
 }
 
+function extractToolId(event: GeminiCliHeadlessEvent): string | undefined {
+  return firstNonEmptyString([
+    event.payload.tool_id,
+    event.payload.toolId,
+    event.payload.id,
+    isRecord(event.payload.tool) ? event.payload.tool.id : undefined
+  ]);
+}
+
+function extractToolInput(event: GeminiCliHeadlessEvent): string | undefined {
+  return stringifyIfPresent(
+    firstDefined([
+      event.payload.parameters,
+      event.payload.arguments,
+      isRecord(event.payload.tool) ? event.payload.tool.arguments : undefined,
+      isRecord(event.payload.tool) ? event.payload.tool.parameters : undefined
+    ])
+  );
+}
+
 function extractResultResponse(event: GeminiCliHeadlessEvent): string | undefined {
   return firstNonEmptyString([
     event.payload.response,
@@ -253,14 +313,139 @@ function extractToolResultStatus(event: GeminiCliHeadlessEvent): string | undefi
   ]);
 }
 
-function toProgressMessage(event: GeminiCliHeadlessEvent): string | undefined {
+function extractEventTimestamp(
+  event: GeminiCliHeadlessEvent,
+  fallbackNow: string
+): string {
+  return (
+    firstNonEmptyString([
+      event.payload.timestamp,
+      event.payload.createdAt,
+      event.payload.created_at
+    ]) ?? fallbackNow
+  );
+}
+
+function firstDefined(values: Array<unknown>): unknown {
+  for (const value of values) {
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function buildTaskExecutionArtifact(
+  taskId: string,
+  seq: number,
+  fallbackNow: string,
+  event: GeminiCliHeadlessEvent,
+  resolvedToolName?: string
+): TaskExecutionArtifact {
+  const createdAt = extractEventTimestamp(event, fallbackNow);
+  const payloadJson = isRecord(event.payload) ? event.payload : undefined;
+  const toolName = resolvedToolName ?? extractToolName(event);
+  const role = firstNonEmptyString([
+    event.payload.role,
+    isRecord(event.payload.message) ? event.payload.message.role : undefined
+  ]);
+  const status =
+    event.type === "tool_result"
+      ? extractToolResultStatus(event)
+      : event.type === "result"
+        ? extractResultStatus(event)
+        : undefined;
+
+  switch (event.type) {
+    case "init":
+      return {
+        taskId,
+        seq,
+        kind: "init",
+        createdAt,
+        title: "Executor started",
+        body: firstNonEmptyString([
+          event.payload.model,
+          event.payload.session_id
+        ]),
+        payloadJson
+      };
+    case "message": {
+      const text = extractMessageChunk(event) ?? stringifyIfPresent(event.payload);
+      return {
+        taskId,
+        seq,
+        kind: "message",
+        createdAt,
+        title: role === "assistant" ? "Assistant note" : `${role ?? "executor"} message`,
+        body: text,
+        role,
+        payloadJson
+      };
+    }
+    case "tool_use":
+      return {
+        taskId,
+        seq,
+        kind: "tool_use",
+        createdAt,
+        title: toolName ? `Requested tool: ${toolName}` : "Requested tool",
+        body: extractToolInput(event),
+        toolName,
+        payloadJson
+      };
+    case "tool_result":
+      return {
+        taskId,
+        seq,
+        kind: "tool_result",
+        createdAt,
+        title: toolName ? `Tool result: ${toolName}` : "Tool result",
+        body: firstNonEmptyString([
+          event.payload.output,
+          stringifyIfPresent(event.payload.result),
+          stringifyIfPresent(event.payload.content)
+        ]),
+        toolName,
+        status,
+        payloadJson
+      };
+    case "error":
+      return {
+        taskId,
+        seq,
+        kind: "error",
+        createdAt,
+        title: "Executor error",
+        body: extractErrorMessage(event),
+        payloadJson
+      };
+    case "result":
+      return {
+        taskId,
+        seq,
+        kind: "result",
+        createdAt,
+        title: status ? `Final result: ${status}` : "Final result",
+        body: extractResultResponse(event),
+        status,
+        payloadJson
+      };
+  }
+}
+
+function toProgressMessage(
+  event: GeminiCliHeadlessEvent,
+  resolvedToolName?: string
+): string | undefined {
   switch (event.type) {
     case "tool_use": {
-      const toolName = extractToolName(event) ?? "unknown_tool";
+      const toolName = resolvedToolName ?? extractToolName(event) ?? "unknown_tool";
       return `Tool requested: ${toolName}`;
     }
     case "tool_result": {
-      const toolName = extractToolName(event) ?? "unknown_tool";
+      const toolName = resolvedToolName ?? extractToolName(event) ?? "unknown_tool";
       return `Tool finished: ${toolName}`;
     }
     case "error":
@@ -325,13 +510,33 @@ export async function buildExecutorResultFromGeminiCliOutput(
 ): Promise<ExecutorRunResult> {
   const progressEvents: TaskEvent[] = [];
   const assistantMessages: string[] = [];
+  const artifacts: TaskExecutionArtifact[] = [];
+  const toolNamesById = new Map<string, string>();
   let sessionId: string | undefined;
   let completionMessage: string | undefined;
   let completionReport: TaskCompletionReport | undefined;
+  let naturalFinalAnswer: string | undefined;
   let outcome: ExecutorOutcome = "completed";
   let sawResult = false;
 
   for (const event of input.output.events) {
+    const toolId = extractToolId(event);
+    const directToolName = extractToolName(event);
+    if (event.type === "tool_use" && toolId && directToolName) {
+      toolNamesById.set(toolId, directToolName);
+    }
+    const resolvedToolName =
+      directToolName ?? (toolId ? toolNamesById.get(toolId) : undefined);
+
+    artifacts.push(
+      buildTaskExecutionArtifact(
+        input.taskId,
+        artifacts.length,
+        input.now,
+        event,
+        resolvedToolName
+      )
+    );
     sessionId ??= extractSessionId(event);
 
     if (event.type === "message") {
@@ -348,7 +553,7 @@ export async function buildExecutorResultFromGeminiCliOutput(
       }
     }
 
-    const progressMessage = toProgressMessage(event);
+    const progressMessage = toProgressMessage(event, resolvedToolName);
     if (progressMessage) {
       const progressEvent: TaskEvent = {
         taskId: input.taskId,
@@ -365,7 +570,9 @@ export async function buildExecutorResultFromGeminiCliOutput(
     if (event.type === "result") {
       sawResult = true;
       completionMessage = extractResultResponse(event);
-      completionReport = extractStructuredCompletionReport(completionMessage);
+      const parsedCompletion = extractCompletionResponse(completionMessage);
+      naturalFinalAnswer = parsedCompletion.naturalAnswer;
+      completionReport = parsedCompletion.report;
       const status = extractResultStatus(event);
       if (status === "waiting_input") {
         outcome = "waiting_input";
@@ -375,7 +582,7 @@ export async function buildExecutorResultFromGeminiCliOutput(
     }
 
     if (event.type === "tool_result" && extractToolResultStatus(event) === "error") {
-      const toolName = extractToolName(event) ?? "unknown_tool";
+      const toolName = resolvedToolName ?? "unknown_tool";
       const errorMessage =
         extractErrorMessage(event) ?? `Tool "${toolName}" failed during Gemini CLI execution`;
       throw new Error(`Gemini CLI tool failure (${toolName}): ${errorMessage}`);
@@ -390,7 +597,26 @@ export async function buildExecutorResultFromGeminiCliOutput(
     assistantMessages.length > 0 ? assistantMessages.join("").trim() : undefined;
 
   completionMessage ??= assistantTranscript;
-  completionReport ??= extractStructuredCompletionReport(assistantTranscript);
+  if (!completionReport) {
+    const fallbackCompletion = extractCompletionResponse(assistantTranscript);
+    naturalFinalAnswer ??= fallbackCompletion.naturalAnswer;
+    completionReport = fallbackCompletion.report;
+  }
+  if (completionReport && !completionReport.detailedAnswer) {
+    const assistantTranscriptStructured = assistantTranscript
+      ? parseJsonObjectString(assistantTranscript)
+      : null;
+    completionReport = {
+      ...completionReport,
+      detailedAnswer:
+        naturalFinalAnswer ??
+        (assistantTranscript &&
+        !assistantTranscriptStructured &&
+        englishOnlyValue(assistantTranscript) !== completionReport.summary
+          ? englishOnlyValue(assistantTranscript)
+          : undefined)
+    };
+  }
 
   const finalMessage =
     outcome === "waiting_input" || outcome === "approval_required"
@@ -419,7 +645,8 @@ export async function buildExecutorResultFromGeminiCliOutput(
     },
     outcome,
     sessionId,
-    report: completionReport
+    report: completionReport,
+    artifacts
   };
 }
 

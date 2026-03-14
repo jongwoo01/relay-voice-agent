@@ -19,12 +19,13 @@ describe("GeminiCliExecutor", () => {
       await options?.onStdoutLine?.(
         JSON.stringify({
           type: "result",
-          response: JSON.stringify({
+          response: `I closed three noisy tabs and pinned two important tabs.\nREPORT_JSON: ${JSON.stringify({
             summary: "Closed 3 browser tabs and pinned 2.",
+            keyFindings: ["Closed 3 browser tabs", "Pinned 2 tabs"],
             verification: "verified",
             changes: ["Closed 3 tabs", "Pinned 2 tabs"],
             question: ""
-          })
+          })}`
         })
       );
 
@@ -40,12 +41,13 @@ describe("GeminiCliExecutor", () => {
           }),
           JSON.stringify({
             type: "result",
-            response: JSON.stringify({
+            response: `I closed three noisy tabs and pinned two important tabs.\nREPORT_JSON: ${JSON.stringify({
               summary: "Closed 3 browser tabs and pinned 2.",
+              keyFindings: ["Closed 3 browser tabs", "Pinned 2 tabs"],
               verification: "verified",
               changes: ["Closed 3 tabs", "Pinned 2 tabs"],
               question: ""
-            })
+            })}`
           })
         ].join("\n"),
         stderr: "",
@@ -93,30 +95,36 @@ describe("GeminiCliExecutor", () => {
     expect(exec.mock.calls[0]?.[2]?.env?.GEMINI_API_KEY).toBeUndefined();
     expect(exec.mock.calls[0]?.[2]?.env?.GOOGLE_API_KEY).toBeUndefined();
     expect(exec.mock.calls[0]?.[2]?.env?.GOOGLE_GENAI_USE_VERTEXAI).toBeUndefined();
-    expect(result).toEqual({
-      progressEvents: [
-        {
+    expect(result).toEqual(
+      expect.objectContaining({
+        progressEvents: [
+          {
+            taskId: "task-1",
+            type: "executor_progress",
+            message: "Tool requested: browser.inspect_tabs",
+            createdAt: "2026-03-08T00:00:00.000Z"
+          }
+        ],
+        completionEvent: {
           taskId: "task-1",
-          type: "executor_progress",
-          message: "Tool requested: browser.inspect_tabs",
+          type: "executor_completed",
+          message: "Closed 3 browser tabs and pinned 2.",
           createdAt: "2026-03-08T00:00:00.000Z"
-        }
-      ],
-      completionEvent: {
-        taskId: "task-1",
-        type: "executor_completed",
-        message: "Closed 3 browser tabs and pinned 2.",
-        createdAt: "2026-03-08T00:00:00.000Z"
-      },
-      sessionId: "session-123",
-      outcome: "completed",
-      report: {
-        summary: "Closed 3 browser tabs and pinned 2.",
-        verification: "verified",
-        changes: ["Closed 3 tabs", "Pinned 2 tabs"],
-        question: undefined
-      }
-    });
+        },
+        sessionId: "session-123",
+        outcome: "completed",
+        report: expect.objectContaining({
+          summary: "Closed 3 browser tabs and pinned 2.",
+          detailedAnswer: "I closed three noisy tabs and pinned two important tabs.",
+          keyFindings: ["Closed 3 browser tabs", "Pinned 2 tabs"],
+          verification: "verified",
+          changes: ["Closed 3 tabs", "Pinned 2 tabs"],
+          question: undefined
+        }),
+        artifacts: expect.any(Array)
+      })
+    );
+    expect(result.artifacts?.length).toBe(3);
     expect(onProgress).toHaveBeenCalledWith({
       taskId: "task-1",
       type: "executor_progress",
