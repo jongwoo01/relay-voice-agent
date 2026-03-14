@@ -8,9 +8,11 @@
   "main": "./main.js",
   "scripts": {
     "dev": "npm --prefix ../.. run build:runtimes && electron .",
-    "dist:dir": "npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir",
-    "dist:mac": "npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip",
-    "dist:win": "npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis"
+    "clean:dist": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "dist:dir": "npm run clean:dist && npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --mac --universal",
+    "dist:mac": "npm run clean:dist && npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --universal",
+    "dist:mac:x64": "npm run clean:dist && npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --x64",
+    "dist:win": "npm run clean:dist && npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis --x64"
   },
   "dependencies": {
   },
@@ -43,13 +45,23 @@
     "mac": {
       "identity": null,
       "target": [
-        "zip"
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
       ],
       "category": "public.app-category.productivity"
     },
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {

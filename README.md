@@ -7,7 +7,7 @@ This repository contains the public submission package for the prototype:
 - an Electron companion client used as the live demo surface
 - a Cloud Run-ready agent service that owns the live session, task orchestration, and canonical state
 - a Gemini CLI executor adapter for grounded local-machine work on the connected desktop
-- Postgres schema and repository layers for canonical task state and narrow typed profile memory
+- Postgres schema and repository layers for canonical task state and session-scoped memory
 
 ## Why This Fits The Gemini Live Agent Challenge
 
@@ -32,7 +32,8 @@ This repository contains the public submission package for the prototype:
 - Runtime-backed task intake and follow-up loop on the server
 - Single-tool delegation path from Gemini Live to the connected desktop executor
 - Structured completion reports for grounded task summaries
-- Postgres persistence layer for sessions, tasks, task events, intake sessions, and typed profile memory
+- Postgres persistence layer for sessions, tasks, task events, intake sessions, and session-scoped memory
+- Ordered SQL migrations with deploy-time application and runtime schema validation
 - Automated tests for judge auth, hosted WebSocket control, cloud-session executor round-trips, desktop hosted client behavior, routing, and persistence contracts
 
 ## What Is Still Outside The Repo-Managed Submission Package
@@ -75,7 +76,7 @@ These gaps are documented on purpose so the public repository does not over-clai
 - npm `11.9.0`
 - `gcloud` CLI with Application Default Credentials for the main desktop flow
 - the `gemini` CLI installed if you want real local task execution
-- Postgres is required for the hosted path because sessions, tasks, and profile memory are canonical server state
+- Postgres is required for the hosted path because sessions, tasks, and session memory are canonical server state
 
 ### Install
 
@@ -107,6 +108,13 @@ gcloud config set project <project-id>
 npm run dev:agent-api
 ```
 
+This command applies the repo migration set before starting the server.
+To run migrations explicitly, use:
+
+```bash
+npm run db:migrate --workspace @agent/agent-api
+```
+
 For local development with Docker-managed Postgres, start the database separately:
 
 ```bash
@@ -126,7 +134,7 @@ Optional judge identity mapping:
 
 - `JUDGE_USERS_JSON`
   - JSON array of `{ "passcode": "...", "email": "...", "displayName": "..." }`
-  - Recommended for per-judge isolation so task history and profile memory do not bleed across judges
+  - Recommended for per-judge isolation so task history and session memory do not bleed across judges
 
 Optional local Postgres overrides:
 
@@ -174,9 +182,12 @@ npm run deploy:agent-api:cloud-run
 
 This script:
 
+- applies the ordered SQL migration set against the target database before deployment
 - builds the monorepo image with `apps/agent-api/Dockerfile`
 - pushes it to Artifact Registry
 - deploys the service to Cloud Run with the required hosted-path environment
+
+At runtime, the server validates that all repo migrations are already applied and refuses to boot if the database schema is behind or drifted.
 
 ### Run The Desktop Companion
 
@@ -206,7 +217,11 @@ npm run dist:desktop:mac
 npm run dist:desktop:win
 ```
 
-Note: unsigned desktop builds may still show macOS Gatekeeper or Windows SmartScreen warnings.
+Notes:
+
+- `npm run dist:desktop:mac` builds a macOS universal zip so the same artifact runs on Apple Silicon and Intel Macs
+- `npm run dist:desktop:win` builds a Windows x64 NSIS installer for standard judge laptops and desktops
+- unsigned desktop builds may still show macOS Gatekeeper or Windows SmartScreen warnings
 
 ### Build Unsigned Judge Installers
 
@@ -215,26 +230,26 @@ npm run dist:desktop:mac
 npm run dist:desktop:win
 ```
 
-These builds are intended for judge distribution. They are unsigned, so macOS Gatekeeper or Windows SmartScreen may show a first-launch warning.
+These builds are intended for judge distribution. The macOS artifact is universal, and the Windows installer targets x64. They are unsigned, so macOS Gatekeeper or Windows SmartScreen may show a first-launch warning.
 
 ### Fast Smoke Paths
-
-Mocked desktop runtime:
-
-```bash
-npm run smoke:desktop -- --mock
-```
-
-Gemini CLI-backed desktop runtime:
-
-```bash
-npm run smoke:desktop -- --raw-executor
-```
 
 Text runtime harness:
 
 ```bash
 npm run dev:text-session
+```
+
+Suggested no-cost commands inside the harness:
+
+- `/task Clean up the downloads folder`
+- `/chat Hello`
+- `/messages`
+
+Gemini CLI-backed text runtime:
+
+```bash
+npm run dev:text-session -- --gemini --raw-executor
 ```
 
 Standalone live text harness:
@@ -258,7 +273,7 @@ The repository is intentionally organized so the core behavior can be verified w
 ## Judge And Tester Notes
 
 - Start with [docs/judge-testing.md](docs/judge-testing.md)
-- The repo supports both a no-cost mock smoke path and a hosted judge path
+- The repo supports both a no-cost text harness path and a hosted judge path
 - The hosted service owns live/session/task orchestration on Google Cloud
 - The hosted path requires model-backed intent, intake, and routing; failures are surfaced explicitly to the user
 - Real local task execution still requires the `gemini` CLI on the connected desktop machine

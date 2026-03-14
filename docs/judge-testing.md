@@ -10,16 +10,21 @@ Use this when you want to verify the runtime shape without live cloud credential
 
 ```bash
 npm install
-npm run smoke:desktop -- --mock
+npm run dev:text-session
 ```
 
 What this shows:
 
-- desktop runtime boot
-- task orchestration path
+- text-driven orchestration without the Electron shell
 - assistant/task state transitions
-- summary output without requiring Gemini Live or the `gemini` CLI
-- a local smoke path only; it is not the hosted judging path
+- summary output without requiring the `gemini` CLI when you stay on the default mock executor
+- a local developer harness only; it is not the hosted judging path
+
+Suggested commands inside the harness:
+
+- `/task Clean up the downloads folder`
+- `/chat Hello`
+- `/messages`
 
 ### Option 2: Hosted judge path
 
@@ -67,6 +72,8 @@ npm run dist:desktop:win
 Notes:
 
 - these are unsigned judge builds
+- the macOS artifact is a universal build for Apple Silicon and Intel Macs
+- the Windows installer targets x64 instead of ARM64
 - macOS may show a Gatekeeper warning for an unidentified developer build
 - Windows may show a SmartScreen warning before first launch
 - the packaged app still expects a hosted `AGENT_CLOUD_URL` and a judge passcode

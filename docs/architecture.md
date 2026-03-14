@@ -1,6 +1,6 @@
 # Architecture Overview
 
-This document explains the submission topology and shows how the current repository maps to that topology.
+This document reflects the current submission architecture in the repository.
 
 ## Submission Topology
 
@@ -8,71 +8,71 @@ This document explains the submission topology and shows how the current reposit
 flowchart LR
     user["User"]
     desktop["Electron Desktop Companion\napps/desktop"]
-    live["Gemini Live Session"]
-    bridge["Live Brain Bridge\nruntime context sync\nsendToolResponse loop"]
-    core["Agent Core\n@agent/agent-api\nintent, intake, task routing,\nfollow-up policy, persistence"]
-    exec["Gemini CLI Executor\n@agent/gemini-cli-runner"]
-    db["Cloud SQL / Postgres\nsessions, tasks, events,\nintake, completion reports,\nmemory_items"]
-
-    subgraph client["Desktop Surface"]
-      desktop
-      bridge
-    end
-
-    subgraph google["Google Cloud Submission Topology"]
-      core
-      db
-    end
+    cloud["Cloud Run Agent Core\napps/agent-api"]
+    live["Gemini Live Session\nserver-owned"]
+    db["Cloud SQL / Postgres"]
+    cli["Gemini CLI Executor\nconnected desktop"]
 
     user --> desktop
-    desktop <--> live
-    live <--> bridge
-    bridge <--> core
-    core <--> exec
-    core <--> db
-    core --> live
+    desktop <-->|HTTP + WebSocket| cloud
+    cloud <-->|Live API| live
+    cloud <-->|sessions, tasks, memory| db
+    cloud <-->|executor requests + results| cli
 ```
 
 ## Responsibility Split
 
 ### Electron desktop companion
 
-- Presents the live companion UI
-- Streams microphone audio and receives model audio output
-- Forwards final transcripts and tool calls into the runtime/task layer
-- Shows live message history, task status, and follow-up state
+- Captures microphone input and plays assistant audio
+- Renders the hosted conversation, task state, history, and debug surface
+- Accepts the judge passcode and opens the hosted session
+- Executes grounded local work through the connected `gemini` CLI worker
+
+### Cloud Run agent core
+
+- Owns the live Gemini session
+- Owns canonical task state, follow-up policy, routing, and persistence
+- Authenticates judges and issues short-lived session tokens
+- Requests local execution from the connected desktop only when grounded machine work is needed
 
 ### Gemini Live session
 
-- Handles real-time speech interaction
-- Supports interruption and same-session turn continuity
-- Calls a single tool, `delegate_to_gemini_cli`, when grounded local work or task follow-up is needed
-
-### Agent core
-
-- Resolves intent, task intake, and task routing
-- Preserves canonical truth for tasks and follow-up behavior
-- Converts runtime/task state into grounded briefings
-- Stores sessions, task events, intake sessions, and completion reports
-
-### Gemini CLI executor
-
-- Performs local machine work through the `gemini` CLI
-- Returns structured completion reports instead of unbounded free-form summaries
-- Feeds verified results back into the runtime/task layer
+- Runs on the server side, not inside Electron
+- Handles real-time speech input/output and interruption
+- Uses the single `delegate_to_gemini_cli` tool for local-machine execution and task follow-up
 
 ### Cloud SQL / Postgres
 
-- Persists brain sessions, messages, tasks, task events, intake sessions, and completion reports
-- Provides the canonical state needed for status checks and grounded follow-up
+- Stores sessions, conversation messages, tasks, task events, intake sessions, and typed profile memory
+- Preserves canonical state across reconnects and judge sessions
+
+### Connected desktop executor
+
+- Runs on the judge or user machine through the local `gemini` CLI
+- Performs local file/app/browser work that cannot be done purely in the cloud
+- Returns structured completion reports instead of free-form success claims
 
 ## Current Repo Mapping
 
-- `apps/desktop` contains the Electron companion and live bridge
-- `apps/agent-api` contains the agent core modules and persistence layer
-- `packages/gemini-cli-runner` contains the Gemini CLI executor adapter
-- `db/migrations` contains the Postgres schema
+- `apps/desktop`
+  - Electron shell
+  - hosted session client
+  - local executor bridge
+- `apps/agent-api`
+  - Cloud Run-ready HTTP and WebSocket server
+  - live session orchestration
+  - task routing, intake, follow-up, and persistence
+- `packages/gemini-cli-runner`
+  - Gemini CLI command builder, subprocess execution, and output parsing
+- `db/migrations`
+  - Postgres schema for canonical state
 
-## Important Submission Note
+## Submission Note
 
-This repository already contains the modules that define the cloud-hosted agent core. The remaining submission gap is packaging and proof: a deployed Cloud Run service wrapper, deployment artifacts, and screenshots or URLs that show the cloud-hosted core in operation.
+The important boundary is:
+
+- cloud-hosted: live session, task orchestration, persistence, judge auth
+- local desktop: audio surface and grounded machine execution
+
+That is the architecture you should show in the Devpost diagram and in the demo narration.
