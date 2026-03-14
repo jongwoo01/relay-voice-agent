@@ -41,7 +41,7 @@ import {
 } from "../conversation/task-routing-resolver.js";
 import {
   buildVertexAiFailureMessage,
-  classifyVertexAiFailure
+  logVertexAiFailure
 } from "../config/vertex-ai-config.js";
 
 export interface HandleTurnInput {
@@ -170,9 +170,13 @@ export class TextRealtimeSessionLoop {
         now: input.now
       });
     } catch (error) {
-      const reason = classifyVertexAiFailure(error);
+      const reason = logVertexAiFailure("text-realtime intake", error, {
+        brainSessionId: input.brainSessionId,
+        utterance: input.utterance.text,
+        activeTaskCount: activeTasks.length
+      });
       const replyText = buildVertexAiFailureMessage(reason);
-      console.log(
+      console.error(
         `[text-realtime-loop] intake error ${JSON.stringify({
           brainSessionId: input.brainSessionId,
           utterance: input.utterance.text,

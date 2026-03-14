@@ -17,7 +17,7 @@ import type { TaskRoutingDecision } from "../conversation/task-routing-resolver.
 import type { VertexAiFailureReason } from "../config/vertex-ai-config.js";
 import {
   buildVertexAiFailureMessage,
-  classifyVertexAiFailure
+  logVertexAiFailure
 } from "../config/vertex-ai-config.js";
 
 export type DelegateToGeminiCliMode =
@@ -260,7 +260,12 @@ export class DelegateToGeminiCliService {
         now: input.now
       });
     } catch (error) {
-      const reason = classifyVertexAiFailure(error);
+      const reason = logVertexAiFailure("delegate auto-handle", error, {
+        brainSessionId: input.brainSessionId,
+        mode,
+        taskId: input.taskId ?? null,
+        request
+      });
       return this.buildErrorResult(
         buildVertexAiFailureMessage(reason),
         reason,

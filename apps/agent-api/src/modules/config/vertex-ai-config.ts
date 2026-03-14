@@ -250,6 +250,25 @@ export function classifyVertexAiFailure(
   return extractVertexAiFailureDetail(error).reason;
 }
 
+export function logVertexAiFailure(
+  label: string,
+  error: unknown,
+  details: Record<string, unknown> = {}
+): VertexAiFailureReason {
+  const failure = extractVertexAiFailureDetail(error);
+  console.error(
+    `[vertex-ai] ${label} ${JSON.stringify({
+      ...details,
+      reason: failure.reason,
+      code: failure.code,
+      rawCode: failure.rawCode ?? null,
+      message: failure.message,
+      errorType: error instanceof Error ? error.name : typeof error
+    })}`
+  );
+  return failure.reason;
+}
+
 export function buildVertexAiFailureMessage(
   reason: VertexAiFailureReason,
   detailMessage?: string | null

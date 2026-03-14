@@ -16,7 +16,7 @@ import {
 import { buildTaskStatusMessage } from "../tasks/task-status-message.js";
 import {
   buildVertexAiFailureMessage,
-  classifyVertexAiFailure
+  logVertexAiFailure
 } from "../config/vertex-ai-config.js";
 
 export interface BrainTurnResult {
@@ -145,7 +145,12 @@ export class BrainTurnService {
         taskContexts: input.taskContexts
       });
     } catch (error) {
-      const reason = classifyVertexAiFailure(error);
+      const reason = logVertexAiFailure("brain-turn routing", error, {
+        utterance: input.utterance.text,
+        intent: input.utterance.intent,
+        activeTaskCount: input.activeTasks.length,
+        recentTaskCount: (input.recentTasks ?? []).length
+      });
       const replyText = buildVertexAiFailureMessage(reason);
       logBrainTurn("routing error", {
         utterance: input.utterance.text,
