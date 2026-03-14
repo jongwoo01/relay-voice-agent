@@ -9,6 +9,10 @@ import type {
 import { ConversationOrchestrator } from "./conversation-orchestrator.js";
 import { TaskExecutionService } from "../tasks/task-execution-service.js";
 import {
+  createTaskId as createDefaultTaskId,
+  type TaskIdGenerator
+} from "../tasks/task-id.js";
+import {
   createDefaultTaskRoutingResolver,
   type TaskRoutingDecision,
   type TaskRoutingResolver
@@ -26,12 +30,6 @@ export interface BrainTurnResult {
   taskEvents?: TaskEvent[];
   executorSession?: TaskExecutorSession;
   routingDecision?: TaskRoutingDecision;
-}
-
-export type TaskIdGenerator = () => string;
-
-function defaultTaskIdGenerator(): string {
-  return `task-${crypto.randomUUID()}`;
 }
 
 function normalizeText(text: string): string {
@@ -109,7 +107,7 @@ export class BrainTurnService {
   constructor(
     private readonly orchestrator: ConversationOrchestrator = new ConversationOrchestrator(),
     private readonly taskExecutionService: TaskExecutionService = new TaskExecutionService(),
-    private readonly createTaskId: TaskIdGenerator = defaultTaskIdGenerator,
+    private readonly createTaskId: TaskIdGenerator = createDefaultTaskId,
     private readonly taskRoutingResolver: TaskRoutingResolver = createDefaultTaskRoutingResolver()
   ) {}
 
