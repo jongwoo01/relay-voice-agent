@@ -111,6 +111,30 @@ const LIVE_SPEECH_ACTIVITY_THRESHOLD = 0.03;
 const LIVE_SPEECH_IDLE_MS = 320;
 const LIVE_BARGE_IN_CONFIRM_MS = 140;
 
+window.addEventListener("error", (event) => {
+  console.error("[desktop-renderer] uncaught error", {
+    message: event.message,
+    filename: event.filename,
+    lineno: event.lineno,
+    colno: event.colno,
+    stack: event.error instanceof Error ? event.error.stack : null
+  });
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  console.error(
+    "[desktop-renderer] unhandled rejection",
+    reason instanceof Error
+      ? {
+          name: reason.name,
+          message: reason.message,
+          stack: reason.stack ?? null
+        }
+      : reason
+  );
+});
+
 function getVoiceState() {
   return (
     desktopUiState?.voiceControlState ?? {

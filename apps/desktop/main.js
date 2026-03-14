@@ -65,6 +65,42 @@ function redactSensitiveText(value) {
     .replace(/1\/\/[A-Za-z0-9._-]+/g, "[REDACTED_TOKEN]");
 }
 
+function serializeUnknownError(error) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack ?? null
+    };
+  }
+
+  return {
+    name: typeof error,
+    message: String(error),
+    stack: null
+  };
+}
+
+function logDesktopError(label, details) {
+  const serialized = JSON.stringify(details);
+  console.error(`[desktop-main] ${label} ${serialized}`);
+  logDesktop(`[desktop-main] ${label} ${serialized}`);
+}
+
+function registerIpcHandle(channel, handler) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    try {
+      return await handler(event, ...args);
+    } catch (error) {
+      logDesktopError("ipc handler failed", {
+        channel,
+        error: serializeUnknownError(error)
+      });
+      throw error;
+    }
+  });
+}
+
 function buildRawExecutorEventSummary(event) {
   const summary = {
     type: event?.type ?? null
@@ -126,6 +162,23 @@ function createWindow() {
       sandbox: true,
       nodeIntegration: false
     }
+  });
+
+  mainWindow.webContents.on("console-message", (details) => {
+    logDesktop(
+      `[desktop-renderer][console:${details.level}] ${JSON.stringify({
+        message: redactSensitiveText(details.message),
+        line: details.lineNumber,
+        sourceId: details.sourceId
+      })}`
+    );
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    logDesktopError("renderer process gone", {
+      reason: details.reason,
+      exitCode: details.exitCode
+    });
   });
 
   runtime = new HostedSessionRuntime({
@@ -192,6 +245,18 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  process.on("uncaughtException", (error) => {
+    logDesktopError("uncaught exception", {
+      error: serializeUnknownError(error)
+    });
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    logDesktopError("unhandled rejection", {
+      error: serializeUnknownError(reason)
+    });
+  });
+
   const allowedPermissions = new Set(["media", "microphone"]);
   app.on("web-contents-created", (_event, contents) => {
     contents.session.setPermissionRequestHandler((webContents, permission, callback) => {
@@ -202,12 +267,12 @@ app.whenReady().then(() => {
     });
   });
 
-  ipcMain.handle("session:init", async (event) => {
+  registerIpcHandle("session:init", async (event) => {
     assertTrustedSender(event);
     return runtime.init();
   });
 
-  ipcMain.handle("session:send", async (event, text) => {
+  registerIpcHandle("session:send", async (event, text) => {
     assertTrustedSender(event);
     await runtime.startInput(text);
     try {
@@ -220,7 +285,7 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle("companion:send-typed-turn", async (event, text) => {
+  registerIpcHandle("companion:send-typed-turn", async (event, text) => {
     assertTrustedSender(event);
     await runtime.startInput(text);
     try {
@@ -233,22 +298,22 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle("session:toggle-mic", async (event) => {
+  registerIpcHandle("session:toggle-mic", async (event) => {
     assertTrustedSender(event);
     return runtime.toggleMic();
   });
 
-  ipcMain.handle("session:set-user-speaking", async (event, speaking) => {
+  registerIpcHandle("session:set-user-speaking", async (event, speaking) => {
     assertTrustedSender(event);
     return runtime.setUserSpeaking(speaking);
   });
 
-  ipcMain.handle("session:set-assistant-speaking", async (event, speaking) => {
+  registerIpcHandle("session:set-assistant-speaking", async (event, speaking) => {
     assertTrustedSender(event);
     return runtime.setAssistantSpeaking(speaking);
   });
 
-  ipcMain.handle("live:init", async (event) => {
+  registerIpcHandle("live:init", async (event) => {
     assertTrustedSender(event);
     const state = await cloudSession.getState();
     desktopUiState.setLiveState(state);
@@ -256,7 +321,7 @@ app.whenReady().then(() => {
     return state;
   });
 
-  ipcMain.handle("desktop-ui:init", async (event) => {
+  registerIpcHandle("desktop-ui:init", async (event) => {
     assertTrustedSender(event);
     const [sessionState, liveState] = await Promise.all([
       runtime.init(),
@@ -267,28 +332,28 @@ app.whenReady().then(() => {
     return desktopUiState.compose();
   });
 
-  ipcMain.handle("live:connect", async (event, passcode) => {
+  registerIpcHandle("live:connect", async (event, passcode) => {
     assertTrustedSender(event);
     return cloudSession.connect(passcode);
   });
 
-  ipcMain.handle("live:disconnect", async (event) => {
+  registerIpcHandle("live:disconnect", async (event) => {
     assertTrustedSender(event);
     return cloudSession.disconnect();
   });
 
-  ipcMain.handle("live:set-muted", async (event, muted) => {
+  registerIpcHandle("live:set-muted", async (event, muted) => {
     assertTrustedSender(event);
     return cloudSession.setMuted(muted);
   });
 
-  ipcMain.handle("live:end-audio-stream", async (event) => {
+  registerIpcHandle("live:end-audio-stream", async (event) => {
     assertTrustedSender(event);
     cloudSession.endAudioStream();
     return cloudSession.getState();
   });
 
-  ipcMain.handle("live:send-text", async (event, text) => {
+  registerIpcHandle("live:send-text", async (event, text) => {
     assertTrustedSender(event);
     return cloudSession.sendText(text);
   });
