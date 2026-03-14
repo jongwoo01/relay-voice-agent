@@ -76,6 +76,7 @@ describe("task-routing-resolver", () => {
   it("keeps status and continue examples distinct in the prompt", async () => {
     const generateContent = vi.fn(async ({ contents }) => {
       expect(contents).toContain('Example: "아까 만든 폴더 작업 어디까지 됐어?" -> status.');
+      expect(contents).toContain('Example: "완료되면 알려줘" -> set_completion_notification.');
       expect(contents).toContain('Example: "그 작업 이어서 해" -> continue_task.');
       return {
         text: JSON.stringify({

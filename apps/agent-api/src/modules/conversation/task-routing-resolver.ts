@@ -5,6 +5,10 @@ import type {
   TaskStatus
 } from "@agent/shared-types";
 import {
+  isCompletionNotificationRequest,
+  selectContinuationTask
+} from "@agent/brain-domain";
+import {
   createDefaultGenAiClientFactory,
   type GenAiClientFactory
 } from "../config/genai-client-factory.js";
@@ -16,6 +20,7 @@ const TASK_ROUTING_KINDS = [
   "reply",
   "clarify",
   "status",
+  "set_completion_notification",
   "continue_task",
   "continue_blocked_task",
   "create_task"
@@ -170,6 +175,121 @@ function serializeTaskContexts(taskContexts: TaskRoutingTaskContext[]): string {
   );
 }
 
+function normalizeUtterance(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function looksLikeStatusRequest(text: string): boolean {
+  return /(상태|진행|어디까지|결과|완료|됐어|됐나|진척|progress|status|result)/i.test(
+    text
+  );
+}
+
+function selectStatusTarget(
+  input: TaskRoutingResolverInput,
+  taskContexts: TaskRoutingTaskContext[]
+): Task | null {
+  const normalized = normalizeUtterance(input.utterance.text);
+  const activeTasks = taskContexts.filter((context) => context.isActive).map((context) => context.task);
+  const recentTasks = taskContexts
+    .filter((context) => context.isRecentCompleted)
+    .map((context) => context.task);
+
+  if (!looksLikeStatusRequest(normalized)) {
+    return null;
+  }
+
+  return activeTasks[0] ?? recentTasks[0] ?? null;
+}
+
+export class HeuristicTaskRoutingResolver implements TaskRoutingResolver {
+  async resolve(input: TaskRoutingResolverInput): Promise<TaskRoutingDecision> {
+    const taskContexts = normalizeTaskContexts(input);
+    const continuationTarget = selectContinuationTask(
+      input.utterance.text,
+      input.activeTasks
+    );
+    if (continuationTarget && isCompletionNotificationRequest(input.utterance.text)) {
+      return {
+        kind: "set_completion_notification",
+        targetTaskId: continuationTarget.id,
+        clarificationNeeded: false,
+        clarificationText: null,
+        executorPrompt: null,
+        reason: "Heuristic fallback matched a completion-notification request"
+      };
+    }
+
+    const statusTarget = selectStatusTarget(input, taskContexts);
+    if (statusTarget) {
+      return {
+        kind: "status",
+        targetTaskId: statusTarget.id,
+        clarificationNeeded: false,
+        clarificationText: null,
+        executorPrompt: null,
+        reason: "Heuristic fallback matched a status request"
+      };
+    }
+
+    if (input.utterance.intent === "small_talk" || input.utterance.intent === "question") {
+      return {
+        kind: "reply",
+        targetTaskId: null,
+        clarificationNeeded: false,
+        clarificationText: null,
+        executorPrompt: null,
+        reason: "Heuristic fallback preserved direct conversational reply"
+      };
+    }
+
+    if (input.utterance.intent === "unclear") {
+      return {
+        kind: "clarify",
+        targetTaskId: null,
+        clarificationNeeded: true,
+        clarificationText: "어떤 작업으로 이해하면 될지 한 번만 더 짚어줘.",
+        executorPrompt: null,
+        reason: "Heuristic fallback could not infer a concrete task"
+      };
+    }
+
+    if (continuationTarget) {
+      return {
+        kind: "continue_task",
+        targetTaskId: continuationTarget.id,
+        clarificationNeeded: false,
+        clarificationText: null,
+        executorPrompt: input.utterance.text,
+        reason: "Heuristic fallback matched an active task continuation"
+      };
+    }
+
+    const blockedTask = input.activeTasks.find(
+      (task) => task.status === "waiting_input" || task.status === "approval_required"
+    );
+    if (blockedTask) {
+      return {
+        kind: "continue_blocked_task",
+        targetTaskId: blockedTask.id,
+        clarificationNeeded: false,
+        clarificationText: null,
+        executorPrompt: input.utterance.text,
+        reason: "Heuristic fallback routed the turn to the blocked active task"
+      };
+    }
+
+    return {
+      kind: "create_task",
+      targetTaskId: null,
+      clarificationNeeded: false,
+      clarificationText: null,
+      executorPrompt: input.utterance.text,
+      reason: "Heuristic fallback started a new task"
+    };
+  }
+}
+
 export class GeminiTaskRoutingResolver implements TaskRoutingResolver {
   constructor(
     private readonly client: TaskRoutingModelClientLike,
@@ -221,6 +341,7 @@ export class GeminiTaskRoutingResolver implements TaskRoutingResolver {
         "- reply: only for conversational non-task replies.",
         "- clarify: the task or action is ambiguous and needs a question.",
         "- status: the user wants a status/result update without new execution.",
+        "- set_completion_notification: the user wants to be notified when an active task finishes.",
         "- continue_task: continue an existing task that is not blocked.",
         "- continue_blocked_task: the user is answering a blocked task or giving more input to continue it.",
         "- create_task: start a brand new task.",
@@ -228,6 +349,7 @@ export class GeminiTaskRoutingResolver implements TaskRoutingResolver {
         "Treat completed tasks as references to past results by default, not as the default target to continue.",
         "If the user refers to a recently created folder/file/list/summary and asks to do something new with it, prefer create_task.",
         "Choose status only for explicit progress/result/completion questions.",
+        "Choose set_completion_notification only when the user is clearly asking to be told when an active task completes.",
         "Choose continue_task or continue_blocked_task only when the user clearly wants the same task to keep going.",
         "Use only the provided task ids. If no task should be targeted, return null.",
         "If there are multiple plausible target tasks, choose clarify.",
@@ -236,11 +358,13 @@ export class GeminiTaskRoutingResolver implements TaskRoutingResolver {
         "If delegateMode is resume, prefer continue_task or continue_blocked_task or clarify.",
         "If delegateMode is new_task, prefer create_task.",
         "For continue_task, continue_blocked_task, and create_task, executorPrompt must contain the exact prompt to send to the executor.",
+        "For reply, clarify, status, and set_completion_notification, executorPrompt must be null.",
         "Preserve the user's wording in executorPrompt. Only add the minimum necessary context if the user is clearly answering a blocked task.",
         "For clarify, set clarificationNeeded=true and provide a short Korean clarificationText.",
         "For non-clarify decisions, set clarificationNeeded=false and clarificationText=null.",
         'Example: "아까 만든 LLM 폴더에 현대 LLM 뉴스 txt 파일 만들어줘" -> create_task.',
         'Example: "아까 만든 폴더 작업 어디까지 됐어?" -> status.',
+        'Example: "완료되면 알려줘" -> set_completion_notification.',
         'Example: "그 작업 이어서 해" -> continue_task.',
         `Utterance intent: ${input.utterance.intent}`,
         `Latest utterance: ${input.utterance.text}`,

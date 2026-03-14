@@ -188,7 +188,11 @@ describe("brain-turn-service", () => {
       ),
       undefined,
       {
-        resolve: async () => createRoutingDecision()
+        resolve: async () =>
+          createRoutingDecision({
+            kind: "set_completion_notification",
+            targetTaskId: "task-existing"
+          })
       } satisfies TaskRoutingResolver
     );
 
@@ -214,5 +218,37 @@ describe("brain-turn-service", () => {
     });
     expect(result.replyText).toContain("끝나면 바로 알려드릴게요");
     expect(executor.run).not.toHaveBeenCalled();
+  });
+
+  it("returns an explicit error when routing fails instead of guessing", async () => {
+    const service = new BrainTurnService(
+      new ConversationOrchestrator(),
+      new TaskExecutionService(),
+      undefined,
+      {
+        resolve: async () => {
+          throw new Error("Vertex AI unavailable");
+        }
+      } satisfies TaskRoutingResolver
+    );
+
+    const result = await service.handle({
+      brainSessionId: "brain-1",
+      utterance: utterance("이어서 해", "task_request"),
+      activeTasks: [
+        {
+          id: "task-existing",
+          title: "브라우저 정리",
+          normalizedGoal: "browser cleanup",
+          status: "running",
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z"
+        }
+      ],
+      now: "2026-03-08T00:03:00.000Z"
+    });
+
+    expect(result.action.type).toBe("error");
+    expect(result.replyText).toContain("Vertex AI");
   });
 });

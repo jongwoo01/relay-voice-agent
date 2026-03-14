@@ -16,7 +16,8 @@ export class GeminiApiConfigurationError extends Error {
   }
 }
 
-export const DEFAULT_GEMINI_LIVE_MODEL = "gemini-live-2.5-flash-preview";
+export const DEFAULT_GEMINI_LIVE_MODEL =
+  "gemini-2.5-flash-native-audio-preview-12-2025";
 
 function resolveApiKey(env: NodeJS.ProcessEnv): string | undefined {
   const geminiApiKey = env.GEMINI_API_KEY?.trim();

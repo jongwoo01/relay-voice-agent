@@ -120,22 +120,6 @@ export class BrainTurnService {
       activeTasks: summarizeTasks(input.activeTasks),
       recentTasks: summarizeTasks(input.recentTasks ?? [])
     });
-    if (
-      input.activeTasks.length > 0 &&
-      /(완료|끝|끝나|되면).*(알려|말해|보고)/.test(
-        normalizeText(input.utterance.text)
-      )
-    ) {
-      const action: NextAction = {
-        type: "set_completion_notification",
-        taskId: input.activeTasks[0].id
-      };
-      return {
-        action,
-        replyText: "네, 지금 진행 중인 작업이 끝나면 바로 알려드릴게요."
-      };
-    }
-
     if (input.utterance.intent === "small_talk" || input.utterance.intent === "question") {
       const action: NextAction = { type: "reply" };
       return {
@@ -244,6 +228,43 @@ export class BrainTurnService {
       return {
         action: { type: "status", taskId: task.id },
         replyText: buildTaskStatusMessage(task),
+        task,
+        routingDecision: decision
+      };
+    }
+
+    if (decision.kind === "set_completion_notification") {
+      const task = [...input.activeTasks, ...(input.recentTasks ?? [])].find(
+        (candidate) => candidate.id === decision.targetTaskId
+      );
+
+      if (!task) {
+        logBrainTurn("completion notification target missing", {
+          utterance: input.utterance.text,
+          requestedTaskId: decision.targetTaskId
+        });
+        return {
+          action: { type: "clarify" },
+          replyText: "어떤 작업이 끝나면 알려드리면 될지 한 번만 더 짚어줘.",
+          routingDecision: {
+            ...decision,
+            kind: "clarify",
+            clarificationNeeded: true,
+            clarificationText:
+              "어떤 작업이 끝나면 알려드리면 될지 한 번만 더 짚어줘."
+          }
+        };
+      }
+
+      logBrainTurn("final action", {
+        utterance: input.utterance.text,
+        action: "set_completion_notification",
+        taskId: task.id,
+        taskStatus: task.status
+      });
+      return {
+        action: { type: "set_completion_notification", taskId: task.id },
+        replyText: "네, 지금 진행 중인 작업이 끝나면 바로 알려드릴게요.",
         task,
         routingDecision: decision
       };

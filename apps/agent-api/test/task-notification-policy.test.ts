@@ -27,7 +27,10 @@ describe("task-notification-policy", () => {
     expect(plan).toEqual({
       uiText: "좋아, 끝냈어. 바탕화면에는 3개의 폴더가 있어.",
       speechText: "짧게 보고할게. 좋아, 끝냈어. 바탕화면에는 3개의 폴더가 있어.",
-      delivery: "immediate"
+      delivery: "immediate",
+      reason: "task_completed",
+      taskId: undefined,
+      createdAt: "2026-03-08T00:00:01.000Z"
     });
   });
 
@@ -40,7 +43,10 @@ describe("task-notification-policy", () => {
     expect(plan).toEqual({
       uiText: "좋아, 끝냈어. 바탕화면에는 3개의 폴더가 있어.",
       speechText: "좋아, 마무리됐어. 좋아, 끝냈어. 바탕화면에는 3개의 폴더가 있어.",
-      delivery: "next_turn"
+      delivery: "next_turn",
+      reason: "task_completed",
+      taskId: undefined,
+      createdAt: "2026-03-08T00:00:01.000Z"
     });
   });
 
@@ -67,7 +73,10 @@ describe("task-notification-policy", () => {
     expect(plan).toEqual({
       uiText: "앗, 여기서 막혔어. 권한이 필요해.",
       speechText: "앗, 여기서 막혔어. 권한이 필요해.",
-      delivery: "interrupt_if_speaking"
+      delivery: "interrupt_if_speaking",
+      reason: "task_failed",
+      taskId: undefined,
+      createdAt: "2026-03-08T00:00:01.000Z"
     });
   });
 });

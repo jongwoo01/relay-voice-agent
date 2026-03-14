@@ -59,6 +59,7 @@ export {
   createGeminiTaskRoutingClient,
   FallbackTaskRoutingResolver,
   GeminiTaskRoutingResolver,
+  HeuristicTaskRoutingResolver,
   SafeTaskRoutingResolver,
   TASK_ROUTING_MODEL,
   type TaskRoutingModelClientLike,

@@ -1,10 +1,33 @@
 import { describe, expect, it } from "vitest";
 import type { FinalizedUtterance } from "@agent/shared-types";
-import { HeuristicIntentResolver, LiveTranscriptAdapter } from "../src/index.js";
+import {
+  BrainTurnService,
+  FinalizedUtteranceHandler,
+  HeuristicIntentResolver,
+  HeuristicTaskRoutingResolver,
+  LiveTranscriptAdapter,
+  RealtimeGatewayService
+} from "../src/index.js";
+
+function createAdapter(): LiveTranscriptAdapter {
+  return new LiveTranscriptAdapter(
+    new RealtimeGatewayService(
+      new FinalizedUtteranceHandler(
+        new BrainTurnService(
+          undefined,
+          undefined,
+          undefined,
+          new HeuristicTaskRoutingResolver()
+        )
+      )
+    ),
+    new HeuristicIntentResolver()
+  );
+}
 
 describe("live-transcript-adapter", () => {
   it("stores partial transcript without triggering the brain flow", async () => {
-    const adapter = new LiveTranscriptAdapter(undefined, new HeuristicIntentResolver());
+    const adapter = createAdapter();
 
     const result = await adapter.handleTranscript({
       brainSessionId: "brain-1",
@@ -22,7 +45,7 @@ describe("live-transcript-adapter", () => {
   });
 
   it("turns a final transcript into a UI-ready assistant envelope", async () => {
-    const adapter = new LiveTranscriptAdapter(undefined, new HeuristicIntentResolver());
+    const adapter = createAdapter();
 
     const result = await adapter.handleTranscript({
       brainSessionId: "brain-1",
@@ -43,7 +66,7 @@ describe("live-transcript-adapter", () => {
   });
 
   it("uses the stored partial transcript when the final chunk is empty", async () => {
-    const adapter = new LiveTranscriptAdapter(undefined, new HeuristicIntentResolver());
+    const adapter = createAdapter();
 
     await adapter.handleTranscript({
       brainSessionId: "brain-1",

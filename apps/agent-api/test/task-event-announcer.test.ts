@@ -27,7 +27,8 @@ describe("task-event-announcer", () => {
         speaker: "assistant",
         text: "좋아, 끝냈어. 정리 완료",
         tone: "reply",
-        createdAt: "2026-03-08T00:00:01.000Z"
+        createdAt: "2026-03-08T00:00:01.000Z",
+        taskId: "task-1"
       },
       priority: "normal",
       delivery: "next_turn",
@@ -60,7 +61,8 @@ describe("task-event-announcer", () => {
         speaker: "assistant",
         text: "앗, 여기서 막혔어. 권한 요청으로 중단됨",
         tone: "reply",
-        createdAt: "2026-03-08T00:00:01.000Z"
+        createdAt: "2026-03-08T00:00:01.000Z",
+        taskId: "task-1"
       },
       priority: "high",
       delivery: "interrupt_if_speaking",
@@ -93,7 +95,8 @@ describe("task-event-announcer", () => {
         speaker: "assistant",
         text: "이건 실행 전에 확인이 필요해. 이 파일들을 지워도 괜찮은지 확인해줘",
         tone: "reply",
-        createdAt: "2026-03-08T00:00:01.000Z"
+        createdAt: "2026-03-08T00:00:01.000Z",
+        taskId: "task-1"
       },
       priority: "high",
       delivery: "interrupt_if_speaking",
@@ -126,7 +129,8 @@ describe("task-event-announcer", () => {
         speaker: "assistant",
         text: "이어가려면 답이 하나 더 필요해. 어느 폴더를 먼저 볼지 알려줘",
         tone: "reply",
-        createdAt: "2026-03-08T00:00:01.000Z"
+        createdAt: "2026-03-08T00:00:01.000Z",
+        taskId: "task-1"
       },
       priority: "high",
       delivery: "interrupt_if_speaking",

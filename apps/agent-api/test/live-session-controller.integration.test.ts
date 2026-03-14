@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { LiveSessionController } from "../src/index.js";
+import {
+  HeuristicIntentResolver,
+  LiveSessionController,
+  LiveTranscriptAdapter
+} from "../src/index.js";
 
 describe("live-session-controller", () => {
   it("returns partial text without creating an assistant response", async () => {
@@ -21,7 +25,9 @@ describe("live-session-controller", () => {
   });
 
   it("returns a UI-ready assistant response for a final transcript", async () => {
-    const controller = new LiveSessionController();
+    const controller = new LiveSessionController(
+      new LiveTranscriptAdapter(undefined, new HeuristicIntentResolver())
+    );
 
     const result = await controller.handleTranscriptChunk({
       brainSessionId: "brain-1",

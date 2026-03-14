@@ -112,6 +112,26 @@ export interface GoogleLiveApiClientLike {
   };
 }
 
+export interface LiveTranscriptControllerLike {
+  handleTranscriptChunk(input: {
+    brainSessionId: string;
+    chunk: {
+      text: string;
+      createdAt: string;
+      isFinal: boolean;
+    };
+    now: string;
+  }): Promise<{
+    partialText?: string;
+    finalizedUtterance?: FinalizedUtterance;
+    assistant?: LiveSessionTurnResult["assistant"];
+    task?: LiveSessionTurnResult["task"];
+    taskEvents?: LiveSessionTurnResult["taskEvents"];
+    executorSession?: LiveSessionTurnResult["executorSession"];
+  }>;
+  resetSession(brainSessionId: string): void;
+}
+
 function collectInputTranscriptionText(message: LiveServerMessage): string | undefined {
   const text = message.serverContent?.inputTranscription?.text?.trim();
   return text ? text : undefined;
@@ -267,7 +287,7 @@ function serializeForLog(value: unknown): string {
 
 export class GoogleLiveApiTransport {
   constructor(
-    private readonly controller: LiveSessionController = new LiveSessionController(),
+    private readonly controller: LiveTranscriptControllerLike = new LiveSessionController(),
     private readonly aiFactory: (() => GoogleLiveApiClientLike) | GenAiClientFactory = () =>
       createDefaultGenAiClientFactory().createLiveClient()
   ) {}

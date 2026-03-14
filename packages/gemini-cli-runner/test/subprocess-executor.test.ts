@@ -217,7 +217,7 @@ describe("GeminiCliExecutor", () => {
         prompt: "Reply with OK"
       });
 
-      const env = exec.mock.calls[0]?.[2]?.env;
+      const env = (exec.mock.calls[0] as any)?.[2]?.env;
       expect(env?.GOOGLE_GENAI_USE_GCA).toBe("true");
       expect(env?.GEMINI_API_KEY).toBeUndefined();
       expect(env?.GOOGLE_API_KEY).toBeUndefined();
