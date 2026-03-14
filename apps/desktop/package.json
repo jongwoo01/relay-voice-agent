@@ -15,7 +15,6 @@
   "dependencies": {
   },
   "devDependencies": {
-    "@agent/agent-api": "file:../agent-api",
     "cross-env": "^10.1.0",
     "electron": "^40.8.0",
     "electron-builder": "^26.0.12"
