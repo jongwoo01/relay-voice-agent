@@ -62,14 +62,14 @@ describe("postgres persistence repositories", () => {
     await repository.save({
       brainSessionId: "brain-1",
       speaker: "assistant",
-      text: "안녕하세요",
+      text: "hello",
       tone: "reply",
       createdAt: "2026-03-08T00:00:00.000Z"
     });
 
     expect(sql.query).toHaveBeenCalledWith(
       expect.stringContaining("insert into conversation_messages"),
-      ["brain-1", "assistant", "안녕하세요", "reply", "2026-03-08T00:00:00.000Z"]
+      ["brain-1", "assistant", "hello", "reply", "2026-03-08T00:00:00.000Z"]
     );
   });
 
@@ -78,8 +78,8 @@ describe("postgres persistence repositories", () => {
       [
         {
           id: "task-1",
-          title: "정리",
-          normalized_goal: "정리",
+          title: "Cleanup",
+          normalized_goal: "cleanup",
           status: "running",
           created_at: "2026-03-08T00:00:00.000Z",
           updated_at: "2026-03-08T00:01:00.000Z",
@@ -94,8 +94,8 @@ describe("postgres persistence repositories", () => {
     expect(tasks).toEqual([
       {
         id: "task-1",
-        title: "정리",
-        normalizedGoal: "정리",
+        title: "Cleanup",
+        normalizedGoal: "cleanup",
         status: "running",
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:01:00.000Z",
@@ -109,15 +109,15 @@ describe("postgres persistence repositories", () => {
       [
         {
           id: "task-1",
-          title: "정리",
-          normalized_goal: "정리",
+          title: "Cleanup",
+          normalized_goal: "cleanup",
           status: "completed",
           created_at: "2026-03-08T00:00:00.000Z",
           updated_at: "2026-03-08T00:01:00.000Z",
           completion_report_json: {
-            summary: "정리 완료",
+            summary: "Cleanup completed",
             verification: "verified",
-            changes: ["파일 2개 정리"]
+            changes: ["Cleaned up 2 files"]
           }
         }
       ]
@@ -128,15 +128,15 @@ describe("postgres persistence repositories", () => {
 
     expect(task).toEqual({
       id: "task-1",
-      title: "정리",
-      normalizedGoal: "정리",
+      title: "Cleanup",
+      normalizedGoal: "cleanup",
       status: "completed",
       createdAt: "2026-03-08T00:00:00.000Z",
       updatedAt: "2026-03-08T00:01:00.000Z",
       completionReport: {
-        summary: "정리 완료",
+        summary: "Cleanup completed",
         verification: "verified",
-        changes: ["파일 2개 정리"]
+        changes: ["Cleaned up 2 files"]
       }
     });
   });
@@ -149,14 +149,14 @@ describe("postgres persistence repositories", () => {
       {
         taskId: "task-1",
         type: "executor_progress",
-        message: "작업 중",
+        message: "Task is running",
         createdAt: "2026-03-08T00:00:00.000Z"
       }
     ]);
 
     expect(sql.query).toHaveBeenCalledWith(
       expect.stringContaining("insert into task_events"),
-      ["task-1", "executor_progress", "작업 중", "2026-03-08T00:00:00.000Z"]
+      ["task-1", "executor_progress", "Task is running", "2026-03-08T00:00:00.000Z"]
     );
   });
 
@@ -189,15 +189,15 @@ describe("postgres persistence repositories", () => {
 
     await repository.save("brain-1", {
       id: "task-1",
-      title: "정리",
-      normalizedGoal: "정리",
+      title: "Cleanup",
+      normalizedGoal: "cleanup",
       status: "completed",
       createdAt: "2026-03-08T00:00:00.000Z",
       updatedAt: "2026-03-08T00:01:00.000Z",
       completionReport: {
-        summary: "정리 완료",
+        summary: "Cleanup completed",
         verification: "verified",
-        changes: ["파일 2개 정리"]
+        changes: ["Cleaned up 2 files"]
       }
     });
 
@@ -206,15 +206,15 @@ describe("postgres persistence repositories", () => {
       [
         "task-1",
         "brain-1",
-        "정리",
-        "정리",
+        "Cleanup",
+        "cleanup",
         "completed",
         "2026-03-08T00:00:00.000Z",
         "2026-03-08T00:01:00.000Z",
         JSON.stringify({
-          summary: "정리 완료",
+          summary: "Cleanup completed",
           verification: "verified",
-          changes: ["파일 2개 정리"]
+          changes: ["Cleaned up 2 files"]
         })
       ]
     );
@@ -252,8 +252,8 @@ describeWithDatabase("postgres persistence repositories (real db)", () => {
 
       await repository.save(brainSessionId, {
         id: taskId,
-        title: "바탕화면 읽기",
-        normalizedGoal: "바탕화면 읽기",
+        title: "Read desktop contents",
+        normalizedGoal: "Read desktop contents",
         status: "running",
         createdAt: now,
         updatedAt: now
@@ -261,8 +261,8 @@ describeWithDatabase("postgres persistence repositories (real db)", () => {
 
       await expect(repository.getById(taskId)).resolves.toEqual({
         id: taskId,
-        title: "바탕화면 읽기",
-        normalizedGoal: "바탕화면 읽기",
+        title: "Read desktop contents",
+        normalizedGoal: "Read desktop contents",
         status: "running",
         createdAt: now,
         updatedAt: now,

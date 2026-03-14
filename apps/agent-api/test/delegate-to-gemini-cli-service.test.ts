@@ -12,7 +12,7 @@ describe("delegate-to-gemini-cli-service", () => {
     const dispatch = vi.fn();
     const autoHandle = vi.fn(async () => ({
       assistant: {
-        text: "작업을 시작할게. 진행 상황은 패널에 보여줄게.",
+        text: "I'll start the task now. Progress will stay visible in the panel.",
         tone: "task_ack" as const
       },
       action: {
@@ -20,8 +20,8 @@ describe("delegate-to-gemini-cli-service", () => {
       },
       task: {
         id: "task-1",
-        title: "바탕화면 정리",
-        normalizedGoal: "바탕화면 정리",
+        title: "Desktop cleanup",
+        normalizedGoal: "Desktop cleanup",
         status: "running" as const,
         createdAt: "2026-03-12T00:00:00.000Z",
         updatedAt: "2026-03-12T00:00:00.000Z"
@@ -44,7 +44,7 @@ describe("delegate-to-gemini-cli-service", () => {
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      request: "바탕화면 정리해줘",
+      request: "Clean up the desktop",
       now: "2026-03-12T00:00:00.000Z"
     });
 
@@ -63,7 +63,7 @@ describe("delegate-to-gemini-cli-service", () => {
         presentation: {
           ownership: "runtime",
           speechMode: "canonical",
-          speechText: "작업을 시작했어요. 완료나 실패가 확인되면 바로 알려드릴게요.",
+          speechText: "I started the task. I'll let you know as soon as completion or failure is confirmed.",
           allowLiveModelOutput: false
         }
       })
@@ -77,8 +77,8 @@ describe("delegate-to-gemini-cli-service", () => {
     const taskEventRepository = new InMemoryTaskEventRepository();
     await taskRepository.save("brain-1", {
       id: "task-1",
-      title: "브라우저 정리",
-      normalizedGoal: "브라우저 정리",
+      title: "Browser cleanup",
+      normalizedGoal: "Browser cleanup",
       status: "waiting_input",
       createdAt: "2026-03-12T00:00:00.000Z",
       updatedAt: "2026-03-12T00:01:00.000Z"
@@ -86,8 +86,8 @@ describe("delegate-to-gemini-cli-service", () => {
     const dispatch = vi.fn(async () => ({
       task: {
         id: "task-1",
-        title: "브라우저 정리",
-        normalizedGoal: "브라우저 정리",
+        title: "Browser cleanup",
+        normalizedGoal: "Browser cleanup",
         status: "running",
         createdAt: "2026-03-12T00:00:00.000Z",
         updatedAt: "2026-03-12T00:02:00.000Z"
@@ -110,7 +110,7 @@ describe("delegate-to-gemini-cli-service", () => {
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      request: "이어서 진행해줘",
+      request: "Continue from there",
       now: "2026-03-12T00:02:00.000Z",
       taskId: "task-1",
       mode: "resume"
@@ -119,7 +119,7 @@ describe("delegate-to-gemini-cli-service", () => {
     expect(dispatch).toHaveBeenCalledWith({
       brainSessionId: "brain-1",
       taskId: "task-1",
-      text: "이어서 진행해줘",
+      text: "Continue from there",
       now: "2026-03-12T00:02:00.000Z",
       existingTask: expect.objectContaining({
         id: "task-1",
@@ -136,22 +136,22 @@ describe("delegate-to-gemini-cli-service", () => {
     const taskEventRepository = new InMemoryTaskEventRepository();
     await taskRepository.save("brain-1", {
       id: "task-1",
-      title: "브라우저 정리",
-      normalizedGoal: "브라우저 정리",
+      title: "Browser cleanup",
+      normalizedGoal: "Browser cleanup",
       status: "completed",
       createdAt: "2026-03-12T00:00:00.000Z",
       updatedAt: "2026-03-12T00:03:00.000Z",
       completionReport: {
-        summary: "닫은 탭 3개와 고정한 탭 2개를 확인했어요.",
+        summary: "Verified 3 closed tabs and 2 pinned tabs.",
         verification: "verified",
-        changes: ["닫은 탭 3개", "고정한 탭 2개"]
+        changes: ["Closed 3 tabs", "Pinned 2 tabs"]
       }
     });
     await taskEventRepository.saveMany("task-1", [
       {
         taskId: "task-1",
         type: "executor_completed",
-        message: "작업이 완료됐어요.",
+        message: "The task is complete.",
         createdAt: "2026-03-12T00:03:00.000Z"
       }
     ]);
@@ -165,7 +165,7 @@ describe("delegate-to-gemini-cli-service", () => {
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      request: "그거 결과가 뭐야?",
+      request: "What was the result of that?",
       now: "2026-03-12T00:04:00.000Z",
       taskId: "task-1",
       mode: "status"
@@ -178,16 +178,16 @@ describe("delegate-to-gemini-cli-service", () => {
         accepted: true,
         taskId: "task-1",
         status: "completed",
-        message: "닫은 탭 3개와 고정한 탭 2개를 확인했어요.",
+        message: "Verified 3 closed tabs and 2 pinned tabs.",
         needsInput: false,
         needsApproval: false,
-        summary: "닫은 탭 3개와 고정한 탭 2개를 확인했어요.",
+        summary: "Verified 3 closed tabs and 2 pinned tabs.",
         verification: "verified",
-        changes: ["닫은 탭 3개", "고정한 탭 2개"],
+        changes: ["Closed 3 tabs", "Pinned 2 tabs"],
         presentation: {
           ownership: "runtime",
           speechMode: "grounded_summary",
-          speechText: "닫은 탭 3개와 고정한 탭 2개를 확인했어요.",
+          speechText: "Verified 3 closed tabs and 2 pinned tabs.",
           allowLiveModelOutput: false
         }
       })
@@ -199,8 +199,8 @@ describe("delegate-to-gemini-cli-service", () => {
     const taskEventRepository = new InMemoryTaskEventRepository();
     await taskRepository.save("brain-1", {
       id: "task-1",
-      title: "바탕화면 확인",
-      normalizedGoal: "바탕화면 확인",
+      title: "Check desktop",
+      normalizedGoal: "Check desktop",
       status: "running",
       createdAt: "2026-03-12T00:00:00.000Z",
       updatedAt: "2026-03-12T00:02:00.000Z"
@@ -225,8 +225,8 @@ describe("delegate-to-gemini-cli-service", () => {
       },
       task: {
         id: "task-1",
-        title: "바탕화면 확인",
-        normalizedGoal: "바탕화면 확인",
+        title: "Check desktop",
+        normalizedGoal: "Check desktop",
         status: "running" as const,
         createdAt: "2026-03-12T00:00:00.000Z",
         updatedAt: "2026-03-12T00:02:00.000Z"
@@ -241,7 +241,7 @@ describe("delegate-to-gemini-cli-service", () => {
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      request: "바탕화면 확인해줘",
+      request: "Check the desktop",
       now: "2026-03-12T00:03:00.000Z"
     });
 
@@ -262,7 +262,8 @@ describe("delegate-to-gemini-cli-service", () => {
         presentation: {
           ownership: "runtime",
           speechMode: "canonical",
-          speechText: "아직 진행 중입니다. 완료나 실패가 확인되면 바로 알려드릴게요.",
+          speechText:
+            "The task is still running. I'll let you know as soon as completion or failure is confirmed.",
           allowLiveModelOutput: false
         }
       })
@@ -274,8 +275,8 @@ describe("delegate-to-gemini-cli-service", () => {
     const taskEventRepository = new InMemoryTaskEventRepository();
     await taskRepository.save("brain-1", {
       id: "task-1",
-      title: "바탕화면 확인",
-      normalizedGoal: "바탕화면 확인",
+      title: "Check desktop",
+      normalizedGoal: "Check desktop",
       status: "running",
       createdAt: "2026-03-12T00:00:00.000Z",
       updatedAt: "2026-03-12T00:02:00.000Z"
@@ -283,7 +284,7 @@ describe("delegate-to-gemini-cli-service", () => {
     const dispatch = vi.fn();
     const autoHandle = vi.fn(async () => ({
       assistant: {
-        text: "다운로드 정리를 시작할게.",
+        text: "I'll start organizing the downloads.",
         tone: "task_ack" as const
       },
       action: {
@@ -291,8 +292,8 @@ describe("delegate-to-gemini-cli-service", () => {
       },
       task: {
         id: "task-2",
-        title: "다운로드 정리",
-        normalizedGoal: "다운로드 정리",
+        title: "Download cleanup",
+        normalizedGoal: "Download cleanup",
         status: "running" as const,
         createdAt: "2026-03-12T00:03:00.000Z",
         updatedAt: "2026-03-12T00:03:00.000Z"
@@ -315,7 +316,7 @@ describe("delegate-to-gemini-cli-service", () => {
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      request: "다운로드 폴더 정리해줘",
+      request: "Clean up the downloads folder",
       now: "2026-03-12T00:03:00.000Z"
     });
 
@@ -330,16 +331,16 @@ describe("delegate-to-gemini-cli-service", () => {
     const taskEventRepository = new InMemoryTaskEventRepository();
     await taskRepository.save("brain-1", {
       id: "task-1",
-      title: "브라우저 정리",
-      normalizedGoal: "브라우저 정리",
+      title: "Browser cleanup",
+      normalizedGoal: "Browser cleanup",
       status: "running",
       createdAt: "2026-03-12T00:00:00.000Z",
       updatedAt: "2026-03-12T00:01:00.000Z"
     });
     await taskRepository.save("brain-1", {
       id: "task-2",
-      title: "다운로드 정리",
-      normalizedGoal: "다운로드 정리",
+      title: "Download cleanup",
+      normalizedGoal: "Download cleanup",
       status: "running",
       createdAt: "2026-03-12T00:00:00.000Z",
       updatedAt: "2026-03-12T00:02:00.000Z"
@@ -350,7 +351,7 @@ describe("delegate-to-gemini-cli-service", () => {
       { dispatch: vi.fn() } as never,
       vi.fn(async () => ({
         assistant: {
-          text: "진행 중인 작업이 여러 개라서 어떤 작업인지 먼저 집어줘.",
+          text: "There are multiple active tasks, so tell me which one you mean first.",
           tone: "clarify" as const
         },
         action: {
@@ -361,14 +362,14 @@ describe("delegate-to-gemini-cli-service", () => {
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      request: "그거 어디까지 했어?",
+      request: "How far along is that?",
       now: "2026-03-12T00:03:00.000Z",
       mode: "status"
     });
 
     expect(result.accepted).toBe(false);
     expect(result.action).toBe("clarify");
-    expect(result.message).toContain("여러 개");
+    expect(result.message).toContain("multiple active tasks");
   });
 
   it("surfaces explicit Vertex routing failures instead of clarify", async () => {
@@ -380,7 +381,7 @@ describe("delegate-to-gemini-cli-service", () => {
       { dispatch: vi.fn() } as never,
       vi.fn(async () => ({
         assistant: {
-          text: "Vertex AI quota 제한으로 작업 라우팅이 실패했습니다.",
+          text: "Task routing failed because the Vertex AI quota was exhausted.",
           tone: "reply" as const
         },
         action: {
@@ -392,7 +393,7 @@ describe("delegate-to-gemini-cli-service", () => {
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      request: "바탕화면 파일 이름 알려줘",
+      request: "Tell me the desktop file names",
       now: "2026-03-12T00:03:00.000Z"
     });
 
@@ -401,7 +402,7 @@ describe("delegate-to-gemini-cli-service", () => {
         action: "error",
         accepted: false,
         status: "failed",
-        message: "Vertex AI quota 제한으로 작업 라우팅이 실패했습니다.",
+        message: "Task routing failed because the Vertex AI quota was exhausted.",
         failureReason: "quota_exhausted",
         needsInput: false,
         needsApproval: false,
@@ -411,7 +412,7 @@ describe("delegate-to-gemini-cli-service", () => {
         presentation: {
           ownership: "runtime",
           speechMode: "canonical",
-          speechText: "Vertex AI quota 제한으로 작업 라우팅이 실패했습니다.",
+          speechText: "Task routing failed because the Vertex AI quota was exhausted.",
           allowLiveModelOutput: false
         }
       })

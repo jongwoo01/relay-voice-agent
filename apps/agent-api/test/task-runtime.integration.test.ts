@@ -11,7 +11,7 @@ describe("task-runtime", () => {
     const runtime = new TaskRuntime();
 
     const result = await runtime.submit({
-      text: "브라우저 탭 정리해줘",
+      text: "Clean up the browser tabs",
       taskId: "task-1",
       now: "2026-03-08T00:00:00.000Z"
     });
@@ -32,14 +32,14 @@ describe("task-runtime", () => {
       async run(
         _request: ExecutorRunRequest
       ): Promise<ExecutorRunResult> {
-        throw new Error("권한 요청으로 작업이 중단됐어");
+        throw new Error("The task stopped because permission is required");
       }
     }
 
     const runtime = new TaskRuntime(new FailingExecutor());
 
     const result = await runtime.submit({
-      text: "바탕화면 폴더를 확인해줘",
+      text: "Check the desktop folders",
       taskId: "task-2",
       now: "2026-03-08T00:00:00.000Z"
     });
@@ -48,7 +48,7 @@ describe("task-runtime", () => {
     expect(result.events.at(-1)).toEqual(
       expect.objectContaining({
         type: "executor_failed",
-        message: "권한 요청으로 작업이 중단됐어"
+        message: "The task stopped because permission is required"
       })
     );
   });
@@ -63,7 +63,7 @@ describe("task-runtime", () => {
           completionEvent: {
             taskId: request.task.id,
             type: "executor_waiting_input",
-            message: "정확한 날짜를 알려줘",
+            message: "Tell me the exact date",
             createdAt: request.now
           },
           outcome: "waiting_input"
@@ -74,7 +74,7 @@ describe("task-runtime", () => {
     const runtime = new TaskRuntime(new WaitingInputExecutor());
 
     const result = await runtime.submit({
-      text: "일정 잡아줘",
+      text: "Schedule it",
       taskId: "task-3",
       now: "2026-03-08T00:00:00.000Z"
     });
@@ -83,7 +83,7 @@ describe("task-runtime", () => {
     expect(result.events.at(-1)).toEqual(
       expect.objectContaining({
         type: "executor_waiting_input",
-        message: "정확한 날짜를 알려줘"
+        message: "Tell me the exact date"
       })
     );
   });

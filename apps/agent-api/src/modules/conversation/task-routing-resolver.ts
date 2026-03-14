@@ -5,16 +5,12 @@ import type {
   TaskStatus
 } from "@agent/shared-types";
 import {
-  isCompletionNotificationRequest,
-  selectContinuationTask
-} from "@agent/brain-domain";
-import {
   createDefaultGenAiClientFactory,
   type GenAiClientFactory
 } from "../config/genai-client-factory.js";
 
 const TASK_ROUTING_MODEL =
-  process.env.GEMINI_TASK_ROUTING_MODEL ?? "gemini-2.5-flash";
+  process.env.GEMINI_TASK_ROUTING_MODEL ?? "gemini-2.5-flash-lite";
 
 const TASK_ROUTING_KINDS = [
   "reply",
@@ -175,121 +171,6 @@ function serializeTaskContexts(taskContexts: TaskRoutingTaskContext[]): string {
   );
 }
 
-function normalizeUtterance(text: string): string {
-  return text.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function looksLikeStatusRequest(text: string): boolean {
-  return /(상태|진행|어디까지|결과|완료|됐어|됐나|진척|progress|status|result)/i.test(
-    text
-  );
-}
-
-function selectStatusTarget(
-  input: TaskRoutingResolverInput,
-  taskContexts: TaskRoutingTaskContext[]
-): Task | null {
-  const normalized = normalizeUtterance(input.utterance.text);
-  const activeTasks = taskContexts.filter((context) => context.isActive).map((context) => context.task);
-  const recentTasks = taskContexts
-    .filter((context) => context.isRecentCompleted)
-    .map((context) => context.task);
-
-  if (!looksLikeStatusRequest(normalized)) {
-    return null;
-  }
-
-  return activeTasks[0] ?? recentTasks[0] ?? null;
-}
-
-export class HeuristicTaskRoutingResolver implements TaskRoutingResolver {
-  async resolve(input: TaskRoutingResolverInput): Promise<TaskRoutingDecision> {
-    const taskContexts = normalizeTaskContexts(input);
-    const continuationTarget = selectContinuationTask(
-      input.utterance.text,
-      input.activeTasks
-    );
-    if (continuationTarget && isCompletionNotificationRequest(input.utterance.text)) {
-      return {
-        kind: "set_completion_notification",
-        targetTaskId: continuationTarget.id,
-        clarificationNeeded: false,
-        clarificationText: null,
-        executorPrompt: null,
-        reason: "Heuristic fallback matched a completion-notification request"
-      };
-    }
-
-    const statusTarget = selectStatusTarget(input, taskContexts);
-    if (statusTarget) {
-      return {
-        kind: "status",
-        targetTaskId: statusTarget.id,
-        clarificationNeeded: false,
-        clarificationText: null,
-        executorPrompt: null,
-        reason: "Heuristic fallback matched a status request"
-      };
-    }
-
-    if (input.utterance.intent === "small_talk" || input.utterance.intent === "question") {
-      return {
-        kind: "reply",
-        targetTaskId: null,
-        clarificationNeeded: false,
-        clarificationText: null,
-        executorPrompt: null,
-        reason: "Heuristic fallback preserved direct conversational reply"
-      };
-    }
-
-    if (input.utterance.intent === "unclear") {
-      return {
-        kind: "clarify",
-        targetTaskId: null,
-        clarificationNeeded: true,
-        clarificationText: "어떤 작업으로 이해하면 될지 한 번만 더 짚어줘.",
-        executorPrompt: null,
-        reason: "Heuristic fallback could not infer a concrete task"
-      };
-    }
-
-    if (continuationTarget) {
-      return {
-        kind: "continue_task",
-        targetTaskId: continuationTarget.id,
-        clarificationNeeded: false,
-        clarificationText: null,
-        executorPrompt: input.utterance.text,
-        reason: "Heuristic fallback matched an active task continuation"
-      };
-    }
-
-    const blockedTask = input.activeTasks.find(
-      (task) => task.status === "waiting_input" || task.status === "approval_required"
-    );
-    if (blockedTask) {
-      return {
-        kind: "continue_blocked_task",
-        targetTaskId: blockedTask.id,
-        clarificationNeeded: false,
-        clarificationText: null,
-        executorPrompt: input.utterance.text,
-        reason: "Heuristic fallback routed the turn to the blocked active task"
-      };
-    }
-
-    return {
-      kind: "create_task",
-      targetTaskId: null,
-      clarificationNeeded: false,
-      clarificationText: null,
-      executorPrompt: input.utterance.text,
-      reason: "Heuristic fallback started a new task"
-    };
-  }
-}
-
 export class GeminiTaskRoutingResolver implements TaskRoutingResolver {
   constructor(
     private readonly client: TaskRoutingModelClientLike,
@@ -360,12 +241,12 @@ export class GeminiTaskRoutingResolver implements TaskRoutingResolver {
         "For continue_task, continue_blocked_task, and create_task, executorPrompt must contain the exact prompt to send to the executor.",
         "For reply, clarify, status, and set_completion_notification, executorPrompt must be null.",
         "Preserve the user's wording in executorPrompt. Only add the minimum necessary context if the user is clearly answering a blocked task.",
-        "For clarify, set clarificationNeeded=true and provide a short Korean clarificationText.",
+        "For clarify, set clarificationNeeded=true and provide a short English clarificationText.",
         "For non-clarify decisions, set clarificationNeeded=false and clarificationText=null.",
-        'Example: "아까 만든 LLM 폴더에 현대 LLM 뉴스 txt 파일 만들어줘" -> create_task.',
-        'Example: "아까 만든 폴더 작업 어디까지 됐어?" -> status.',
-        'Example: "완료되면 알려줘" -> set_completion_notification.',
-        'Example: "그 작업 이어서 해" -> continue_task.',
+        'Example: "Create a txt file with today\'s LLM news in the LLM folder you created earlier" -> create_task.',
+        'Example: "How far along is that folder task?" -> status.',
+        'Example: "Tell me when it finishes" -> set_completion_notification.',
+        'Example: "Continue that task" -> continue_task.',
         `Utterance intent: ${input.utterance.intent}`,
         `Latest utterance: ${input.utterance.text}`,
         `delegateMode: ${input.delegateMode ?? "auto"}`,
@@ -440,60 +321,6 @@ export class GeminiTaskRoutingResolver implements TaskRoutingResolver {
       reason: truncateForLog(decision.reason, 240)
     });
     return decision;
-  }
-}
-
-export class SafeTaskRoutingResolver implements TaskRoutingResolver {
-  async resolve(input: TaskRoutingResolverInput): Promise<TaskRoutingDecision> {
-    if (input.utterance.intent === "small_talk" || input.utterance.intent === "question") {
-      logTaskRouting("safe fallback reply", {
-        utterance: input.utterance.text,
-        intent: input.utterance.intent
-      });
-      return {
-        kind: "reply",
-        targetTaskId: null,
-        clarificationNeeded: false,
-        clarificationText: null,
-        executorPrompt: null,
-        reason: "Safe fallback preserved direct conversational reply"
-      };
-    }
-
-    logTaskRouting("safe fallback clarify", {
-      utterance: input.utterance.text,
-      intent: input.utterance.intent
-    });
-    return {
-      kind: "clarify",
-      targetTaskId: null,
-      clarificationNeeded: true,
-      clarificationText: "어떤 작업으로 이해하면 될지 한 번만 더 짚어줘.",
-      executorPrompt: null,
-      reason: "Safe fallback avoids guessing task routing without a valid model decision"
-    };
-  }
-}
-
-export class FallbackTaskRoutingResolver implements TaskRoutingResolver {
-  constructor(
-    private readonly primary: TaskRoutingResolver,
-    private readonly fallback: TaskRoutingResolver
-  ) {}
-
-  async resolve(input: TaskRoutingResolverInput): Promise<TaskRoutingDecision> {
-    try {
-      return await this.primary.resolve(input);
-    } catch (error) {
-      logTaskRouting("primary resolver failed", {
-        utterance: input.utterance.text,
-        error:
-          error instanceof Error
-            ? `${error.name}: ${error.message}`
-            : String(error)
-      });
-      return await this.fallback.resolve(input);
-    }
   }
 }
 

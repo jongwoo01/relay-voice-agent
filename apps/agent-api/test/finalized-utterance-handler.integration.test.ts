@@ -11,13 +11,16 @@ function utterance(text: string, intent: FinalizedUtterance["intent"]): Finalize
   return {
     text,
     intent,
+    ...(intent === "small_talk"
+      ? { assistantReplyText: "Hello. Tell me what you need and I'll get started." }
+      : {}),
     createdAt: "2026-03-08T00:00:00.000Z"
   };
 }
 
 const activeTask: Task = {
   id: "task-existing",
-  title: "브라우저 정리",
+  title: "Browser cleanup",
   normalizedGoal: "browser cleanup",
   status: "running",
   createdAt: "2026-03-08T00:00:00.000Z",
@@ -44,19 +47,18 @@ describe("finalized-utterance-handler", () => {
 
     const result = await handler.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("안녕", "small_talk"),
+      utterance: utterance("hello", "small_talk"),
       activeTasks: [],
       now: "2026-03-08T00:00:00.000Z"
     });
 
     expect(result.assistant?.tone).toBe("reply");
-    expect(result.assistant?.text).toContain("안녕하세요");
+    expect(result.assistant?.text).toContain("Hello.");
   });
 
   it("returns a task acknowledgement envelope and task metadata for a fresh task", async () => {
     const handler = new FinalizedUtteranceHandler(
       new BrainTurnService(
-        undefined,
         undefined,
         undefined,
         {
@@ -67,13 +69,13 @@ describe("finalized-utterance-handler", () => {
 
     const result = await handler.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("바탕화면 파일들을 종류별로 정리해줘", "task_request"),
+      utterance: utterance("Organize the desktop files by type", "task_request"),
       activeTasks: [],
       now: "2026-03-08T00:00:00.000Z"
     });
 
     expect(result.assistant).toEqual({
-      text: "작업을 시작할게. 진행 상황은 패널에 보여줄게.",
+      text: "I'll start the task now. Progress will stay visible in the panel.",
       tone: "task_ack"
     });
     expect(result.task?.status).toBe("running");
@@ -89,13 +91,12 @@ describe("finalized-utterance-handler", () => {
       new BrainTurnService(
         undefined,
         undefined,
-        undefined,
         {
           resolve: async () =>
             createRoutingDecision({
               kind: "clarify",
               clarificationNeeded: true,
-              clarificationText: "언제 할지 한 번만 더 알려줘."
+              clarificationText: "Tell me when it should happen one more time."
             })
         } satisfies TaskRoutingResolver
       )
@@ -103,13 +104,13 @@ describe("finalized-utterance-handler", () => {
 
     const result = await handler.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("일정 잡아줘", "task_request"),
+      utterance: utterance("Schedule it", "task_request"),
       activeTasks: [],
       now: "2026-03-08T00:00:00.000Z"
     });
 
     expect(result.assistant.tone).toBe("clarify");
-    expect(result.assistant.text).toContain("언제 할지");
+    expect(result.assistant.text).toContain("when it should happen");
     expect(result.task).toBeUndefined();
   });
 
@@ -118,13 +119,12 @@ describe("finalized-utterance-handler", () => {
       new BrainTurnService(
         undefined,
         undefined,
-        undefined,
         {
           resolve: async () =>
             createRoutingDecision({
               kind: "continue_task",
               targetTaskId: "task-existing",
-              executorPrompt: "아까 하던 거 이어서 해"
+              executorPrompt: "Continue that task"
             })
         } satisfies TaskRoutingResolver
       )
@@ -132,13 +132,13 @@ describe("finalized-utterance-handler", () => {
 
     const result = await handler.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("아까 하던 거 이어서 해", "task_request"),
+      utterance: utterance("Continue that task", "task_request"),
       activeTasks: [activeTask],
       now: "2026-03-08T00:00:00.000Z"
     });
 
     expect(result.assistant).toEqual({
-      text: "이어서 진행할게. 작업 상태는 패널에 보여줄게.",
+      text: "I'll continue from there. The task state will stay visible in the panel.",
       tone: "task_ack"
     });
     expect(result.task?.id).toBe("task-existing");
@@ -148,7 +148,6 @@ describe("finalized-utterance-handler", () => {
   it("preserves task metadata when the turn resolves to a status action", async () => {
     const handler = new FinalizedUtteranceHandler(
       new BrainTurnService(
-        undefined,
         undefined,
         undefined,
         {
@@ -163,7 +162,7 @@ describe("finalized-utterance-handler", () => {
 
     const result = await handler.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("그 작업 상태 알려줘", "task_request"),
+      utterance: utterance("Tell me the status of that task", "task_request"),
       activeTasks: [activeTask],
       now: "2026-03-08T00:00:00.000Z"
     });
@@ -173,7 +172,7 @@ describe("finalized-utterance-handler", () => {
       taskId: "task-existing"
     });
     expect(result.assistant).toEqual({
-      text: "작업을 계속 확인하고 있어요.",
+      text: "The task is still running.",
       tone: "reply"
     });
     expect(result.task).toEqual(activeTask);

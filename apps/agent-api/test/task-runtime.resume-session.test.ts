@@ -16,7 +16,7 @@ class CapturingExecutor implements LocalExecutor {
       completionEvent: {
         taskId: request.task.id,
         type: "executor_completed",
-        message: "이어받기 완료",
+        message: "Resume completed",
         createdAt: request.now
       },
       sessionId: request.resumeSessionId ?? "new-session-123"
@@ -30,7 +30,7 @@ describe("task-runtime resume session", () => {
     const runtime = new TaskRuntime(executor);
 
     const result = await runtime.submit({
-      text: "아까 하던 브라우저 정리 이어서 해",
+      text: "Continue the browser cleanup from earlier",
       taskId: "task-3",
       now: "2026-03-08T00:00:00.000Z",
       executorSession: {
@@ -43,7 +43,7 @@ describe("task-runtime resume session", () => {
 
     expect(executor.run).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: "아까 하던 브라우저 정리 이어서 해",
+        prompt: "Continue the browser cleanup from earlier",
         resumeSessionId: "session-999",
         workingDirectory: "/tmp/browser"
       }),
@@ -62,7 +62,7 @@ describe("task-runtime resume session", () => {
     const runtime = new TaskRuntime(executor);
 
     const result = await runtime.submit({
-      text: "새로 정리 시작해",
+      text: "Start a new cleanup",
       taskId: "task-4",
       now: "2026-03-08T00:00:00.000Z"
     });

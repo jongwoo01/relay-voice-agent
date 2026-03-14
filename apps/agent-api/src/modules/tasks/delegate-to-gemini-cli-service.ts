@@ -157,7 +157,7 @@ export class DelegateToGeminiCliService {
 
     if (!request) {
       return this.buildClarifyResult(
-        "어떤 작업을 Gemini CLI에 맡길지 한 줄로 말해줘.",
+        "What should I ask Gemini CLI to do? Give me one short instruction.",
         activeTasks[0] ?? recentTasks[0]
       );
     }
@@ -263,7 +263,10 @@ export class DelegateToGeminiCliService {
       recentTasks.find((candidate) => candidate.id === taskId);
 
     if (!task) {
-      return this.buildClarifyResult("확인할 작업을 찾지 못했어.", activeTasks[0] ?? recentTasks[0]);
+      return this.buildClarifyResult(
+        "I couldn't find the task to check.",
+        activeTasks[0] ?? recentTasks[0]
+      );
     }
 
     const latestEvent = await this.getLatestEvent(task.id);
@@ -282,7 +285,7 @@ export class DelegateToGeminiCliService {
 
     if (!task) {
       return this.buildClarifyResult(
-        "이어갈 작업을 찾지 못했어.",
+        "I couldn't find the task to continue.",
         activeTasks[0] ?? recentTasks[0]
       );
     }

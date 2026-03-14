@@ -8,7 +8,8 @@ import {
   GeminiCliExecutor,
   MockExecutor,
   planAssistantNotificationDelivery,
-  TextRealtimeSessionLoop
+  TextRealtimeSessionLoop,
+  type IntentResolution
 } from "../apps/agent-api/src/index.ts";
 
 loadDotEnvFromRoot();
@@ -16,7 +17,7 @@ loadDotEnvFromRoot();
 async function parseUtterance(
   line: string,
   now: string,
-  resolveIntent: (text: string) => Promise<FinalizedUtterance["intent"]>
+  resolveIntent: (text: string) => Promise<IntentResolution>
 ): Promise<FinalizedUtterance | null> {
   if (!line.trim()) {
     return null;
@@ -54,9 +55,12 @@ async function parseUtterance(
     };
   }
 
+  const resolution = await resolveIntent(line);
+
   return {
     text: line,
-    intent: await resolveIntent(line),
+    intent: resolution.intent,
+    assistantReplyText: resolution.assistantReplyText,
     createdAt: now
   };
 }
@@ -93,9 +97,6 @@ async function main() {
     process.env.DEV_RAW_EXECUTOR === "1";
   const usePostgresPersistence =
     process.argv.includes("--postgres") || process.env.DEV_POSTGRES === "1";
-  const hasIntentApiKey = Boolean(
-    process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY
-  );
   const intentResolver = createDefaultIntentResolver();
   const executor = useGeminiExecutor
     ? new GeminiCliExecutor(
@@ -214,9 +215,7 @@ async function main() {
   console.log(
     `[dev] text session started (${useGeminiExecutor ? "gemini" : "mock"} executor, ${usePostgresPersistence ? "postgres" : "in-memory"} persistence)`
   );
-  console.log(
-    `[dev] intent resolver=${hasIntentApiKey ? "gemini+fallback" : "heuristic"}`
-  );
+  console.log("[dev] intent resolver=model-backed");
   console.log(`[dev] brainSessionId=${brainSessionId}`);
   printHelp();
 

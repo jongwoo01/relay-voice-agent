@@ -30,7 +30,7 @@ export class FinalizedUtteranceHandler {
       return {
         routingDecision: result.routingDecision,
         assistant: {
-          text: result.replyText ?? "응답을 준비했어요.",
+          text: result.replyText ?? "I have a response ready.",
           tone: "reply"
         }
       };
@@ -44,7 +44,7 @@ export class FinalizedUtteranceHandler {
         action: result.action,
         routingDecision: result.routingDecision,
         assistant: {
-          text: result.replyText ?? "조금 더 구체적으로 말해줘.",
+          text: result.replyText ?? "Please be a little more specific.",
           tone: "clarify"
         }
       };
@@ -55,7 +55,7 @@ export class FinalizedUtteranceHandler {
         action: result.action,
         routingDecision: result.routingDecision,
         assistant: {
-          text: result.replyText ?? "Vertex AI 호출이 실패했습니다.",
+          text: result.replyText ?? "The Vertex AI request failed.",
           tone: "reply"
         }
       };
@@ -72,7 +72,7 @@ export class FinalizedUtteranceHandler {
         taskEvents: result.taskEvents,
         executorSession: result.executorSession,
         assistant: {
-          text: result.replyText ?? "작업이 끝나면 바로 알려드릴게요.",
+          text: result.replyText ?? "I'll let you know as soon as the task finishes.",
           tone: "reply"
         }
       };
@@ -84,8 +84,8 @@ export class FinalizedUtteranceHandler {
       assistant: {
         text:
           result.action.type === "resume_task"
-            ? "이어서 진행할게. 작업 상태는 패널에 보여줄게."
-            : "작업을 시작할게. 진행 상황은 패널에 보여줄게.",
+            ? "I'll continue from there. The task state will stay visible in the panel."
+            : "I'll start the task now. Progress will stay visible in the panel.",
         tone: "task_ack"
       },
       task: result.task,

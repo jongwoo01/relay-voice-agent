@@ -19,7 +19,7 @@ describe("parseGeminiCliOutput", () => {
         }),
         JSON.stringify({
           type: "result",
-          response: "브라우저 탭 정리를 마쳤어요"
+          response: "Finished cleaning up the browser tabs"
         })
       ].join("\n")
     );
@@ -41,7 +41,7 @@ describe("parseGeminiCliOutput", () => {
       {
         type: "result",
         payload: {
-          response: "브라우저 탭 정리를 마쳤어요"
+          response: "Finished cleaning up the browser tabs"
         }
       }
     ]);
@@ -56,9 +56,9 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
   it("maps tool events to progress and result to completion", async () => {
     const onProgress = vi.fn();
     const structuredReport = JSON.stringify({
-      summary: "브라우저 탭 정리를 마쳤어요",
+      summary: "Finished cleaning up the browser tabs",
       verification: "verified",
-      changes: ["브라우저 탭 상태를 확인했어요"],
+      changes: ["Checked the browser tab state"],
       question: ""
     });
     const parsed = parseGeminiCliOutput(
@@ -94,11 +94,11 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
       "Tool requested: browser.inspect_tabs",
       "Tool finished: browser.inspect_tabs"
     ]);
-    expect(result.completionEvent.message).toBe("브라우저 탭 정리를 마쳤어요");
+    expect(result.completionEvent.message).toBe("Finished cleaning up the browser tabs");
     expect(result.report).toEqual({
-      summary: "브라우저 탭 정리를 마쳤어요",
+      summary: "Finished cleaning up the browser tabs",
       verification: "verified",
-      changes: ["브라우저 탭 상태를 확인했어요"],
+      changes: ["Checked the browser tab state"],
       question: undefined
     });
     expect(onProgress).toHaveBeenCalledTimes(2);
@@ -161,7 +161,7 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
         JSON.stringify({
           type: "result",
           status: "approval_required",
-          response: "이 파일들을 삭제해도 되는지 확인해줘"
+          response: "Please confirm whether these files can be deleted"
         })
       ].join("\n")
     );
@@ -175,7 +175,7 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
     expect(result.outcome).toBe("approval_required");
     expect(result.completionEvent.type).toBe("executor_approval_required");
     expect(result.completionEvent.message).toBe(
-      "이 파일들을 삭제해도 되는지 확인해줘"
+      "Please confirm whether these files can be deleted"
     );
   });
 
@@ -185,7 +185,7 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
         JSON.stringify({
           type: "result",
           response:
-            '확인 결과는 아래와 같아요. {"summary":"바탕화면 항목을 확인했어요","verification":"verified","changes":["Desktop 디렉터리 항목을 읽었어요"],"question":""}'
+            'Here are the verified results. {"summary":"Checked the desktop items","verification":"verified","changes":["Read the Desktop directory entries"],"question":""}'
         })
       ].join("\n")
     );
@@ -196,11 +196,11 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
       output: parsed
     });
 
-    expect(result.completionEvent.message).toBe("바탕화면 항목을 확인했어요");
+    expect(result.completionEvent.message).toBe("Checked the desktop items");
     expect(result.report).toEqual({
-      summary: "바탕화면 항목을 확인했어요",
+      summary: "Checked the desktop items",
       verification: "verified",
-      changes: ["Desktop 디렉터리 항목을 읽었어요"],
+      changes: ["Read the Desktop directory entries"],
       question: undefined
     });
   });
@@ -211,12 +211,12 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
         JSON.stringify({
           type: "message",
           role: "assistant",
-          text: '{"summary":"바탕화면 항목을 확인했어요","verification":"verified",'
+          text: '{"summary":"Checked the desktop items","verification":"verified",'
         }),
         JSON.stringify({
           type: "message",
           role: "assistant",
-          text: '"changes":["Desktop 디렉터리 항목을 읽었어요"],"question":""}'
+          text: '"changes":["Read the Desktop directory entries"],"question":""}'
         }),
         JSON.stringify({
           type: "result",
@@ -231,11 +231,11 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
       output: parsed
     });
 
-    expect(result.completionEvent.message).toBe("바탕화면 항목을 확인했어요");
+    expect(result.completionEvent.message).toBe("Checked the desktop items");
     expect(result.report).toEqual({
-      summary: "바탕화면 항목을 확인했어요",
+      summary: "Checked the desktop items",
       verification: "verified",
-      changes: ["Desktop 디렉터리 항목을 읽었어요"],
+      changes: ["Read the Desktop directory entries"],
       question: undefined
     });
   });

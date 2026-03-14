@@ -20,7 +20,7 @@ class CapturingExecutor implements LocalExecutor {
       completionEvent: {
         taskId: request.task.id,
         type: "executor_completed",
-        message: "완료",
+        message: "Completed",
         createdAt: request.now
       },
       sessionId: request.resumeSessionId ?? "session-new"
@@ -46,7 +46,7 @@ describe("task-execution-service", () => {
 
     const result = await service.execute({
       taskId: "task-1",
-      text: "아까 하던 거 이어서 해",
+      text: "Continue that task",
       now: "2026-03-08T00:01:00.000Z"
     });
 
@@ -82,7 +82,7 @@ describe("task-execution-service", () => {
 
     const result = await service.execute({
       taskId: "task-2",
-      text: "새 작업 시작해",
+      text: "Start a new task",
       now: "2026-03-08T00:01:00.000Z"
     });
 

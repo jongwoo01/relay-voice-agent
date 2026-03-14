@@ -4,7 +4,6 @@ import {
   BrainTurnService,
   FinalizedUtteranceHandler,
   GoogleLiveApiTransport,
-  HeuristicIntentResolver,
   LiveSessionController,
   LiveTranscriptAdapter,
   RealtimeGatewayService,
@@ -53,14 +52,22 @@ describe("google-live-api-transport", () => {
               new BrainTurnService(
                 undefined,
                 undefined,
-                undefined,
                 {
                   resolve: async () => createRoutingDecision()
                 } satisfies TaskRoutingResolver
               )
             )
           ),
-          new HeuristicIntentResolver()
+          {
+            resolve: async (text) =>
+              text.trim().toLowerCase() === "hello"
+                ? {
+                    intent: "small_talk" as const,
+                    assistantReplyText:
+                      "Hello. Tell me what you need and I'll get started."
+                  }
+                : { intent: "task_request" as const }
+          }
         )
       ),
       () => ({
@@ -80,7 +87,7 @@ describe("google-live-api-transport", () => {
     onmessage?.({
       serverContent: {
         inputTranscription: {
-          text: "바탕화면 파일들을",
+          text: "Desktop files",
           finished: false
         }
       }
@@ -89,7 +96,7 @@ describe("google-live-api-transport", () => {
     onmessage?.({
       serverContent: {
         inputTranscription: {
-          text: "바탕화면 파일들을 종류별로 정리해줘",
+          text: "Organize the desktop files by type",
           finished: true
         }
       }
@@ -105,15 +112,15 @@ describe("google-live-api-transport", () => {
     );
     expect(events).toContainEqual({
       type: "input_transcription_partial",
-      text: "바탕화면 파일들을"
+      text: "Desktop files"
     });
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "input_transcription_final",
-        text: "바탕화면 파일들을 종류별로 정리해줘",
+        text: "Organize the desktop files by type",
         turn: expect.objectContaining({
           assistant: {
-            text: "작업을 시작할게. 진행 상황은 패널에 보여줄게.",
+            text: "I'll start the task now. Progress will stay visible in the panel.",
             tone: "task_ack"
           }
         })
@@ -154,10 +161,10 @@ describe("google-live-api-transport", () => {
       serverContent: {
         modelTurn: {
           role: "model",
-          parts: [{ text: "안녕하세요" }]
+          parts: [{ text: "hello" }]
         },
         outputTranscription: {
-          text: "안녕하세요",
+          text: "hello",
           finished: true
         },
         waitingForInput: true,
@@ -169,11 +176,11 @@ describe("google-live-api-transport", () => {
 
     expect(events).toContainEqual({
       type: "model_text",
-      text: "안녕하세요"
+      text: "hello"
     });
     expect(events).toContainEqual({
       type: "output_transcription",
-      text: "안녕하세요",
+      text: "hello",
       finished: true
     });
     expect(events).toContainEqual({
@@ -303,7 +310,7 @@ describe("google-live-api-transport", () => {
       brainSessionId: "brain-1"
     });
 
-    session.sendText("안녕", false);
+    session.sendText("hello", false);
     session.sendContext("Task is still running. Do not guess.");
     session.sendToolResponse({
       functionResponses: {
@@ -316,7 +323,7 @@ describe("google-live-api-transport", () => {
         }
       }
     });
-    session.sendRealtimeText("실시간 텍스트");
+    session.sendRealtimeText("realtime text");
     session.sendRealtimeAudio("QUJD", "audio/pcm;rate=16000");
     session.sendActivityStart();
     session.sendActivityEnd();
@@ -327,7 +334,7 @@ describe("google-live-api-transport", () => {
       turns: [
         {
           role: "user",
-          parts: [{ text: "안녕" }]
+          parts: [{ text: "hello" }]
         }
       ],
       turnComplete: false
@@ -342,7 +349,7 @@ describe("google-live-api-transport", () => {
       turnComplete: false
     });
     expect(sendRealtimeInput).toHaveBeenCalledWith({
-      text: "실시간 텍스트"
+      text: "realtime text"
     });
     expect(sendToolResponse).toHaveBeenCalledWith({
       functionResponses: {
@@ -406,7 +413,7 @@ describe("google-live-api-transport", () => {
             id: "call-1",
             name: "delegate_to_gemini_cli",
             args: {
-              request: "바탕화면 정리해줘"
+              request: "Clean up the desktop"
             }
           }
         ]
@@ -425,7 +432,7 @@ describe("google-live-api-transport", () => {
           id: "call-1",
           name: "delegate_to_gemini_cli",
           args: {
-            request: "바탕화면 정리해줘"
+            request: "Clean up the desktop"
           }
         }
       ]
@@ -452,7 +459,7 @@ describe("google-live-api-transport", () => {
         brainSessionId: "brain-1"
       })
     ).rejects.toThrow(
-      "Gemini Live 연결 실패: setup failed: unsupported tool config"
+      "Gemini Live connection failed: setup failed: unsupported tool config"
     );
   });
 });

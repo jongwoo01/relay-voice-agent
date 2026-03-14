@@ -52,24 +52,13 @@ export function planAssistantNotificationDelivery(
   }
 
   if (notification.reason === "task_completed") {
-    if (hasActiveSpeech(state)) {
-      return {
-        uiText: notification.message.text,
-        speechText: `좋아, 마무리됐어. ${notification.message.text}`,
-        reason: notification.reason,
-        taskId: notification.message.taskId,
-        createdAt: notification.message.createdAt,
-        delivery: "next_turn"
-      };
-    }
-
     return {
       uiText: notification.message.text,
-      speechText: `짧게 보고할게. ${notification.message.text}`,
+      speechText: notification.message.text,
       reason: notification.reason,
       taskId: notification.message.taskId,
       createdAt: notification.message.createdAt,
-      delivery: "immediate"
+      delivery: hasActiveSpeech(state) ? "next_turn" : "immediate"
     };
   }
 

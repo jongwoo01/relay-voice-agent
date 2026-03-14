@@ -7,6 +7,7 @@ import type {
 } from "@agent/local-executor-protocol";
 import type { FinalizedUtterance } from "@agent/shared-types";
 import {
+  type TaskIntakeResolver,
   type TaskRoutingDecision,
   type TaskRoutingResolver,
   type TaskRoutingResolverInput,
@@ -36,7 +37,7 @@ class QueueDeferredExecutor implements LocalExecutor {
     const progressEvent = {
       taskId: request.task.id,
       type: "executor_progress" as const,
-      message: "작업 중",
+      message: "Task is running",
       createdAt: request.now
     };
     if (onProgress) {
@@ -50,7 +51,7 @@ class QueueDeferredExecutor implements LocalExecutor {
           completionEvent: {
             taskId: request.task.id,
             type: "executor_completed",
-            message: "완료",
+            message: "Completed",
             createdAt: request.now
           },
           sessionId: request.resumeSessionId ?? "session-created"
@@ -69,13 +70,13 @@ class QueueDeferredExecutor implements LocalExecutor {
 
 class ScriptedTaskRoutingResolver implements TaskRoutingResolver {
   async resolve(input: TaskRoutingResolverInput): Promise<TaskRoutingDecision> {
-    if (input.utterance.text === "데스크톱에서 폴더 확인해줘") {
+    if (input.utterance.text === "Check the folder on the desktop") {
       return {
         kind: "create_task",
         targetTaskId: null,
         clarificationNeeded: false,
         clarificationText: null,
-        executorPrompt: "데스크톱에서 폴더 확인해줘",
+        executorPrompt: "Check the folder on the desktop",
         reason: "new task"
       };
     }
@@ -85,18 +86,18 @@ class ScriptedTaskRoutingResolver implements TaskRoutingResolver {
       throw new Error("Expected an active task for follow-up routing");
     }
 
-    if (input.utterance.text === "이어서 해") {
+    if (input.utterance.text === "Continue it") {
       return {
         kind: "continue_task",
         targetTaskId: activeTaskId,
         clarificationNeeded: false,
         clarificationText: null,
-        executorPrompt: "이어서 해",
+        executorPrompt: "Continue it",
         reason: "explicit continuation"
       };
     }
 
-    if (input.utterance.text === "완료되면 알려줘") {
+    if (input.utterance.text === "Tell me when it finishes") {
       return {
         kind: "set_completion_notification",
         targetTaskId: activeTaskId,
@@ -111,16 +112,32 @@ class ScriptedTaskRoutingResolver implements TaskRoutingResolver {
   }
 }
 
+const scriptedTaskIntakeResolver: TaskIntakeResolver = {
+  analyzeStart: async (text) => {
+    if (text === "Check the folder on the desktop") {
+      return { requiredSlots: [], filledSlots: {} };
+    }
+
+    return { requiredSlots: [], filledSlots: {} };
+  },
+  analyzeUpdate: async () => ({
+    resolution: "answer_current_intake",
+    requiredSlots: [],
+    filledSlots: {}
+  })
+};
+
 describe("text-realtime-session-loop follow-up behavior", () => {
   it("does not auto-resume ambiguous short follow-ups and only continues when routing says so", async () => {
     const executor = new QueueDeferredExecutor();
     const loop = new TextRealtimeSessionLoop(executor, undefined, undefined, {
+      taskIntakeResolver: scriptedTaskIntakeResolver,
       taskRoutingResolver: new ScriptedTaskRoutingResolver()
     });
 
     const firstTurn = await loop.handleTurn({
       brainSessionId: "brain-1",
-      utterance: utterance("데스크톱에서 폴더 확인해줘", "task_request"),
+      utterance: utterance("Check the folder on the desktop", "task_request"),
       now: "2026-03-08T00:00:00.000Z"
     });
 
@@ -130,7 +147,7 @@ describe("text-realtime-session-loop follow-up behavior", () => {
 
     const secondTurn = await loop.handleTurn({
       brainSessionId: "brain-1",
-      utterance: utterance("줘", "small_talk"),
+      utterance: utterance("please", "small_talk"),
       now: "2026-03-08T00:00:01.000Z"
     });
 
@@ -140,7 +157,7 @@ describe("text-realtime-session-loop follow-up behavior", () => {
 
     const thirdTurn = await loop.handleTurn({
       brainSessionId: "brain-1",
-      utterance: utterance("이어서 해", "task_request"),
+      utterance: utterance("Continue it", "task_request"),
       now: "2026-03-08T00:00:02.000Z"
     });
 
@@ -150,12 +167,14 @@ describe("text-realtime-session-loop follow-up behavior", () => {
 
     const fourthTurn = await loop.handleTurn({
       brainSessionId: "brain-1",
-      utterance: utterance("완료되면 알려줘", "task_request"),
+      utterance: utterance("Tell me when it finishes", "task_request"),
       now: "2026-03-08T00:00:03.000Z"
     });
 
     expect(fourthTurn.assistant.tone).toBe("reply");
-    expect(fourthTurn.assistant.text).toContain("끝나면 바로 알려드릴게요");
+    expect(fourthTurn.assistant.text).toContain(
+      "I'll let you know as soon as the current task finishes."
+    );
     expect(fourthTurn.task?.id).toBe(firstTurn.task?.id);
     expect(executor.calls).toHaveLength(2);
 

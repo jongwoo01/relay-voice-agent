@@ -8,7 +8,6 @@ import type {
 } from "@agent/shared-types";
 import type { LocalExecutor } from "@agent/local-executor-protocol";
 import { MockExecutor } from "@agent/gemini-cli-runner";
-import { ConversationOrchestrator } from "../conversation/conversation-orchestrator.js";
 import { BrainTurnService } from "../conversation/brain-turn-service.js";
 import {
   type ConversationMessageRepository
@@ -83,7 +82,6 @@ export class TextRealtimeSessionLoop {
     this.taskIntakeService = options.taskIntakeResolver
       ? new TaskIntakeService(
           persistence.taskIntakeRepository,
-          undefined,
           options.taskIntakeResolver
         )
       : new TaskIntakeService(persistence.taskIntakeRepository);
@@ -136,7 +134,6 @@ export class TextRealtimeSessionLoop {
 
     const handler = new FinalizedUtteranceHandler(
       new BrainTurnService(
-        new ConversationOrchestrator(),
         this.taskExecutionService,
         undefined,
         this.taskRoutingResolver

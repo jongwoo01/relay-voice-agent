@@ -350,12 +350,12 @@ export class GoogleLiveApiTransport {
       const wrappedMessage = detail.message?.trim()
         ? `${
             liveBackend === "gemini_api"
-              ? "Gemini Live 연결 실패"
-              : "Vertex AI live 연결 실패"
+              ? "Gemini Live connection failed"
+              : "Vertex AI live connection failed"
           }: ${detail.message.trim()}`
         : liveBackend === "gemini_api"
-          ? "Gemini Live 연결이 실패했습니다."
-          : "Vertex AI live 연결이 실패했습니다.";
+          ? "Gemini Live connection failed."
+          : "Vertex AI live connection failed.";
       console.error(
         `[google-live-api-transport] connect failed ${serializeForLog({
           reason: detail.reason,

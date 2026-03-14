@@ -20,9 +20,9 @@ describe("GeminiCliExecutor", () => {
         JSON.stringify({
           type: "result",
           response: JSON.stringify({
-            summary: "브라우저 탭 3개를 닫고 2개를 고정했어.",
+            summary: "Closed 3 browser tabs and pinned 2.",
             verification: "verified",
-            changes: ["닫은 탭 3개", "고정한 탭 2개"],
+            changes: ["Closed 3 tabs", "Pinned 2 tabs"],
             question: ""
           })
         })
@@ -41,9 +41,9 @@ describe("GeminiCliExecutor", () => {
           JSON.stringify({
             type: "result",
             response: JSON.stringify({
-              summary: "브라우저 탭 3개를 닫고 2개를 고정했어.",
+              summary: "Closed 3 browser tabs and pinned 2.",
               verification: "verified",
-              changes: ["닫은 탭 3개", "고정한 탭 2개"],
+              changes: ["Closed 3 tabs", "Pinned 2 tabs"],
               question: ""
             })
           })
@@ -105,15 +105,15 @@ describe("GeminiCliExecutor", () => {
       completionEvent: {
         taskId: "task-1",
         type: "executor_completed",
-        message: "브라우저 탭 3개를 닫고 2개를 고정했어.",
+        message: "Closed 3 browser tabs and pinned 2.",
         createdAt: "2026-03-08T00:00:00.000Z"
       },
       sessionId: "session-123",
       outcome: "completed",
       report: {
-        summary: "브라우저 탭 3개를 닫고 2개를 고정했어.",
+        summary: "Closed 3 browser tabs and pinned 2.",
         verification: "verified",
-        changes: ["닫은 탭 3개", "고정한 탭 2개"],
+        changes: ["Closed 3 tabs", "Pinned 2 tabs"],
         question: undefined
       }
     });
@@ -130,9 +130,9 @@ describe("GeminiCliExecutor", () => {
       stdout: JSON.stringify({
         type: "result",
         response: JSON.stringify({
-          summary: "이어서 정리 작업을 끝냈어.",
+          summary: "Finished the cleanup after resuming.",
           verification: "verified",
-          changes: ["정리 완료"],
+          changes: ["Cleanup completed"],
           question: ""
         })
       }),
@@ -312,7 +312,7 @@ describe("GeminiCliExecutor", () => {
     const exec = vi.fn(async () => ({
       stdout: JSON.stringify({
         type: "result",
-        response: "문서, 이미지, 기타 세 폴더로 분류했습니다. 확인해 보세요!"
+        response: "Sorted them into Documents, Images, and Other. Please take a look!"
       }),
       stderr: "",
       exitCode: 0
@@ -334,7 +334,7 @@ describe("GeminiCliExecutor", () => {
     });
 
     expect(result.completionEvent.message).toBe(
-      "작업은 끝났지만 구조화된 결과 보고가 없어서 실제 변경 사항 확인이 더 필요해."
+      "The task finished, but the structured result report was missing, so the final changes still need verification."
     );
     expect(result.report).toBeUndefined();
   });

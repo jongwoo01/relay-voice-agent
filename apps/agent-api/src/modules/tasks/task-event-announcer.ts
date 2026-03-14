@@ -3,6 +3,10 @@ import type {
   Task,
   TaskEvent
 } from "@agent/shared-types";
+import {
+  appendEnglishOnlyDetail,
+  englishOnlyText
+} from "./english-only-text.js";
 
 export interface BuildAssistantFollowUpInput {
   brainSessionId: string;
@@ -18,7 +22,10 @@ export function buildAssistantFollowUpMessage(
       message: {
         brainSessionId: input.brainSessionId,
         speaker: "assistant",
-        text: `이건 실행 전에 확인이 필요해. ${input.event.message}`,
+        text: appendEnglishOnlyDetail(
+          "I need confirmation before I run this.",
+          input.event.message
+        ),
         tone: "reply",
         createdAt: input.event.createdAt,
         taskId: input.task.id
@@ -34,7 +41,10 @@ export function buildAssistantFollowUpMessage(
       message: {
         brainSessionId: input.brainSessionId,
         speaker: "assistant",
-        text: `이어가려면 답이 하나 더 필요해. ${input.event.message}`,
+        text: appendEnglishOnlyDetail(
+          "I need one more answer to continue.",
+          input.event.message
+        ),
         tone: "reply",
         createdAt: input.event.createdAt,
         taskId: input.task.id
@@ -50,7 +60,10 @@ export function buildAssistantFollowUpMessage(
       message: {
         brainSessionId: input.brainSessionId,
         speaker: "assistant",
-        text: `좋아, 끝냈어. ${input.event.message}`,
+        text: englishOnlyText(
+          input.task.completionReport?.summary ?? input.event.message,
+          "The task is done."
+        ),
         tone: "reply",
         createdAt: input.event.createdAt,
         taskId: input.task.id
@@ -66,7 +79,10 @@ export function buildAssistantFollowUpMessage(
       message: {
         brainSessionId: input.brainSessionId,
         speaker: "assistant",
-        text: `앗, 여기서 막혔어. ${input.event.message}`,
+        text: appendEnglishOnlyDetail(
+          "I hit a blocker here.",
+          input.event.message
+        ),
         tone: "reply",
         createdAt: input.event.createdAt,
         taskId: input.task.id

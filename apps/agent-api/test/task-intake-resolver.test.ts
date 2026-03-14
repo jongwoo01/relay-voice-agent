@@ -1,21 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  GeminiTaskIntakeResolver,
-  HeuristicTaskIntakeResolver
-} from "../src/modules/conversation/task-intake-resolver.js";
+import { GeminiTaskIntakeResolver } from "../src/modules/conversation/task-intake-resolver.js";
 
 describe("task-intake-resolver", () => {
-  it("uses heuristic fallback rules for required and filled slots", async () => {
-    const resolver = new HeuristicTaskIntakeResolver();
-
-    await expect(resolver.analyzeStart("다운로드 폴더 파일 정리해줘")).resolves.toEqual({
-      requiredSlots: ["scope"],
-      filledSlots: {
-        location: "다운로드 폴더 파일 정리해줘"
-      }
-    });
-  });
-
   it("parses structured JSON from Gemini for start analysis", async () => {
     const resolver = new GeminiTaskIntakeResolver({
       models: {
@@ -23,17 +9,17 @@ describe("task-intake-resolver", () => {
           text: JSON.stringify({
             requiredSlots: ["scope"],
             filledSlots: {
-              location: "다운로드 폴더"
+              location: "downloads folder"
             }
           })
         })
       }
     });
 
-    await expect(resolver.analyzeStart("다운로드 폴더 파일 정리해줘")).resolves.toEqual({
+    await expect(resolver.analyzeStart("Clean up the downloads folder")).resolves.toEqual({
       requiredSlots: ["scope"],
       filledSlots: {
-        location: "다운로드 폴더"
+        location: "downloads folder"
       }
     });
   });
@@ -46,7 +32,7 @@ describe("task-intake-resolver", () => {
             resolution: "answer_current_intake",
             requiredSlots: ["scope"],
             filledSlots: {
-              scope: "종류별로"
+              scope: "group by file type"
             }
           })
         })
@@ -58,24 +44,24 @@ describe("task-intake-resolver", () => {
         {
           brainSessionId: "brain-1",
           status: "collecting",
-          sourceText: "다운로드 폴더 파일 정리해줘",
-          workingText: "다운로드 폴더 파일 정리해줘",
+          sourceText: "Clean up the downloads folder",
+          workingText: "Clean up the downloads folder",
           requiredSlots: ["scope"],
           filledSlots: {
-            location: "다운로드 폴더 파일 정리해줘"
+            location: "downloads folder"
           },
           missingSlots: ["scope"],
-          lastQuestion: "어떤 기준으로 할지 알려줘.",
+          lastQuestion: "Tell me what rule or scope to use.",
           createdAt: "2026-03-08T00:00:00.000Z",
           updatedAt: "2026-03-08T00:00:00.000Z"
         },
-        "종류별로"
+        "group by file type"
       )
     ).resolves.toEqual({
       resolution: "answer_current_intake",
       requiredSlots: ["scope"],
       filledSlots: {
-        scope: "종류별로"
+        scope: "group by file type"
       }
     });
   });

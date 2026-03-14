@@ -7,7 +7,7 @@ function completedNotification(): AssistantNotification {
     message: {
       brainSessionId: "brain-1",
       speaker: "assistant",
-      text: "좋아, 끝냈어. 바탕화면에는 3개의 폴더가 있어.",
+      text: "Done. There are three folders on the desktop.",
       tone: "reply",
       createdAt: "2026-03-08T00:00:01.000Z"
     },
@@ -25,8 +25,8 @@ describe("task-notification-policy", () => {
     });
 
     expect(plan).toEqual({
-      uiText: "좋아, 끝냈어. 바탕화면에는 3개의 폴더가 있어.",
-      speechText: "짧게 보고할게. 좋아, 끝냈어. 바탕화면에는 3개의 폴더가 있어.",
+      uiText: "Done. There are three folders on the desktop.",
+      speechText: "Done. There are three folders on the desktop.",
       delivery: "immediate",
       reason: "task_completed",
       taskId: undefined,
@@ -41,8 +41,8 @@ describe("task-notification-policy", () => {
     });
 
     expect(plan).toEqual({
-      uiText: "좋아, 끝냈어. 바탕화면에는 3개의 폴더가 있어.",
-      speechText: "좋아, 마무리됐어. 좋아, 끝냈어. 바탕화면에는 3개의 폴더가 있어.",
+      uiText: "Done. There are three folders on the desktop.",
+      speechText: "Done. There are three folders on the desktop.",
       delivery: "next_turn",
       reason: "task_completed",
       taskId: undefined,
@@ -56,7 +56,7 @@ describe("task-notification-policy", () => {
         message: {
           brainSessionId: "brain-1",
           speaker: "assistant",
-          text: "앗, 여기서 막혔어. 권한이 필요해.",
+          text: "I hit a blocker here.",
           tone: "reply",
           createdAt: "2026-03-08T00:00:01.000Z"
         },
@@ -71,8 +71,8 @@ describe("task-notification-policy", () => {
     );
 
     expect(plan).toEqual({
-      uiText: "앗, 여기서 막혔어. 권한이 필요해.",
-      speechText: "앗, 여기서 막혔어. 권한이 필요해.",
+      uiText: "I hit a blocker here.",
+      speechText: "I hit a blocker here.",
       delivery: "interrupt_if_speaking",
       reason: "task_failed",
       taskId: undefined,

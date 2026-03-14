@@ -1,7 +1,7 @@
 import {
   buildExecutableTaskText,
   buildTaskIntakeSession,
-  isTaskIntakeReady,
+  isTaskIntakeREADY,
   mergeTaskIntakeAnswer
 } from "@agent/brain-domain";
 import type {
@@ -10,10 +10,9 @@ import type {
   TaskIntakeSession,
   TaskIntakeSlot
 } from "@agent/shared-types";
-import { ConversationOrchestrator } from "./conversation-orchestrator.js";
 import type { TaskIntakeRepository } from "../persistence/task-intake-repository.js";
 import {
-  HeuristicTaskIntakeResolver,
+  createDefaultTaskIntakeResolver,
   type TaskIntakeResolver
 } from "./task-intake-resolver.js";
 
@@ -26,17 +25,17 @@ export type TaskIntakeResolution =
 function describeMissingSlot(slot: TaskIntakeSlot): string {
   switch (slot) {
     case "target":
-      return "누구에게 할지";
+      return "who it is for";
     case "location":
-      return "어느 위치에서 할지";
+      return "where it should run";
     case "time":
-      return "언제 할지";
+      return "when it should happen";
     case "scope":
-      return "어떤 기준으로 할지";
+      return "what rule or scope to use";
     case "risk_ack":
-      return "지워도 괜찮은 범위";
+      return "whether destructive changes are okay";
     default:
-      return "추가 정보";
+      return "the missing detail";
   }
 }
 
@@ -59,14 +58,14 @@ function buildQuestionText(missingSlots: TaskIntakeSlot[]): string {
   const visible = prioritized.slice(0, 2).map(describeMissingSlot);
 
   if (visible.length === 0) {
-    return "바로 움직일게. 필요한 정보가 있으면 이어서 물어볼게.";
+    return "I can start right away. If I need more detail, I'll ask a follow-up.";
   }
 
   if (visible.length === 1) {
-    return `${visible[0]}만 알려줘.`;
+    return `Tell me ${visible[0]}.`;
   }
 
-  return `${visible[0]}랑 ${visible[1]}만 먼저 알려줘.`;
+  return `Tell me ${visible[0]} and ${visible[1]} first.`;
 }
 
 function withQuestion(
@@ -93,8 +92,7 @@ export interface HandleTaskIntakeInput {
 export class TaskIntakeService {
   constructor(
     private readonly repository: TaskIntakeRepository,
-    private readonly orchestrator: ConversationOrchestrator = new ConversationOrchestrator(),
-    private readonly resolver: TaskIntakeResolver = new HeuristicTaskIntakeResolver()
+    private readonly resolver: TaskIntakeResolver = createDefaultTaskIntakeResolver()
   ) {}
 
   async getActive(brainSessionId: string): Promise<TaskIntakeSession | null> {
@@ -152,20 +150,6 @@ export class TaskIntakeService {
       return { kind: "not_applicable" };
     }
 
-    const preliminary = this.orchestrator.decide(
-      input.utterance,
-      input.activeTasks
-    );
-
-    if (
-      preliminary.type === "reply" ||
-      preliminary.type === "clarify" ||
-      preliminary.type === "resume_task" ||
-      preliminary.type === "set_completion_notification"
-    ) {
-      return { kind: "not_applicable" };
-    }
-
     const startAnalysis = await this.resolver.analyzeStart(input.utterance.text);
     logTaskIntake("start analysis", {
       brainSessionId: input.brainSessionId,
@@ -183,7 +167,7 @@ export class TaskIntakeService {
   private async persistAndResolve(
     session: TaskIntakeSession
   ): Promise<TaskIntakeResolution> {
-    if (isTaskIntakeReady(session)) {
+    if (isTaskIntakeREADY(session)) {
       const readySession = {
         ...session,
         status: "ready" as const

@@ -22,6 +22,8 @@ export interface ParsedGeminiCliOutput {
   events: GeminiCliHeadlessEvent[];
 }
 
+const HANGUL_REGEX = /[\u3131-\u318e\uac00-\ud7a3]/;
+
 function parseJsonObjectString(value: string): Record<string, unknown> | null {
   const trimmed = value.trim();
 
@@ -117,7 +119,7 @@ function extractStructuredCompletionReport(
     return undefined;
   }
 
-  const summary = firstNonEmptyString([parsed.summary]);
+  const summary = englishOnlyValue(firstNonEmptyString([parsed.summary]));
   const verification =
     parsed.verification === "verified" || parsed.verification === "uncertain"
       ? parsed.verification
@@ -128,10 +130,15 @@ function extractStructuredCompletionReport(
   }
 
   const changes = Array.isArray(parsed.changes)
-    ? parsed.changes.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    ? parsed.changes
+        .filter(
+          (item): item is string => typeof item === "string" && item.trim().length > 0
+        )
+        .map((item) => englishOnlyValue(item))
+        .filter((item): item is string => typeof item === "string")
     : [];
 
-  const question = firstNonEmptyString([parsed.question]);
+  const question = englishOnlyValue(firstNonEmptyString([parsed.question]));
 
   return {
     summary,
@@ -153,6 +160,19 @@ function firstNonEmptyString(values: Array<unknown>): string | undefined {
   }
 
   return undefined;
+}
+
+function englishOnlyValue(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || HANGUL_REGEX.test(trimmed)) {
+    return undefined;
+  }
+
+  return trimmed;
 }
 
 function stringifyIfPresent(value: unknown): string | undefined {
@@ -376,13 +396,13 @@ export async function buildExecutorResultFromGeminiCliOutput(
     outcome === "waiting_input" || outcome === "approval_required"
       ? completionReport?.question ??
         completionReport?.summary ??
-        completionMessage ??
-        "작업을 이어가려면 답이 하나 더 필요해."
+        englishOnlyValue(completionMessage) ??
+        "I need one more answer before I can continue."
       : completionReport
         ? completionReport.verification === "verified"
           ? completionReport.summary
-          : `작업은 끝났지만 실제 변경 근거는 더 확인이 필요해. ${completionReport.summary}`
-        : "작업은 끝났지만 구조화된 결과 보고가 없어서 실제 변경 사항 확인이 더 필요해.";
+          : `The task finished, but I still need stronger proof of the final result. ${completionReport.summary}`
+        : "The task finished, but the structured result report was missing, so the final changes still need verification.";
 
   return {
     progressEvents,

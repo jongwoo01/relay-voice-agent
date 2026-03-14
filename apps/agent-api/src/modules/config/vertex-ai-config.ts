@@ -51,9 +51,9 @@ export class VertexAiConfigurationError extends Error {
 
 const DEFAULT_API_VERSION = "v1";
 const DEFAULT_LIVE_MODEL = "gemini-2.0-flash-live-preview-04-09";
-const DEFAULT_TASK_ROUTING_MODEL = "gemini-2.5-flash";
-const DEFAULT_TASK_INTAKE_MODEL = "gemini-2.5-flash";
-const DEFAULT_INTENT_MODEL = "gemini-2.5-flash";
+const DEFAULT_TASK_ROUTING_MODEL = "gemini-2.5-flash-lite";
+const DEFAULT_TASK_INTAKE_MODEL = "gemini-2.5-flash-lite";
+const DEFAULT_INTENT_MODEL = "gemini-2.5-flash-lite";
 
 export function resolveVertexAiConfig(
   env: NodeJS.ProcessEnv = process.env
@@ -273,16 +273,16 @@ export function buildVertexAiFailureMessage(
   reason: VertexAiFailureReason,
   detailMessage?: string | null
 ): string {
-  const suffix = detailMessage?.trim() ? ` 원인: ${detailMessage.trim()}` : "";
+  const suffix = detailMessage?.trim() ? ` Cause: ${detailMessage.trim()}` : "";
 
   switch (reason) {
     case "auth_failed":
-      return `Vertex AI 인증 또는 권한 문제로 작업을 시작하지 못했습니다.${suffix}`;
+      return `The task could not start because Vertex AI authentication or permissions are invalid.${suffix}`;
     case "quota_exhausted":
-      return `Vertex AI quota 제한으로 작업 라우팅이 실패했습니다.${suffix}`;
+      return `Task routing failed because the Vertex AI quota was exhausted.${suffix}`;
     case "config_invalid":
-      return `Vertex AI 설정이 누락되어 작업을 시작할 수 없습니다.${suffix}`;
+      return `The task could not start because the Vertex AI configuration is incomplete.${suffix}`;
     default:
-      return `Vertex AI 호출이 실패했습니다. 잠시 후 다시 시도해 주세요.${suffix}`;
+      return `The Vertex AI request failed. Please try again in a moment.${suffix}`;
   }
 }

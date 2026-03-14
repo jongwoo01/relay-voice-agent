@@ -37,7 +37,7 @@ export class MockExecutor implements LocalExecutor {
         {
           type: "result",
           payload: {
-            response: "작업을 완료했어요"
+            response: "Task completed."
           }
         }
       ])

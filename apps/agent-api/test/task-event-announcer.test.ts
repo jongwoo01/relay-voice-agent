@@ -7,8 +7,8 @@ describe("task-event-announcer", () => {
       brainSessionId: "brain-1",
       task: {
         id: "task-1",
-        title: "정리",
-        normalizedGoal: "정리",
+        title: "Cleanup",
+        normalizedGoal: "cleanup",
         status: "completed",
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:00:01.000Z"
@@ -16,7 +16,7 @@ describe("task-event-announcer", () => {
       event: {
         taskId: "task-1",
         type: "executor_completed",
-        message: "정리 완료",
+        message: "Cleanup completed",
         createdAt: "2026-03-08T00:00:01.000Z"
       }
     });
@@ -25,7 +25,7 @@ describe("task-event-announcer", () => {
       message: {
         brainSessionId: "brain-1",
         speaker: "assistant",
-        text: "좋아, 끝냈어. 정리 완료",
+        text: "Cleanup completed",
         tone: "reply",
         createdAt: "2026-03-08T00:00:01.000Z",
         taskId: "task-1"
@@ -41,8 +41,8 @@ describe("task-event-announcer", () => {
       brainSessionId: "brain-1",
       task: {
         id: "task-1",
-        title: "정리",
-        normalizedGoal: "정리",
+        title: "Cleanup",
+        normalizedGoal: "cleanup",
         status: "failed",
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:00:01.000Z"
@@ -50,7 +50,7 @@ describe("task-event-announcer", () => {
       event: {
         taskId: "task-1",
         type: "executor_failed",
-        message: "권한 요청으로 중단됨",
+        message: "Permission is required before continuing",
         createdAt: "2026-03-08T00:00:01.000Z"
       }
     });
@@ -59,7 +59,7 @@ describe("task-event-announcer", () => {
       message: {
         brainSessionId: "brain-1",
         speaker: "assistant",
-        text: "앗, 여기서 막혔어. 권한 요청으로 중단됨",
+        text: "I hit a blocker here. Permission is required before continuing",
         tone: "reply",
         createdAt: "2026-03-08T00:00:01.000Z",
         taskId: "task-1"
@@ -75,8 +75,8 @@ describe("task-event-announcer", () => {
       brainSessionId: "brain-1",
       task: {
         id: "task-1",
-        title: "정리",
-        normalizedGoal: "정리",
+        title: "Cleanup",
+        normalizedGoal: "cleanup",
         status: "approval_required",
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:00:01.000Z"
@@ -84,7 +84,7 @@ describe("task-event-announcer", () => {
       event: {
         taskId: "task-1",
         type: "executor_approval_required",
-        message: "이 파일들을 지워도 괜찮은지 확인해줘",
+        message: "Please confirm whether these files can be deleted",
         createdAt: "2026-03-08T00:00:01.000Z"
       }
     });
@@ -93,7 +93,7 @@ describe("task-event-announcer", () => {
       message: {
         brainSessionId: "brain-1",
         speaker: "assistant",
-        text: "이건 실행 전에 확인이 필요해. 이 파일들을 지워도 괜찮은지 확인해줘",
+        text: "I need confirmation before I run this. Please confirm whether these files can be deleted",
         tone: "reply",
         createdAt: "2026-03-08T00:00:01.000Z",
         taskId: "task-1"
@@ -109,8 +109,8 @@ describe("task-event-announcer", () => {
       brainSessionId: "brain-1",
       task: {
         id: "task-1",
-        title: "정리",
-        normalizedGoal: "정리",
+        title: "Cleanup",
+        normalizedGoal: "cleanup",
         status: "waiting_input",
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:00:01.000Z"
@@ -118,7 +118,7 @@ describe("task-event-announcer", () => {
       event: {
         taskId: "task-1",
         type: "executor_waiting_input",
-        message: "어느 폴더를 먼저 볼지 알려줘",
+        message: "Tell me which folder to inspect first",
         createdAt: "2026-03-08T00:00:01.000Z"
       }
     });
@@ -127,7 +127,7 @@ describe("task-event-announcer", () => {
       message: {
         brainSessionId: "brain-1",
         speaker: "assistant",
-        text: "이어가려면 답이 하나 더 필요해. 어느 폴더를 먼저 볼지 알려줘",
+        text: "I need one more answer to continue. Tell me which folder to inspect first",
         tone: "reply",
         createdAt: "2026-03-08T00:00:01.000Z",
         taskId: "task-1"

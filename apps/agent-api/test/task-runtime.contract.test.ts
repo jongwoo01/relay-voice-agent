@@ -9,7 +9,7 @@ class SilentExecutor implements LocalExecutor {
       completionEvent: {
         taskId: request.task.id,
         type: "executor_completed" as const,
-        message: "완료",
+        message: "Completed",
         createdAt: request.now
       }
     };
@@ -21,7 +21,7 @@ describe("task-runtime contract", () => {
     const runtime = new TaskRuntime(new SilentExecutor());
 
     const result = await runtime.submit({
-      text: "폴더 정리해줘",
+      text: "Clean up the folder",
       taskId: "task-2",
       now: "2026-03-08T00:00:00.000Z"
     });

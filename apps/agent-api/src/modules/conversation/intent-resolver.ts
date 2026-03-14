@@ -4,54 +4,6 @@ import {
   type GenAiClientFactory
 } from "../config/genai-client-factory.js";
 
-const ENGLISH_TASK_PREFIXES = [
-  "code ",
-  "build ",
-  "create ",
-  "write ",
-  "fix ",
-  "implement ",
-  "organize ",
-  "clean ",
-  "summarize "
-];
-
-const LOCAL_DOMAIN_HINTS = [
-  "바탕화면",
-  "데스크톱",
-  "다운로드",
-  "폴더",
-  "파일",
-  "workspace",
-  "프로젝트",
-  "브라우저",
-  "탭",
-  "앱",
-  "로컬",
-  "이 컴퓨터",
-  "이 기기",
-  "내 컴퓨터",
-  "desktop",
-  "downloads",
-  "folder",
-  "file"
-];
-
-const LOCAL_INSPECTION_QUESTION_HINTS = [
-  "보이니",
-  "보여",
-  "있니",
-  "뭐가",
-  "무슨",
-  "개수",
-  "갯수",
-  "몇 개",
-  "얼마나",
-  "이름",
-  "목록",
-  "뭐 있"
-];
-
 const INTENT_LABELS = [
   "small_talk",
   "question",
@@ -59,86 +11,49 @@ const INTENT_LABELS = [
   "unclear"
 ] as const satisfies IntentType[];
 
-const DEFAULT_INTENT_MODEL = "gemini-2.5-flash";
+const DEFAULT_INTENT_MODEL =
+  process.env.GEMINI_INTENT_MODEL ?? "gemini-2.5-flash-lite";
 
-function isIntentType(value: string): value is IntentType {
-  return INTENT_LABELS.includes(value as IntentType);
+export interface IntentResolution {
+  intent: IntentType;
+  assistantReplyText?: string;
 }
 
-function parseIntentFromModelText(text: string): IntentType {
-  const normalized = text.trim();
-
-  try {
-    const parsed = JSON.parse(normalized) as { intent?: unknown };
-    if (typeof parsed.intent === "string" && isIntentType(parsed.intent)) {
-      return parsed.intent;
-    }
-  } catch {
-    // Fall through to raw string parsing.
-  }
-
-  const singleToken = normalized.replace(/^"|"$/g, "");
-  if (isIntentType(singleToken)) {
-    return singleToken;
-  }
-
-  throw new Error(`Intent resolver returned an unknown label: ${normalized}`);
-}
-
-export function inferIntentFromText(text: string): IntentType {
-  const normalized = text.trim().toLowerCase();
-  const hasLocalDomainHint = LOCAL_DOMAIN_HINTS.some((hint) =>
-    normalized.includes(hint)
+function isIntentType(value: unknown): value is IntentType {
+  return (
+    typeof value === "string" &&
+    INTENT_LABELS.includes(value as IntentType)
   );
-  const looksLikeLocalInspectionQuestion =
-    hasLocalDomainHint &&
-    (LOCAL_INSPECTION_QUESTION_HINTS.some((hint) => normalized.includes(hint)) ||
-      normalized.includes("?"));
+}
 
-  if (
-    normalized.includes("해줘") ||
-    normalized.includes("알려줘") ||
-    normalized.includes("보여줘") ||
-    normalized.includes("찾아줘") ||
-    normalized.includes("말해줘") ||
-    normalized.includes("말해라") ||
-    normalized.includes("말해") ||
-    normalized.includes("실행") ||
-    normalized.includes("정리") ||
-    normalized.includes("만들어") ||
-    normalized.includes("이어") ||
-    normalized.includes("알려") ||
-    normalized.includes("continue") ||
-    normalized.includes("do ") ||
-    normalized.includes("run ") ||
-    looksLikeLocalInspectionQuestion ||
-    ENGLISH_TASK_PREFIXES.some((prefix) => normalized.startsWith(prefix))
-  ) {
-    return "task_request";
+function normalizeAssistantReplyText(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
   }
 
-  if (
-    normalized.includes("?") ||
-    normalized.startsWith("what") ||
-    normalized.startsWith("why") ||
-    normalized.startsWith("how") ||
-    normalized.startsWith("when") ||
-    normalized.startsWith("where")
-  ) {
-    return "question";
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseIntentResolution(text: string): IntentResolution {
+  const normalized = text.trim();
+  const parsed = JSON.parse(normalized) as {
+    intent?: unknown;
+    assistantReplyText?: unknown;
+  };
+
+  if (!isIntentType(parsed.intent)) {
+    throw new Error(`Intent resolver returned an unknown label: ${normalized}`);
   }
 
-  return "small_talk";
+  return {
+    intent: parsed.intent,
+    assistantReplyText: normalizeAssistantReplyText(parsed.assistantReplyText)
+  };
 }
 
 export interface IntentResolver {
-  resolve(text: string): Promise<IntentType>;
-}
-
-export class HeuristicIntentResolver implements IntentResolver {
-  async resolve(text: string): Promise<IntentType> {
-    return inferIntentFromText(text);
-  }
+  resolve(text: string): Promise<IntentResolution>;
 }
 
 export interface IntentModelClientLike {
@@ -161,21 +76,24 @@ export class GeminiIntentResolver implements IntentResolver {
     private readonly model: string = DEFAULT_INTENT_MODEL
   ) {}
 
-  async resolve(text: string): Promise<IntentType> {
+  async resolve(text: string): Promise<IntentResolution> {
     const response = await this.client.models.generateContent({
       model: this.model,
       contents: [
         "Classify the user's final utterance into exactly one intent.",
-        "Return JSON only in the form {\"intent\":\"...\"}.",
+        "Return JSON only in the form {\"intent\":\"...\",\"assistantReplyText\":\"...\"}.",
         "Allowed intents: small_talk, question, task_request, unclear.",
         "Use task_request for actionable requests that should trigger work.",
-        "Use task_request when answering requires inspecting local files, directories, apps, browser state, or running local tools/commands.",
+        "Use task_request when answering requires inspecting local files, directories, apps, browser state, or running local tools or commands.",
         "Requests like 'tell me the files on my desktop', 'show me folder names', 'count files', 'find X on this machine', or 'open Y' are task_request, not question.",
-        "Questions like '내 바탕화면에 뭐가 있니?', '다운로드 폴더에 파일이 몇 개 있니?', or '보이니?' are task_request if they refer to local machine state.",
-        "Use question for information-seeking questions.",
+        "Questions like 'what is on my desktop?', 'how many files are in downloads?', or 'can you see that folder?' are task_request if they refer to local machine state.",
         "Use question only when the answer can be produced directly without inspecting the local machine or performing work.",
         "Use small_talk for greetings, chit-chat, or acknowledgements.",
         "Use unclear when the request is too ambiguous to act on.",
+        "If intent is task_request, set assistantReplyText to an empty string.",
+        "If intent is small_talk or question, assistantReplyText must be a concise English reply in one or two short sentences.",
+        "If intent is unclear, assistantReplyText must be a concise English clarification question.",
+        "Do not mention internal routing, models, policies, or hidden reasoning.",
         `Utterance: ${text}`
       ].join("\n"),
       config: {
@@ -186,9 +104,12 @@ export class GeminiIntentResolver implements IntentResolver {
             intent: {
               type: "string",
               enum: [...INTENT_LABELS]
+            },
+            assistantReplyText: {
+              type: "string"
             }
           },
-          required: ["intent"],
+          required: ["intent", "assistantReplyText"],
           additionalProperties: false
         },
         temperature: 0
@@ -199,29 +120,14 @@ export class GeminiIntentResolver implements IntentResolver {
       throw new Error("Intent resolver returned an empty response");
     }
 
-    return parseIntentFromModelText(response.text);
-  }
-}
-
-export class FallbackIntentResolver implements IntentResolver {
-  constructor(
-    private readonly primary: IntentResolver,
-    private readonly fallback: IntentResolver
-  ) {}
-
-  async resolve(text: string): Promise<IntentType> {
-    try {
-      return await this.primary.resolve(text);
-    } catch {
-      return await this.fallback.resolve(text);
-    }
+    return parseIntentResolution(response.text);
   }
 }
 
 export class ErrorIntentResolver implements IntentResolver {
   constructor(private readonly errorFactory: () => Error) {}
 
-  async resolve(_text: string): Promise<IntentType> {
+  async resolve(_text: string): Promise<IntentResolution> {
     throw this.errorFactory();
   }
 }

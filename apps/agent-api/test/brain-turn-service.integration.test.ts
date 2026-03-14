@@ -3,7 +3,6 @@ import type { ExecutorRunRequest, ExecutorRunResult, LocalExecutor } from "@agen
 import type { FinalizedUtterance } from "@agent/shared-types";
 import {
   BrainTurnService,
-  ConversationOrchestrator,
   InMemoryTaskExecutorSessionRepository,
   TaskExecutionService,
   TaskRuntime,
@@ -20,7 +19,7 @@ class CapturingExecutor implements LocalExecutor {
       completionEvent: {
         taskId: request.task.id,
         type: "executor_completed",
-        message: "실행 완료",
+        message: "Execution completed",
         createdAt: request.now
       },
       sessionId: request.resumeSessionId ?? "session-created"
@@ -32,6 +31,9 @@ function utterance(text: string, intent: FinalizedUtterance["intent"]): Finalize
   return {
     text,
     intent,
+    ...(intent === "small_talk"
+      ? { assistantReplyText: "Hello. Tell me what you need and I'll get started." }
+      : {}),
     createdAt: "2026-03-08T00:00:00.000Z"
   };
 }
@@ -56,18 +58,17 @@ describe("brain-turn-service", () => {
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("안녕", "small_talk"),
+      utterance: utterance("hello", "small_talk"),
       activeTasks: [],
       now: "2026-03-08T00:00:00.000Z"
     });
 
     expect(result.action).toEqual({ type: "reply" });
-    expect(result.replyText).toContain("안녕하세요");
+    expect(result.replyText).toContain("Hello.");
   });
 
   it("returns a clarify action when the routing resolver requests clarification", async () => {
     const service = new BrainTurnService(
-      new ConversationOrchestrator(),
       new TaskExecutionService(),
       undefined,
       {
@@ -75,26 +76,25 @@ describe("brain-turn-service", () => {
           createRoutingDecision({
             kind: "clarify",
             clarificationNeeded: true,
-            clarificationText: "언제 할지 한 번만 더 알려줘."
+            clarificationText: "Tell me when it should happen one more time."
           })
       } satisfies TaskRoutingResolver
     );
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("일정 잡아줘", "task_request"),
+      utterance: utterance("Schedule a meeting", "task_request"),
       activeTasks: [],
       now: "2026-03-08T00:00:00.000Z"
     });
 
     expect(result.action).toEqual({ type: "clarify" });
-    expect(result.replyText).toContain("언제 할지");
+    expect(result.replyText).toContain("when it should happen");
   });
 
   it("runs a new task when the utterance is a fresh task request", async () => {
     const executor = new CapturingExecutor();
     const service = new BrainTurnService(
-      new ConversationOrchestrator(),
       new TaskExecutionService(
         new TaskRuntime(executor),
         new InMemoryTaskExecutorSessionRepository()
@@ -107,7 +107,7 @@ describe("brain-turn-service", () => {
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("브라우저 탭에서 오래된 탭만 정리해줘", "task_request"),
+      utterance: utterance("Clean up old browser tabs", "task_request"),
       activeTasks: [],
       now: "2026-03-08T00:00:00.000Z"
     });
@@ -117,7 +117,7 @@ describe("brain-turn-service", () => {
     expect(result.task?.status).toBe("running");
     expect(executor.run).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: "브라우저 탭에서 오래된 탭만 정리해줘",
+        prompt: "Clean up old browser tabs",
         resumeSessionId: undefined
       }),
       expect.any(Function)
@@ -135,7 +135,6 @@ describe("brain-turn-service", () => {
 
     const executor = new CapturingExecutor();
     const service = new BrainTurnService(
-      new ConversationOrchestrator(),
       new TaskExecutionService(new TaskRuntime(executor), repository),
       undefined,
       {
@@ -143,18 +142,18 @@ describe("brain-turn-service", () => {
           createRoutingDecision({
             kind: "continue_task",
             targetTaskId: "task-existing",
-            executorPrompt: "아까 하던 거 이어서 해"
+            executorPrompt: "Continue that task"
           })
       } satisfies TaskRoutingResolver
     );
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("아까 하던 거 이어서 해", "task_request"),
+      utterance: utterance("Continue that task", "task_request"),
       activeTasks: [
         {
           id: "task-existing",
-          title: "브라우저 정리",
+          title: "Browser cleanup",
           normalizedGoal: "browser cleanup",
           status: "running",
           createdAt: "2026-03-08T00:00:00.000Z",
@@ -181,7 +180,6 @@ describe("brain-turn-service", () => {
   it("acknowledges completion-notice preference without creating a new task", async () => {
     const executor = new CapturingExecutor();
     const service = new BrainTurnService(
-      new ConversationOrchestrator(),
       new TaskExecutionService(
         new TaskRuntime(executor),
         new InMemoryTaskExecutorSessionRepository()
@@ -198,11 +196,11 @@ describe("brain-turn-service", () => {
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("완료되면 알려줘", "task_request"),
+      utterance: utterance("Tell me when it finishes", "task_request"),
       activeTasks: [
         {
           id: "task-existing",
-          title: "브라우저 정리",
+          title: "Browser cleanup",
           normalizedGoal: "browser cleanup",
           status: "running",
           createdAt: "2026-03-08T00:00:00.000Z",
@@ -216,13 +214,12 @@ describe("brain-turn-service", () => {
       type: "set_completion_notification",
       taskId: "task-existing"
     });
-    expect(result.replyText).toContain("끝나면 바로 알려드릴게요");
+    expect(result.replyText).toContain("I'll let you know as soon as the current task finishes.");
     expect(executor.run).not.toHaveBeenCalled();
   });
 
   it("returns an explicit error when routing fails instead of guessing", async () => {
     const service = new BrainTurnService(
-      new ConversationOrchestrator(),
       new TaskExecutionService(),
       undefined,
       {
@@ -234,11 +231,11 @@ describe("brain-turn-service", () => {
 
     const result = await service.handle({
       brainSessionId: "brain-1",
-      utterance: utterance("이어서 해", "task_request"),
+      utterance: utterance("Continue it", "task_request"),
       activeTasks: [
         {
           id: "task-existing",
-          title: "브라우저 정리",
+          title: "Browser cleanup",
           normalizedGoal: "browser cleanup",
           status: "running",
           createdAt: "2026-03-08T00:00:00.000Z",

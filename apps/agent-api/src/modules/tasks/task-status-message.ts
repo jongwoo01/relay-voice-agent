@@ -1,31 +1,34 @@
 import type { Task, TaskEvent } from "@agent/shared-types";
+import { englishOnlyDetail } from "./english-only-text.js";
 
 export function buildTaskStatusMessage(
   task: Task,
   latestEvent?: TaskEvent
 ): string {
-  if (task.completionReport?.summary) {
-    return task.completionReport.summary;
+  const summary = englishOnlyDetail(task.completionReport?.summary);
+  if (summary) {
+    return summary;
   }
 
-  if (latestEvent?.message) {
-    return latestEvent.message;
+  const eventMessage = englishOnlyDetail(latestEvent?.message);
+  if (eventMessage) {
+    return eventMessage;
   }
 
   switch (task.status) {
     case "queued":
-      return "작업을 큐에 넣었어요.";
+      return "The task is queued.";
     case "running":
-      return "작업을 계속 확인하고 있어요.";
+      return "The task is still running.";
     case "waiting_input":
-      return "작업을 이어가려면 입력이 더 필요해요.";
+      return "The task needs more input to continue.";
     case "approval_required":
-      return "작업을 이어가려면 승인이 필요해요.";
+      return "The task needs approval to continue.";
     case "completed":
-      return "작업이 완료됐어요.";
+      return "The task is complete.";
     case "failed":
-      return "작업이 실패했어요.";
+      return "The task failed.";
     default:
-      return "작업 상태를 확인했어요.";
+      return "I checked the task status.";
   }
 }

@@ -11,6 +11,7 @@ import type {
 } from "@agent/shared-types";
 import { TextRealtimeSessionLoop } from "../src/index.js";
 import type {
+  TaskIntakeResolver,
   TaskRoutingDecision,
   TaskRoutingResolver,
   TaskRoutingResolverInput
@@ -43,7 +44,7 @@ const defaultTaskRoutingResolver = {
     utterance,
     activeTasks
   }: TaskRoutingResolverInput): Promise<TaskRoutingDecision> => {
-    if (utterance.text.includes("이어서") && activeTasks[0]) {
+    if (utterance.text.includes("continue") && activeTasks[0]) {
       return createRoutingDecision({
         kind:
           activeTasks[0].status === "waiting_input"
@@ -57,6 +58,52 @@ const defaultTaskRoutingResolver = {
     return createRoutingDecision();
   }
 } satisfies TaskRoutingResolver;
+
+const scriptedTaskIntakeResolver: TaskIntakeResolver = {
+  analyzeStart: async (text) => {
+    switch (text) {
+      case "Clean up only the old browser tabs":
+      case "Summarize the desktop files by type":
+        return { requiredSlots: [], filledSlots: {} };
+      case "Schedule it":
+        return { requiredSlots: ["time"], filledSlots: {} };
+      case "Send the email":
+        return { requiredSlots: ["target"], filledSlots: {} };
+      case "Clean up the downloads folder files":
+        return { requiredSlots: ["scope"], filledSlots: {} };
+      default:
+        return { requiredSlots: [], filledSlots: {} };
+    }
+  },
+  analyzeUpdate: async (_session, text) => {
+    switch (text) {
+      case "to Minsu":
+        return {
+          resolution: "answer_current_intake",
+          requiredSlots: ["target"],
+          filledSlots: { target: "to Minsu" }
+        };
+      case "Schedule it":
+        return {
+          resolution: "replace_task",
+          requiredSlots: ["time"],
+          filledSlots: {}
+        };
+      case "Organize them by type":
+        return {
+          resolution: "answer_current_intake",
+          requiredSlots: ["scope"],
+          filledSlots: { scope: "Organize them by type" }
+        };
+      default:
+        return {
+          resolution: "answer_current_intake",
+          requiredSlots: [],
+          filledSlots: {}
+        };
+    }
+  }
+};
 
 describe("text-realtime-session-loop", () => {
   it("can suppress direct assistant reply persistence for companion-style surfaces", async () => {
@@ -77,7 +124,7 @@ describe("text-realtime-session-loop", () => {
 
     const turn = await loop.handleTurn({
       brainSessionId: "brain-suppress",
-      utterance: utterance("안녕", "small_talk"),
+      utterance: utterance("hello", "small_talk"),
       now: "2026-03-08T00:00:00.000Z"
     });
 
@@ -86,7 +133,7 @@ describe("text-realtime-session-loop", () => {
     expect(conversation).toEqual([
       expect.objectContaining({
         speaker: "user",
-        text: "안녕"
+        text: "hello"
       })
     ]);
   });
@@ -103,7 +150,7 @@ describe("text-realtime-session-loop", () => {
         const progressEvent = {
           taskId: request.task.id,
           type: "executor_progress" as const,
-          message: "정리 중",
+          message: "Cleanup in progress",
           createdAt: request.now
         };
         if (onProgress) {
@@ -117,7 +164,7 @@ describe("text-realtime-session-loop", () => {
               completionEvent: {
                 taskId: request.task.id,
                 type: "executor_completed",
-                message: "정리 완료",
+                message: "Cleanup completed",
                 createdAt: request.now
               },
               sessionId: request.resumeSessionId ?? "session-new"
@@ -133,30 +180,31 @@ describe("text-realtime-session-loop", () => {
         notifications.push(notification);
       },
       {
+        taskIntakeResolver: scriptedTaskIntakeResolver,
         taskRoutingResolver: defaultTaskRoutingResolver
       }
     );
 
     const firstTurn = await loop.handleTurn({
       brainSessionId: "brain-1",
-      utterance: utterance("브라우저 탭에서 오래된 탭만 정리해줘", "task_request"),
+      utterance: utterance("Clean up only the old browser tabs", "task_request"),
       now: "2026-03-08T00:00:00.000Z"
     });
 
     expect(firstTurn.assistant).toEqual({
-      text: "작업을 시작할게. 진행 상황은 패널에 보여줄게.",
+      text: "I'll start the task now. Progress will stay visible in the panel.",
       tone: "task_ack"
     });
     expect(firstTurn.task?.status).toBe("running");
 
     const secondTurn = await loop.handleTurn({
       brainSessionId: "brain-1",
-      utterance: utterance("고마워", "small_talk"),
+      utterance: utterance("Thanks", "small_talk"),
       now: "2026-03-08T00:00:01.000Z"
     });
 
     expect(secondTurn.assistant?.tone).toBe("reply");
-    expect(secondTurn.assistant?.text).toContain("구체적으로");
+    expect(secondTurn.assistant?.text).toContain("Tell me");
 
     const conversationBeforeCompletion = await loop.listConversation("brain-1");
     expect(conversationBeforeCompletion.map((message) => message.speaker)).toEqual([
@@ -173,7 +221,7 @@ describe("text-realtime-session-loop", () => {
       expect.objectContaining({ type: "task_created" }),
       expect.objectContaining({ type: "task_queued" }),
       expect.objectContaining({ type: "task_started" }),
-      expect.objectContaining({ type: "executor_progress", message: "정리 중" })
+      expect.objectContaining({ type: "executor_progress", message: "Cleanup in progress" })
     ]);
 
     resolveExecution?.();
@@ -184,7 +232,7 @@ describe("text-realtime-session-loop", () => {
 
     const conversationAfterCompletion = await loop.listConversation("brain-1");
     expect(conversationAfterCompletion.map((message) => message.text)).toContain(
-      "좋아, 끝냈어. 정리 완료"
+      "Cleanup completed"
     );
     expect(notifications).toEqual([
       expect.objectContaining({
@@ -211,20 +259,22 @@ describe("text-realtime-session-loop", () => {
       }
     }
 
-    const loop = new TextRealtimeSessionLoop(new NoopExecutor());
+    const loop = new TextRealtimeSessionLoop(new NoopExecutor(), undefined, undefined, {
+      taskIntakeResolver: scriptedTaskIntakeResolver
+    });
 
     const turn = await loop.handleTurn({
       brainSessionId: "brain-2",
-      utterance: utterance("일정 잡아줘", "task_request"),
+      utterance: utterance("Schedule it", "task_request"),
       now: "2026-03-08T00:00:00.000Z"
     });
 
     expect(turn.assistant.tone).toBe("clarify");
-    expect(turn.assistant.text).toContain("언제 할지");
+    expect(turn.assistant.text).toContain("when it should happen");
     await expect(loop.listActiveTasks("brain-2")).resolves.toEqual([]);
     await expect(loop.getActiveTaskIntake("brain-2")).resolves.toEqual(
       expect.objectContaining({
-        sourceText: "일정 잡아줘",
+        sourceText: "Schedule it",
         missingSlots: ["time"]
       })
     );
@@ -243,7 +293,7 @@ describe("text-realtime-session-loop", () => {
           completionEvent: {
             taskId: request.task.id,
             type: "executor_completed",
-            message: "보냈어",
+            message: "Sent it",
             createdAt: request.now
           }
         };
@@ -252,12 +302,13 @@ describe("text-realtime-session-loop", () => {
 
     const executor = new CapturingExecutor();
     const loop = new TextRealtimeSessionLoop(executor, undefined, undefined, {
+      taskIntakeResolver: scriptedTaskIntakeResolver,
       taskRoutingResolver: defaultTaskRoutingResolver
     });
 
     const firstTurn = await loop.handleTurn({
       brainSessionId: "brain-3",
-      utterance: utterance("메일 보내줘", "task_request"),
+      utterance: utterance("Send the email", "task_request"),
       now: "2026-03-08T00:00:00.000Z"
     });
 
@@ -265,12 +316,12 @@ describe("text-realtime-session-loop", () => {
 
     const secondTurn = await loop.handleTurn({
       brainSessionId: "brain-3",
-      utterance: utterance("민수한테", "small_talk"),
+      utterance: utterance("to Minsu", "small_talk"),
       now: "2026-03-08T00:00:01.000Z"
     });
 
     expect(secondTurn.assistant.tone).toBe("task_ack");
-    expect(executor.lastPrompt).toBe("메일 보내줘 민수한테");
+    expect(executor.lastPrompt).toBe("Send the email to Minsu");
     await expect(loop.getActiveTaskIntake("brain-3")).resolves.toBeNull();
   });
 
@@ -286,23 +337,24 @@ describe("text-realtime-session-loop", () => {
         createRoutingDecision({
           kind: "clarify",
           clarificationNeeded: true,
-          clarificationText: "어떤 작업으로 이해하면 될지 한 번만 더 짚어줘."
+            clarificationText: "What task should I understand this as?"
         })
     };
 
     const loop = new TextRealtimeSessionLoop(new NoopExecutor(), undefined, undefined, {
+      taskIntakeResolver: scriptedTaskIntakeResolver,
       taskRoutingResolver: clarifyingResolver
     });
 
     await loop.handleTurn({
       brainSessionId: "brain-3b",
-      utterance: utterance("메일 보내줘", "task_request"),
+      utterance: utterance("Send the email", "task_request"),
       now: "2026-03-08T00:00:00.000Z"
     });
 
     const secondTurn = await loop.handleTurn({
       brainSessionId: "brain-3b",
-      utterance: utterance("민수한테", "small_talk"),
+      utterance: utterance("to Minsu", "small_talk"),
       now: "2026-03-08T00:00:01.000Z"
     });
 
@@ -317,25 +369,27 @@ describe("text-realtime-session-loop", () => {
       }
     }
 
-    const loop = new TextRealtimeSessionLoop(new NoopExecutor());
+    const loop = new TextRealtimeSessionLoop(new NoopExecutor(), undefined, undefined, {
+      taskIntakeResolver: scriptedTaskIntakeResolver
+    });
 
     await loop.handleTurn({
       brainSessionId: "brain-4",
-      utterance: utterance("메일 보내줘", "task_request"),
+      utterance: utterance("Send the email", "task_request"),
       now: "2026-03-08T00:00:00.000Z"
     });
 
     const replacementTurn = await loop.handleTurn({
       brainSessionId: "brain-4",
-      utterance: utterance("일정 잡아줘", "task_request"),
+      utterance: utterance("Schedule it", "task_request"),
       now: "2026-03-08T00:00:01.000Z"
     });
 
     expect(replacementTurn.assistant.tone).toBe("clarify");
-    expect(replacementTurn.assistant.text).toContain("언제 할지");
+    expect(replacementTurn.assistant.text).toContain("when it should happen");
     await expect(loop.getActiveTaskIntake("brain-4")).resolves.toEqual(
       expect.objectContaining({
-        sourceText: "일정 잡아줘",
+        sourceText: "Schedule it",
         missingSlots: ["time"]
       })
     );
@@ -354,7 +408,7 @@ describe("text-realtime-session-loop", () => {
           completionEvent: {
             taskId: request.task.id,
             type: "executor_completed",
-            message: "바탕화면 파일 요약 완료",
+            message: "Desktop file summary completed",
             createdAt: request.now
           }
         };
@@ -363,17 +417,18 @@ describe("text-realtime-session-loop", () => {
 
     const executor = new CapturingExecutor();
     const loop = new TextRealtimeSessionLoop(executor, undefined, undefined, {
+      taskIntakeResolver: scriptedTaskIntakeResolver,
       taskRoutingResolver: defaultTaskRoutingResolver
     });
 
     const turn = await loop.handleTurn({
       brainSessionId: "brain-5",
-      utterance: utterance("바탕화면 파일들을 종류별로 요약해줘", "task_request"),
+      utterance: utterance("Summarize the desktop files by type", "task_request"),
       now: "2026-03-08T00:00:00.000Z"
     });
 
     expect(turn.assistant.tone).toBe("task_ack");
-    expect(executor.lastPrompt).toBe("바탕화면 파일들을 종류별로 요약해줘");
+    expect(executor.lastPrompt).toBe("Summarize the desktop files by type");
     await expect(loop.getActiveTaskIntake("brain-5")).resolves.toBeNull();
   });
 
@@ -390,7 +445,7 @@ describe("text-realtime-session-loop", () => {
           completionEvent: {
             taskId: request.task.id,
             type: "executor_completed",
-            message: "다운로드 폴더 정리 완료",
+            message: "Downloads folder cleanup completed",
             createdAt: request.now
           }
         };
@@ -399,33 +454,34 @@ describe("text-realtime-session-loop", () => {
 
     const executor = new CapturingExecutor();
     const loop = new TextRealtimeSessionLoop(executor, undefined, undefined, {
+      taskIntakeResolver: scriptedTaskIntakeResolver,
       taskRoutingResolver: defaultTaskRoutingResolver
     });
 
     const firstTurn = await loop.handleTurn({
       brainSessionId: "brain-6",
-      utterance: utterance("다운로드 폴더 파일 정리해줘", "task_request"),
+      utterance: utterance("Clean up the downloads folder files", "task_request"),
       now: "2026-03-08T00:00:00.000Z"
     });
 
     expect(firstTurn.assistant.tone).toBe("clarify");
-    expect(firstTurn.assistant.text).toContain("어떤 기준으로");
+    expect(firstTurn.assistant.text).toContain("what rule or scope to use");
     await expect(loop.getActiveTaskIntake("brain-6")).resolves.toEqual(
       expect.objectContaining({
-        sourceText: "다운로드 폴더 파일 정리해줘",
+        sourceText: "Clean up the downloads folder files",
         missingSlots: ["scope"]
       })
     );
 
     const secondTurn = await loop.handleTurn({
       brainSessionId: "brain-6",
-      utterance: utterance("종류별로 정리해줘", "small_talk"),
+      utterance: utterance("Organize them by type", "small_talk"),
       now: "2026-03-08T00:00:01.000Z"
     });
 
     expect(secondTurn.assistant.tone).toBe("task_ack");
     expect(executor.lastPrompt).toBe(
-      "다운로드 폴더 파일 정리해줘 종류별로 정리해줘"
+      "Clean up the downloads folder files Organize them by type"
     );
     await expect(loop.getActiveTaskIntake("brain-6")).resolves.toBeNull();
   });

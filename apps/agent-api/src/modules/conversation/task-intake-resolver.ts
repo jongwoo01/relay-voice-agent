@@ -1,8 +1,5 @@
 import type { TaskIntakeSession, TaskIntakeSlot } from "@agent/shared-types";
 import {
-  extractFilledSlots,
-  inferRequiredSlots,
-  looksLikeStandaloneTaskRequest,
   type TaskIntakeAnalysis,
   type TaskIntakeFilledSlots
 } from "@agent/brain-domain";
@@ -11,7 +8,8 @@ import {
   type GenAiClientFactory
 } from "../config/genai-client-factory.js";
 
-const TASK_INTAKE_MODEL = process.env.GEMINI_TASK_INTAKE_MODEL ?? "gemini-2.5-flash";
+const TASK_INTAKE_MODEL =
+  process.env.GEMINI_TASK_INTAKE_MODEL ?? "gemini-2.5-flash-lite";
 const SLOT_LABELS = [
   "target",
   "time",
@@ -19,10 +17,6 @@ const SLOT_LABELS = [
   "location",
   "risk_ack"
 ] as const satisfies TaskIntakeSlot[];
-
-const STANDALONE_TASK_DOMAIN_CUES = [
-  /(메일|이메일|문자|메시지|연락|일정|약속|미팅|회의|캘린더|스케줄|브라우저|탭|파일|폴더|바탕화면|다운로드|메일함|워크스페이스|프로젝트|문서|사진)/
-];
 
 interface TaskIntakeStartResponse {
   requiredSlots: TaskIntakeSlot[];
@@ -98,30 +92,6 @@ function parseUpdateResponse(text: string): TaskIntakeUpdateResponse {
     requiredSlots: normalizeSlotArray(parsed.requiredSlots),
     filledSlots: normalizeFilledSlots(parsed.filledSlots)
   };
-}
-
-export class HeuristicTaskIntakeResolver implements TaskIntakeResolver {
-  async analyzeStart(text: string): Promise<TaskIntakeAnalysis> {
-    return {
-      requiredSlots: inferRequiredSlots(text),
-      filledSlots: extractFilledSlots(text)
-    };
-  }
-
-  async analyzeUpdate(
-    session: TaskIntakeSession,
-    text: string
-  ): Promise<TaskIntakeUpdateResponse> {
-    const shouldReplace =
-      looksLikeStandaloneTaskRequest(text) &&
-      STANDALONE_TASK_DOMAIN_CUES.some((pattern) => pattern.test(text.toLowerCase()));
-
-    return {
-      resolution: shouldReplace ? "replace_task" : "answer_current_intake",
-      requiredSlots: inferRequiredSlots(text),
-      filledSlots: extractFilledSlots(text)
-    };
-  }
 }
 
 export interface TaskIntakeModelClientLike {
@@ -254,32 +224,6 @@ export class GeminiTaskIntakeResolver implements TaskIntakeResolver {
     }
 
     return parseUpdateResponse(response.text);
-  }
-}
-
-export class FallbackTaskIntakeResolver implements TaskIntakeResolver {
-  constructor(
-    private readonly primary: TaskIntakeResolver,
-    private readonly fallback: TaskIntakeResolver
-  ) {}
-
-  async analyzeStart(text: string): Promise<TaskIntakeAnalysis> {
-    try {
-      return await this.primary.analyzeStart(text);
-    } catch {
-      return await this.fallback.analyzeStart(text);
-    }
-  }
-
-  async analyzeUpdate(
-    session: TaskIntakeSession,
-    text: string
-  ): Promise<TaskIntakeUpdateResponse> {
-    try {
-      return await this.primary.analyzeUpdate(session, text);
-    } catch {
-      return await this.fallback.analyzeUpdate(session, text);
-    }
   }
 }
 

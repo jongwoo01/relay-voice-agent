@@ -7,7 +7,6 @@ import type {
 import type { FinalizedUtterance } from "@agent/shared-types";
 import {
   BrainTurnService,
-  ConversationOrchestrator,
   FinalizedUtteranceHandler,
   InMemoryTaskEventRepository,
   InMemoryTaskExecutorSessionRepository,
@@ -28,7 +27,7 @@ class CapturingExecutor implements LocalExecutor {
       completionEvent: {
         taskId: request.task.id,
         type: "executor_completed",
-        message: "실행 완료",
+        message: "Execution completed",
         createdAt: request.now
       },
       sessionId: request.resumeSessionId ?? "session-created"
@@ -40,6 +39,9 @@ function utterance(text: string, intent: FinalizedUtterance["intent"]): Finalize
   return {
     text,
     intent,
+    ...(intent === "small_talk"
+      ? { assistantReplyText: "Hello. Tell me what you need and I'll get started." }
+      : {}),
     createdAt: "2026-03-08T00:00:00.000Z"
   };
 }
@@ -64,19 +66,19 @@ describe("realtime-gateway-service", () => {
 
     const result = await gateway.handleFinalizedUtterance({
       brainSessionId: "brain-1",
-      utterance: utterance("안녕", "small_talk"),
+      utterance: utterance("hello", "small_talk"),
       now: "2026-03-08T00:00:00.000Z"
     });
 
     expect(result.assistant?.tone).toBe("reply");
-    expect(result.assistant?.text).toContain("안녕하세요");
+    expect(result.assistant?.text).toContain("Hello.");
   });
 
   it("looks up active tasks from repository and routes a continuation utterance through the handler", async () => {
     const taskRepository = new InMemoryTaskRepository();
     await taskRepository.save("brain-1", {
       id: "task-existing",
-      title: "브라우저 정리",
+      title: "Browser cleanup",
       normalizedGoal: "browser cleanup",
       status: "running",
       createdAt: "2026-03-08T00:00:00.000Z",
@@ -95,7 +97,6 @@ describe("realtime-gateway-service", () => {
     const gateway = new RealtimeGatewayService(
       new FinalizedUtteranceHandler(
         new BrainTurnService(
-          new ConversationOrchestrator(),
           new TaskExecutionService(
             new TaskRuntime(executor),
             executorSessionRepository
@@ -106,7 +107,7 @@ describe("realtime-gateway-service", () => {
               createRoutingDecision({
                 kind: "continue_task",
                 targetTaskId: "task-existing",
-                executorPrompt: "아까 하던 거 이어서 해"
+                executorPrompt: "Continue that task"
               })
           } satisfies TaskRoutingResolver
         )
@@ -116,7 +117,7 @@ describe("realtime-gateway-service", () => {
 
     const result = await gateway.handleFinalizedUtterance({
       brainSessionId: "brain-1",
-      utterance: utterance("아까 하던 거 이어서 해", "task_request"),
+      utterance: utterance("Continue that task", "task_request"),
       now: "2026-03-08T00:01:00.000Z"
     });
 
@@ -128,7 +129,7 @@ describe("realtime-gateway-service", () => {
       expect.any(Function)
     );
     expect(result.assistant).toEqual({
-      text: "이어서 진행할게. 작업 상태는 패널에 보여줄게.",
+      text: "I'll continue from there. The task state will stay visible in the panel.",
       tone: "task_ack"
     });
     expect(result.task?.id).toBe("task-existing");
@@ -139,22 +140,22 @@ describe("realtime-gateway-service", () => {
     const taskEventRepository = new InMemoryTaskEventRepository();
     await taskRepository.save("brain-1", {
       id: "task-llm-folder",
-      title: "LLM 폴더 생성",
-      normalizedGoal: "LLM 폴더 생성",
+      title: "LLM folder creation",
+      normalizedGoal: "llm folder creation",
       status: "completed",
       createdAt: "2026-03-08T00:00:00.000Z",
       updatedAt: "2026-03-08T00:05:00.000Z",
       completionReport: {
-        summary: "LLM 폴더를 만들었어요.",
+        summary: "Created the LLM folder.",
         verification: "verified",
-        changes: ["LLM 폴더 생성"]
+        changes: ["Created the LLM folder"]
       }
     });
     await taskEventRepository.saveMany("task-llm-folder", [
       {
         taskId: "task-llm-folder",
         type: "executor_completed",
-        message: "Desktop/LLM 폴더 생성 완료",
+        message: "Desktop/LLM folder created",
         createdAt: "2026-03-08T00:05:00.000Z"
       }
     ]);
@@ -163,7 +164,6 @@ describe("realtime-gateway-service", () => {
     const gateway = new RealtimeGatewayService(
       new FinalizedUtteranceHandler(
         new BrainTurnService(
-          new ConversationOrchestrator(),
           undefined,
           undefined,
           {
@@ -187,7 +187,7 @@ describe("realtime-gateway-service", () => {
     await gateway.handleFinalizedUtterance({
       brainSessionId: "brain-1",
       utterance: utterance(
-        "아까 만든 LLM 폴더에 현대 LLM 뉴스 txt 파일 만들어줘",
+        "Create a txt file with current LLM news in the LLM folder you created earlier",
         "task_request"
       ),
       now: "2026-03-08T00:06:00.000Z"
@@ -195,15 +195,15 @@ describe("realtime-gateway-service", () => {
 
     expect(capturedInputs).toEqual([
       expect.objectContaining({
-        utterance: "아까 만든 LLM 폴더에 현대 LLM 뉴스 txt 파일 만들어줘",
+        utterance: "Create a txt file with current LLM news in the LLM folder you created earlier",
         taskContexts: [
           expect.objectContaining({
             isActive: false,
             isRecentCompleted: true,
-            latestEventPreview: "Desktop/LLM 폴더 생성 완료",
+            latestEventPreview: "Desktop/LLM folder created",
             task: expect.objectContaining({
               id: "task-llm-folder",
-              title: "LLM 폴더 생성"
+              title: "LLM folder creation"
             })
           })
         ]

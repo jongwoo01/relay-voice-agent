@@ -3,10 +3,8 @@ import type {
   NextAction,
   Task,
   TaskEvent,
-  TaskExecutorSession,
-  TaskIntakeSlot
+  TaskExecutorSession
 } from "@agent/shared-types";
-import { ConversationOrchestrator } from "./conversation-orchestrator.js";
 import { TaskExecutionService } from "../tasks/task-execution-service.js";
 import {
   createTaskId as createDefaultTaskId,
@@ -30,55 +28,6 @@ export interface BrainTurnResult {
   taskEvents?: TaskEvent[];
   executorSession?: TaskExecutorSession;
   routingDecision?: TaskRoutingDecision;
-}
-
-function normalizeText(text: string): string {
-  return text.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function buildDirectReplyText(
-  utteranceText: string,
-  activeTasks: Task[]
-): string {
-  const normalized = normalizeText(utteranceText);
-
-  if (/^(ㅎㅇ|안녕|hello|hi)$/.test(normalized)) {
-    return "안녕하세요. 필요한 작업을 말해주시면 바로 진행할게요.";
-  }
-
-  if (activeTasks.length > 0 && /(상태|진행|어디까지)/.test(normalized)) {
-    return "현재 진행 상황은 Tasks 패널에서 바로 볼 수 있어요. 완료되면 제가 바로 브리핑할게요.";
-  }
-
-  return "알겠어요. 원하는 작업이나 질문을 조금만 더 구체적으로 말해줘.";
-}
-
-function describeMissingSlot(slot: TaskIntakeSlot): string {
-  switch (slot) {
-    case "target":
-      return "누구에게 하려는 건지";
-    case "time":
-      return "언제 할지";
-    case "scope":
-      return "어디까지 정리할지";
-    case "location":
-      return "어느 위치에서 할지";
-    case "risk_ack":
-      return "지워도 괜찮은 범위인지";
-    default:
-      return "추가 정보";
-  }
-}
-
-function buildTaskIntakeClarifyText(missingSlots: TaskIntakeSlot[]): string {
-  if (missingSlots.length === 1) {
-    return `바로 할게. 다만 ${describeMissingSlot(missingSlots[0])}만 알려줘.`;
-  }
-
-  const labels = missingSlots.map(describeMissingSlot);
-  const head = labels.slice(0, -1).join(", ");
-  const tail = labels.at(-1);
-  return `좋아, 바로 움직일 수 있게 ${head} 그리고 ${tail}만 알려줘.`;
 }
 
 function truncateForLog(value: string | null | undefined, max = 160): string | null {
@@ -105,7 +54,6 @@ function logBrainTurn(label: string, details: Record<string, unknown>): void {
 
 export class BrainTurnService {
   constructor(
-    private readonly orchestrator: ConversationOrchestrator = new ConversationOrchestrator(),
     private readonly taskExecutionService: TaskExecutionService = new TaskExecutionService(),
     private readonly createTaskId: TaskIdGenerator = createDefaultTaskId,
     private readonly taskRoutingResolver: TaskRoutingResolver = createDefaultTaskRoutingResolver()
@@ -122,7 +70,9 @@ export class BrainTurnService {
       const action: NextAction = { type: "reply" };
       return {
         action,
-        replyText: buildDirectReplyText(input.utterance.text, input.activeTasks)
+        replyText:
+          input.utterance.assistantReplyText ??
+          "Tell me what you want to do next."
       };
     }
 
@@ -130,7 +80,9 @@ export class BrainTurnService {
       const action: NextAction = { type: "clarify" };
       return {
         action,
-        replyText: "조금 더 구체적으로 말해줘."
+        replyText:
+          input.utterance.assistantReplyText ??
+          "Please be a little more specific."
       };
     }
 
@@ -177,12 +129,12 @@ export class BrainTurnService {
         utterance: input.utterance.text,
         action: action.type,
         replyText: truncateForLog(
-          decision.clarificationText ?? "조금 더 구체적으로 말해줘."
+          decision.clarificationText ?? "Please be a little more specific."
         )
       });
       return {
         action,
-        replyText: decision.clarificationText ?? "조금 더 구체적으로 말해줘.",
+        replyText: decision.clarificationText ?? "Please be a little more specific.",
         routingDecision: decision
       };
     }
@@ -195,7 +147,10 @@ export class BrainTurnService {
       });
       return {
         action,
-        replyText: buildDirectReplyText(input.utterance.text, input.activeTasks),
+        replyText:
+          decision.clarificationText ??
+          input.utterance.assistantReplyText ??
+          "Tell me what you want to do next.",
         routingDecision: decision
       };
     }
@@ -212,12 +167,12 @@ export class BrainTurnService {
         });
         return {
           action: { type: "clarify" },
-          replyText: "어떤 작업 상태를 확인할지 한 번만 더 짚어줘.",
+          replyText: "Which task do you want a status update for?",
           routingDecision: {
             ...decision,
             kind: "clarify",
             clarificationNeeded: true,
-            clarificationText: "어떤 작업 상태를 확인할지 한 번만 더 짚어줘."
+            clarificationText: "Which task do you want a status update for?"
           }
         };
       }
@@ -248,13 +203,13 @@ export class BrainTurnService {
         });
         return {
           action: { type: "clarify" },
-          replyText: "어떤 작업이 끝나면 알려드리면 될지 한 번만 더 짚어줘.",
+          replyText: "Which task should I notify you about when it finishes?",
           routingDecision: {
             ...decision,
             kind: "clarify",
             clarificationNeeded: true,
             clarificationText:
-              "어떤 작업이 끝나면 알려드리면 될지 한 번만 더 짚어줘."
+              "Which task should I notify you about when it finishes?"
           }
         };
       }
@@ -267,7 +222,7 @@ export class BrainTurnService {
       });
       return {
         action: { type: "set_completion_notification", taskId: task.id },
-        replyText: "네, 지금 진행 중인 작업이 끝나면 바로 알려드릴게요.",
+        replyText: "Okay. I'll let you know as soon as the current task finishes.",
         task,
         routingDecision: decision
       };
@@ -289,13 +244,13 @@ export class BrainTurnService {
       });
       return {
         action: { type: "clarify" },
-        replyText: "이어갈 작업을 정확히 못 잡았어. 어떤 작업인지 한 번만 더 말해줘.",
+        replyText: "I couldn't tell which task to continue. Tell me which one you mean.",
         routingDecision: {
           ...decision,
           kind: "clarify",
           clarificationNeeded: true,
           clarificationText:
-            "이어갈 작업을 정확히 못 잡았어. 어떤 작업인지 한 번만 더 말해줘."
+            "I couldn't tell which task to continue. Tell me which one you mean."
         }
       };
     }

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  HeuristicIntentResolver,
   LiveSessionController,
   LiveTranscriptAdapter
 } from "../src/index.js";
@@ -12,7 +11,7 @@ describe("live-session-controller", () => {
     const result = await controller.handleTranscriptChunk({
       brainSessionId: "brain-1",
       chunk: {
-        text: "브라우저 탭",
+        text: "Browser tabs",
         createdAt: "2026-03-08T00:00:00.000Z",
         isFinal: false
       },
@@ -20,27 +19,32 @@ describe("live-session-controller", () => {
     });
 
     expect(result).toEqual({
-      partialText: "브라우저 탭"
+      partialText: "Browser tabs"
     });
   });
 
   it("returns a UI-ready assistant response for a final transcript", async () => {
     const controller = new LiveSessionController(
-      new LiveTranscriptAdapter(undefined, new HeuristicIntentResolver())
+      new LiveTranscriptAdapter(undefined, {
+        resolve: async () => ({
+          intent: "small_talk",
+          assistantReplyText: "Hello. Tell me what you need and I'll get started."
+        })
+      })
     );
 
     const result = await controller.handleTranscriptChunk({
       brainSessionId: "brain-1",
       chunk: {
-        text: "안녕",
+        text: "hello",
         createdAt: "2026-03-08T00:00:00.000Z",
         isFinal: true
       },
       now: "2026-03-08T00:00:00.000Z"
     });
 
-    expect(result.finalizedUtterance?.text).toBe("안녕");
+    expect(result.finalizedUtterance?.text).toBe("hello");
     expect(result.assistant?.tone).toBe("reply");
-    expect(result.assistant?.text).toContain("안녕하세요");
+    expect(result.assistant?.text).toContain("Hello.");
   });
 });

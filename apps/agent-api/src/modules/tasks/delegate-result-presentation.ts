@@ -1,4 +1,5 @@
 import type { Task } from "@agent/shared-types";
+import { englishOnlyDetail } from "./english-only-text.js";
 
 export interface DelegateResultPresentation {
   ownership: "live" | "runtime";
@@ -26,7 +27,10 @@ export function buildTaskResultPresentation(input: {
       return {
         ownership: "runtime",
         speechMode: "grounded_summary",
-        speechText: task.completionReport.summary || message,
+        speechText:
+          englishOnlyDetail(task.completionReport.summary) ??
+          englishOnlyDetail(message) ??
+          "The task is done.",
         allowLiveModelOutput: false
       };
     }
@@ -35,8 +39,9 @@ export function buildTaskResultPresentation(input: {
       ownership: "runtime",
       speechMode: "canonical",
       speechText:
-        task.completionReport?.summary ||
-        "작업은 끝났지만 실제 결과 확인이 더 필요해요.",
+        englishOnlyDetail(task.completionReport?.summary) ??
+        englishOnlyDetail(message) ??
+        "The task finished, but I still need to verify the final result.",
       allowLiveModelOutput: false
     };
   }
@@ -45,7 +50,7 @@ export function buildTaskResultPresentation(input: {
     return {
       ownership: "runtime",
       speechMode: "canonical",
-      speechText: message || "작업이 실패했어요.",
+      speechText: englishOnlyDetail(message) || "The task failed.",
       allowLiveModelOutput: false
     };
   }
@@ -54,7 +59,11 @@ export function buildTaskResultPresentation(input: {
     return {
       ownership: "runtime",
       speechMode: "canonical",
-      speechText: message,
+      speechText:
+        englishOnlyDetail(message) ||
+        (task.status === "waiting_input"
+          ? "I need one more answer to continue."
+          : "I need approval before I continue."),
       allowLiveModelOutput: false
     };
   }
@@ -65,8 +74,8 @@ export function buildTaskResultPresentation(input: {
       speechMode: "canonical",
       speechText:
         action === "created" || action === "resumed"
-          ? "작업을 시작했어요. 완료나 실패가 확인되면 바로 알려드릴게요."
-          : "아직 진행 중입니다. 완료나 실패가 확인되면 바로 알려드릴게요.",
+          ? "I started the task. I'll let you know as soon as completion or failure is confirmed."
+          : "The task is still running. I'll let you know as soon as completion or failure is confirmed.",
       allowLiveModelOutput: false
     };
   }

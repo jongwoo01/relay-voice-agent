@@ -65,7 +65,9 @@ export class LiveTranscriptAdapter {
 
     const utterance: FinalizedUtterance = {
       text: finalizedText,
-      intent: input.intentHint ?? (await this.resolveIntent.resolve(finalizedText)),
+      ...(input.intentHint
+        ? { intent: input.intentHint }
+        : await this.resolveIntent.resolve(finalizedText)),
       createdAt: input.createdAt
     };
 
