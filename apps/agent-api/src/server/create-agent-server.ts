@@ -27,10 +27,11 @@ export interface CreateAgentServerOptions {
   port: number;
   sql?: SqlClientLike;
   userRepository: Pick<UserRepository, "getByEmail" | "create">;
-  judgePasscode: string;
+  judgePasscode?: string;
   judgeTokenSecret: string;
-  judgeUserEmail: string;
-  judgeUserDisplayName: string;
+  judgeUserEmail?: string;
+  judgeUserDisplayName?: string;
+  judgeUsers?: JudgeUserConfig[];
   judgeSessionTtlSeconds: number;
   createSession?: (input: {
     brainSessionId: string;
@@ -72,8 +73,37 @@ export function createAgentServer(options: CreateAgentServerOptions) {
       onClose?: () => void;
     }) => new CloudAgentSession(input));
 
-  async function ensureJudgeUser(): Promise<{ id: string; email: string }> {
-    const existing = await options.userRepository.getByEmail(options.judgeUserEmail);
+  function resolveJudgeUser(passcode: string): JudgeUserConfig | null {
+    const configuredUsers =
+      options.judgeUsers?.filter(
+        (user) => user.passcode.trim() && user.email.trim() && user.displayName.trim()
+      ) ?? [];
+    if (configuredUsers.length > 0) {
+      return (
+        configuredUsers.find((user) => user.passcode.trim() === passcode.trim()) ?? null
+      );
+    }
+
+    if (
+      options.judgePasscode?.trim() &&
+      options.judgeUserEmail?.trim() &&
+      options.judgeUserDisplayName?.trim() &&
+      options.judgePasscode.trim() === passcode.trim()
+    ) {
+      return {
+        passcode: options.judgePasscode.trim(),
+        email: options.judgeUserEmail.trim(),
+        displayName: options.judgeUserDisplayName.trim()
+      };
+    }
+
+    return null;
+  }
+
+  async function ensureJudgeUser(
+    judgeUserConfig: JudgeUserConfig
+  ): Promise<{ id: string; email: string }> {
+    const existing = await options.userRepository.getByEmail(judgeUserConfig.email);
     if (existing) {
       return {
         id: existing.id,
@@ -85,15 +115,15 @@ export function createAgentServer(options: CreateAgentServerOptions) {
     const id = randomUUID();
     await options.userRepository.create({
       id,
-      email: options.judgeUserEmail,
-      displayName: options.judgeUserDisplayName,
+      email: judgeUserConfig.email,
+      displayName: judgeUserConfig.displayName,
       createdAt: now,
       updatedAt: now
     });
 
     return {
       id,
-      email: options.judgeUserEmail
+      email: judgeUserConfig.email
     };
   }
 
@@ -135,12 +165,13 @@ export function createAgentServer(options: CreateAgentServerOptions) {
         return;
       }
 
-      if (body.passcode?.trim() !== options.judgePasscode) {
+      const judgeUserConfig = resolveJudgeUser(body.passcode?.trim() ?? "");
+      if (!judgeUserConfig) {
         sendJson(res, 401, { error: "Invalid passcode" });
         return;
       }
 
-      const judgeUser = await ensureJudgeUser();
+      const judgeUser = await ensureJudgeUser(judgeUserConfig);
       const brainSessionId = `judge-session-${Date.now()}`;
       const exp = Math.floor(Date.now() / 1000) + options.judgeSessionTtlSeconds;
       const token = issueJudgeSessionToken(

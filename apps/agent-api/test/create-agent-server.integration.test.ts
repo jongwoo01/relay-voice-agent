@@ -133,6 +133,106 @@ describe("createAgentServer", () => {
     });
   });
 
+  it("maps different judge passcodes to different users", async () => {
+    const createdUsers: Array<{ email: string; displayName: string }> = [];
+    const create = vi.fn(
+      async (user: { email: string; displayName?: string }) => {
+        createdUsers.push({
+          email: user.email,
+          displayName: user.displayName ?? ""
+        });
+      }
+    );
+    const getByEmail = vi.fn(async (email: string) => {
+      if (email === "judge-one@example.com") {
+        return null;
+      }
+
+      if (email === "judge-two@example.com") {
+        return null;
+      }
+
+      return null;
+    });
+    const seenUsers: string[] = [];
+    const serverBundle = createAgentServer({
+      port: 8080,
+      userRepository: {
+        getByEmail,
+        create
+      },
+      judgeTokenSecret: "secret",
+      judgeSessionTtlSeconds: 3600,
+      judgeUsers: [
+        {
+          passcode: "judge-one-passcode",
+          email: "judge-one@example.com",
+          displayName: "Judge One"
+        },
+        {
+          passcode: "judge-two-passcode",
+          email: "judge-two@example.com",
+          displayName: "Judge Two"
+        }
+      ],
+      createSession: ({ userId, send }) => ({
+        start: async () => {
+          seenUsers.push(userId);
+          send({
+            type: "session_ready",
+            brainSessionId: "brain-test",
+            conversation: createConversationState(),
+            tasks: createTaskState()
+          });
+        },
+        handleClientEvent: async () => undefined,
+        close: async () => undefined
+      })
+    });
+    servers.add(serverBundle.server);
+    const baseUrl = await listen(serverBundle.server);
+
+    for (const passcode of ["judge-one-passcode", "judge-two-passcode"]) {
+      const response = await fetch(`${baseUrl}/judge/session`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ passcode })
+      });
+      const payload = (await response.json()) as {
+        token: string;
+        wsUrl: string;
+      };
+
+      const socket = new WebSocket(payload.wsUrl);
+      await new Promise<void>((resolve) => {
+        socket.once("open", () => resolve());
+      });
+      socket.send(
+        JSON.stringify({
+          type: "auth",
+          token: payload.token
+        })
+      );
+      await waitForMessage(socket);
+      socket.close();
+      await waitForClose(socket);
+    }
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(createdUsers.at(0)).toMatchObject({
+      email: "judge-one@example.com",
+      displayName: "Judge One"
+    });
+    expect(createdUsers.at(1)).toMatchObject({
+      email: "judge-two@example.com",
+      displayName: "Judge Two"
+    });
+    expect(seenUsers).toHaveLength(2);
+    expect(seenUsers[0]).not.toBe(seenUsers[1]);
+  });
+
   it("authenticates a websocket session and sends session_ready", async () => {
     const sessionStart = vi.fn(async (send: (event: CloudServerEvent) => void) => {
       send({

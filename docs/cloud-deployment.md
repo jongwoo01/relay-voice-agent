@@ -45,7 +45,7 @@ Use this document to keep the public submission claims accurate and to collect t
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_CLOUD_LOCATION`
 - `DATABASE_URL`
-- `JUDGE_PASSCODE`
+- `JUDGE_PASSCODE` or `JUDGE_USERS_JSON`
 - `JUDGE_TOKEN_SECRET`
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY`
 
@@ -86,6 +86,7 @@ The deployment script uses `apps/agent-api/Dockerfile`, builds from the monorepo
 - `GEMINI_INTENT_MODEL`
 - `JUDGE_USER_EMAIL`
 - `JUDGE_USER_DISPLAY_NAME`
+- optional: `JUDGE_USERS_JSON` for per-judge hosted identities
 - `JUDGE_SESSION_TTL_SECONDS`
 - `DESKTOP_EXECUTOR`, `GEMINI_EXECUTOR`, `DEV_POSTGRES`, `DEV_RAW_EXECUTOR` for local testing modes
 

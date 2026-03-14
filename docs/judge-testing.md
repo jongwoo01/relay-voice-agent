@@ -29,6 +29,7 @@ Requirements:
 
 - running hosted agent service on Cloud Run or locally with `npm run dev:agent-api`
 - judge passcode
+  - recommended: one unique passcode per judge
 - the `gemini` CLI installed on the connected desktop if you want real local task execution
 - desktop `AGENT_CLOUD_URL` set to that hosted service
 
@@ -44,8 +45,9 @@ For local-only development, run `npm run dev:postgres` first to start or reuse t
 
 Hosted flow expectations:
 
-- judges receive the hosted service URL and judge passcode privately through Devpost Additional Info
+- judges receive the hosted service URL and a judge-specific passcode privately through Devpost Additional Info
 - the public repository and public README do not contain private passcodes
+- when `JUDGE_USERS_JSON` is used, each passcode maps to a distinct hosted user identity so task history and profile memory remain isolated per judge
 - the desktop app prompts for the judge passcode before opening the live session
 - the connected machine still needs the `gemini` CLI if you want real local task execution instead of a mock run
 - unsigned desktop builds may show standard macOS or Windows trust warnings on first launch
@@ -95,7 +97,7 @@ cp .env.example .env
 Common variables:
 
 - `AGENT_CLOUD_URL`
-- `JUDGE_PASSCODE`
+- `JUDGE_PASSCODE` or `JUDGE_USERS_JSON`
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_CLOUD_LOCATION`
 - `GOOGLE_GENAI_API_VERSION`

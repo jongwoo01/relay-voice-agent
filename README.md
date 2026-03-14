@@ -7,7 +7,7 @@ This repository contains the public submission package for the prototype:
 - an Electron companion client used as the live demo surface
 - a Cloud Run-ready agent service that owns the live session, task orchestration, and canonical state
 - a Gemini CLI executor adapter for grounded local-machine work on the connected desktop
-- Postgres schema and repository layers for canonical task and memory state
+- Postgres schema and repository layers for canonical task state and narrow typed profile memory
 
 ## Why This Fits The Gemini Live Agent Challenge
 
@@ -32,7 +32,7 @@ This repository contains the public submission package for the prototype:
 - Runtime-backed task intake and follow-up loop on the server
 - Single-tool delegation path from Gemini Live to the connected desktop executor
 - Structured completion reports for grounded task summaries
-- Postgres persistence layer for sessions, tasks, task events, intake sessions, and completion reports
+- Postgres persistence layer for sessions, tasks, task events, intake sessions, and typed profile memory
 - Automated tests for judge auth, hosted WebSocket control, cloud-session executor round-trips, desktop hosted client behavior, routing, and persistence contracts
 
 ## What Is Still Outside The Repo-Managed Submission Package
@@ -75,7 +75,7 @@ These gaps are documented on purpose so the public repository does not over-clai
 - npm `11.9.0`
 - `gcloud` CLI with Application Default Credentials for the main desktop flow
 - the `gemini` CLI installed if you want real local task execution
-- optional Postgres if you want persistent sessions instead of in-memory runtime state
+- Postgres is required for the hosted path because sessions, tasks, and profile memory are canonical server state
 
 ### Install
 
@@ -119,8 +119,14 @@ Required environment for the hosted path:
 - `GOOGLE_CLOUD_LOCATION`
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY`
 - `DATABASE_URL`
-- `JUDGE_PASSCODE`
+- `JUDGE_PASSCODE` or `JUDGE_USERS_JSON`
 - `JUDGE_TOKEN_SECRET`
+
+Optional judge identity mapping:
+
+- `JUDGE_USERS_JSON`
+  - JSON array of `{ "passcode": "...", "email": "...", "displayName": "..." }`
+  - Recommended for per-judge isolation so task history and profile memory do not bleed across judges
 
 Optional local Postgres overrides:
 
@@ -152,7 +158,7 @@ The hosted service now fails fast if any of these are missing:
 - `DATABASE_URL`
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_CLOUD_LOCATION`
-- `JUDGE_PASSCODE`
+- `JUDGE_PASSCODE` or `JUDGE_USERS_JSON`
 - `JUDGE_TOKEN_SECRET`
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY`
 

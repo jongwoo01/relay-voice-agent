@@ -14,6 +14,7 @@ const liveApiKey =
 const judgePasscode = process.env.JUDGE_PASSCODE?.trim();
 const judgeTokenSecret =
   process.env.JUDGE_TOKEN_SECRET?.trim() || process.env.JUDGE_PASSCODE?.trim();
+const judgeUsersJson = process.env.JUDGE_USERS_JSON?.trim();
 const judgeUserEmail =
   process.env.JUDGE_USER_EMAIL?.trim() || "judge@gemini-live-agent.local";
 const judgeUserDisplayName =
@@ -22,8 +23,46 @@ const judgeSessionTtlSeconds = Number(
   process.env.JUDGE_SESSION_TTL_SECONDS || "21600"
 );
 
-if (!judgePasscode) {
-  throw new Error("JUDGE_PASSCODE is required");
+const judgeUsers = (() => {
+  if (!judgeUsersJson) {
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(judgeUsersJson);
+  } catch {
+    throw new Error("JUDGE_USERS_JSON must be valid JSON");
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error("JUDGE_USERS_JSON must be a JSON array");
+  }
+
+  return parsed.map((entry, index) => {
+    const record = entry as Record<string, unknown>;
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      typeof record.passcode !== "string" ||
+      typeof record.email !== "string" ||
+      typeof record.displayName !== "string"
+    ) {
+      throw new Error(
+        `JUDGE_USERS_JSON entry ${index} must include string passcode, email, and displayName`
+      );
+    }
+
+    return {
+      passcode: record.passcode.trim(),
+      email: record.email.trim(),
+      displayName: record.displayName.trim()
+    };
+  });
+})();
+
+if (!judgePasscode && judgeUsers.length === 0) {
+  throw new Error("JUDGE_PASSCODE or JUDGE_USERS_JSON is required");
 }
 
 if (!judgeTokenSecret) {
@@ -60,6 +99,7 @@ const { server } = createAgentServer({
   judgeTokenSecret,
   judgeUserEmail,
   judgeUserDisplayName,
+  judgeUsers,
   judgeSessionTtlSeconds
 });
 
