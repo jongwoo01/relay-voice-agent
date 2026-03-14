@@ -89,7 +89,13 @@ class MockWebSocket {
   }
 
   send(payload: string) {
-    this.sent.push(JSON.parse(String(payload)));
+    const parsed = JSON.parse(String(payload));
+    this.sent.push(parsed);
+    if (parsed?.type === "end_session") {
+      queueMicrotask(() => {
+        this.close();
+      });
+    }
   }
 
   close() {

@@ -67,6 +67,7 @@ export interface HostedExecutorRequest {
 
 export type CloudClientEvent =
   | { type: "auth"; token: string }
+  | { type: "end_session"; reason?: "user_hangup" | "client_disconnect" }
   | { type: "audio_chunk"; data: string; mimeType?: string }
   | { type: "audio_stream_end" }
   | { type: "typed_turn"; text: string }

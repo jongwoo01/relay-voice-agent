@@ -14,7 +14,13 @@ import {
 export interface AgentSessionLike {
   start(): Promise<void>;
   handleClientEvent(event: CloudClientEvent): Promise<void>;
-  close(): Promise<void>;
+  close(reason?: "user_hangup" | "client_disconnect" | "startup_failed"): Promise<void>;
+}
+
+export interface JudgeUserConfig {
+  passcode: string;
+  email: string;
+  displayName: string;
 }
 
 export interface CreateAgentServerOptions {
@@ -238,6 +244,7 @@ export function createAgentServer(options: CreateAgentServerOptions) {
         try {
           await session.start();
         } catch (error) {
+          await session.close("startup_failed");
           send({
             type: "error",
             message:
@@ -247,6 +254,12 @@ export function createAgentServer(options: CreateAgentServerOptions) {
           });
           ws.close(1011, "startup_failed");
         }
+        return;
+      }
+
+      if (message?.type === "end_session") {
+        await session?.close(message.reason ?? "user_hangup");
+        ws.close(1000, "session_ended");
         return;
       }
 
@@ -261,7 +274,7 @@ export function createAgentServer(options: CreateAgentServerOptions) {
     });
 
     ws.on("close", () => {
-      void session?.close();
+      void session?.close("client_disconnect");
     });
   });
 

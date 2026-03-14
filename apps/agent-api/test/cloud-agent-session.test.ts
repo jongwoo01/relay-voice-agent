@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createInMemorySessionPersistence,
+  createProfileMemoryService,
   type GoogleLiveApiTransportCallbacks
 } from "../src/index.js";
 import { CloudAgentSession } from "../src/server/cloud-agent-session.js";
@@ -82,6 +83,217 @@ describe("CloudAgentSession", () => {
     );
   });
 
+  it("marks the brain session closed when the session ends explicitly", async () => {
+    const persistence = createInMemorySessionPersistence({
+      ensureBrainSession: {
+        brainSessionId: "brain-close",
+        userId: "user-close",
+        source: "live",
+        now: "2026-03-14T00:00:00.000Z"
+      }
+    });
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      close: vi.fn()
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-close",
+        userId: "user-close",
+        send: () => undefined
+      },
+      {
+        createPersistence: async () => persistence,
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport: {
+          connect: vi.fn(async ({ callbacks }) => {
+            callbacks?.onopen?.();
+            return liveSession;
+          })
+        },
+        now: () => "2026-03-14T00:10:00.000Z"
+      }
+    );
+
+    await session.start();
+    await session.close("user_hangup");
+
+    await expect(
+      persistence.brainSessionRepository.getById("brain-close")
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: "brain-close",
+        status: "closed",
+        closedAt: "2026-03-14T00:10:00.000Z",
+        updatedAt: "2026-03-14T00:10:00.000Z"
+      })
+    );
+  });
+
+  it("injects stored profile memory into the live runtime context on startup", async () => {
+    const profileMemoryService = createProfileMemoryService();
+    await profileMemoryService.rememberFromUtterance({
+      brainSessionId: "brain-profile",
+      text: "내 이름은 종우야",
+      now: "2026-03-14T00:00:00.000Z"
+    });
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      close: vi.fn()
+    };
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-profile",
+        userId: "user-profile",
+        send: () => undefined
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        profileMemoryService,
+        now: () => "2026-03-14T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+
+    expect(liveSession.sendContext).toHaveBeenCalledWith(
+      expect.stringContaining("Preferred name: 종우")
+    );
+  });
+
+  it("refreshes runtime context when a new profile fact is learned", async () => {
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      close: vi.fn()
+    };
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-profile-update",
+        userId: "user-profile-update",
+        send: () => undefined
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-14T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+    liveSession.sendContext.mockClear();
+
+    await session.handleClientEvent({
+      type: "typed_turn",
+      text: "내 이름은 종우야"
+    });
+
+    expect(liveSession.sendContext).toHaveBeenCalledWith(
+      expect.stringContaining("Preferred name: 종우")
+    );
+    expect(liveSession.sendText).toHaveBeenCalledWith("내 이름은 종우야", true);
+  });
+
+  it("does not carry profile memory into a different brain session", async () => {
+    const profileMemoryService = createProfileMemoryService();
+    await profileMemoryService.rememberFromUtterance({
+      brainSessionId: "brain-session-a",
+      text: "내 이름은 종우야",
+      now: "2026-03-14T00:00:00.000Z"
+    });
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      close: vi.fn()
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-session-b",
+        userId: "user-shared",
+        send: () => undefined
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport: {
+          connect: vi.fn(async ({ callbacks }) => {
+            callbacks?.onopen?.();
+            return liveSession;
+          })
+        },
+        profileMemoryService,
+        now: () => "2026-03-14T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+
+    expect(liveSession.sendContext).not.toHaveBeenCalledWith(
+      expect.stringContaining("Preferred name: 종우")
+    );
+  });
+
   it("ignores late audio events after the live session closes", async () => {
     const liveSession = {
       sendText: vi.fn(),
@@ -139,6 +351,131 @@ describe("CloudAgentSession", () => {
 
     expect(liveSession.sendRealtimeAudio).not.toHaveBeenCalled();
     expect(liveSession.sendAudioStreamEnd).not.toHaveBeenCalled();
+  });
+
+  it("reconnects with session resumption after goAway", async () => {
+    const liveSessions = [
+      {
+        sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
+        sendRealtimeText: vi.fn(),
+        sendRealtimeAudio: vi.fn(),
+        sendActivityStart: vi.fn(),
+        sendActivityEnd: vi.fn(),
+        sendAudioStreamEnd: vi.fn(),
+        close: vi.fn()
+      },
+      {
+        sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
+        sendRealtimeText: vi.fn(),
+        sendRealtimeAudio: vi.fn(),
+        sendActivityStart: vi.fn(),
+        sendActivityEnd: vi.fn(),
+        sendAudioStreamEnd: vi.fn(),
+        close: vi.fn()
+      }
+    ];
+    const liveCallbacks: GoogleLiveApiTransportCallbacks[] = [];
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks.push(callbacks ?? {});
+        callbacks?.onopen?.();
+        return liveSessions[liveCallbacks.length - 1];
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-resume",
+        userId: "user-resume",
+        send: () => undefined
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-14T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+    await liveCallbacks[0]?.onevent?.({
+      type: "session_resumption_update",
+      newHandle: "resume-handle-1",
+      resumable: true
+    });
+    await liveCallbacks[0]?.onevent?.({
+      type: "go_away",
+      timeLeft: "5s"
+    });
+
+    expect(liveTransport.connect).toHaveBeenCalledTimes(2);
+    expect(liveTransport.connect).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        config: expect.objectContaining({
+          sessionResumption: {
+            handle: "resume-handle-1"
+          }
+        })
+      })
+    );
+    expect(liveSessions[0].close).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a fresh live session with empty sessionResumption config", async () => {
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      close: vi.fn()
+    };
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-resume-fresh",
+        userId: "user-resume-fresh",
+        send: () => undefined
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-14T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+
+    expect(liveTransport.connect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          sessionResumption: {}
+        })
+      })
+    );
   });
 
   it("round-trips executor requests through the connected desktop worker", async () => {

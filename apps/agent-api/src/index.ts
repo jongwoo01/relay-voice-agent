@@ -45,7 +45,19 @@ export {
   PostgresConversationMessageRepository,
   type ConversationMessageRepository
 } from "./modules/persistence/conversation-message-repository.js";
-export { extractMemorySignals } from "./modules/memory/memory-signal-extractor.js";
+export {
+  createProfileMemoryService,
+  InMemoryProfileMemoryStore,
+  ProfileMemoryService,
+  type ProfileMemoryServiceLike,
+  type ProfileMemoryStore
+} from "./modules/memory/profile-memory-service.js";
+export {
+  createJudgeHistoryService,
+  JudgeHistoryService,
+  type JudgeHistorySessionSummary,
+  type JudgeHistorySnapshot
+} from "./modules/history/judge-history-service.js";
 export { TaskIntakeService } from "./modules/conversation/task-intake-service.js";
 export {
   createDefaultTaskIntakeResolver,

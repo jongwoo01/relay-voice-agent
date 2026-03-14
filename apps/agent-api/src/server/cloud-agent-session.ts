@@ -24,6 +24,10 @@ import {
   type GoogleLiveSessionTransport,
   type SessionPersistence
 } from "../index.js";
+import {
+  createProfileMemoryService,
+  type ProfileMemoryServiceLike
+} from "../modules/memory/profile-memory-service.js";
 import type { AssistantMessageListener } from "../modules/realtime/text-realtime-session-loop.js";
 import type { SqlClientLike } from "../modules/persistence/postgres-client.js";
 import { ConnectedClientExecutor } from "./connected-client-executor.js";
@@ -66,6 +70,7 @@ export interface CloudAgentSessionDependencies {
     onAssistantMessage: AssistantMessageListener | undefined;
   }) => Promise<CloudAgentSessionLoopLike> | CloudAgentSessionLoopLike;
   liveTransport?: CloudAgentLiveTransportLike;
+  profileMemoryService?: ProfileMemoryServiceLike;
   now?: () => string;
 }
 
@@ -99,11 +104,22 @@ function createDelegateToGeminiCliTool() {
   };
 }
 
+function createSessionResumptionConfig(resumeHandle?: string): { handle?: string } {
+  if (resumeHandle?.trim()) {
+    return {
+      handle: resumeHandle.trim()
+    };
+  }
+
+  return {};
+}
+
 function createPersonaInstruction(): string {
   return [
     "You are Desktop Companion, a desktop voice assistant.",
     "The desktop app provides microphone, speaker, UI, and local executor access.",
     "All agent logic, task state, and follow-up policy are owned by the server.",
+    "Runtime context may include a known user profile supplied by the server.",
     "Never claim local work succeeded unless it was confirmed by delegate_to_gemini_cli.",
     "When local-machine work, task follow-up, or task status is needed, call delegate_to_gemini_cli.",
     "Do not invent local files, browser tabs, app state, or task results."
@@ -157,11 +173,17 @@ export class CloudAgentSession {
   private readonly executor: ConnectedClientExecutor;
   private readonly loopPromise: Promise<CloudAgentSessionLoopLike>;
   private readonly liveTransport: CloudAgentLiveTransportLike;
+  private readonly profileMemoryService: ProfileMemoryServiceLike;
   private readonly now: () => string;
   private liveSession: GoogleLiveSessionTransport | null = null;
   private readonly notifications: AssistantDeliveryPlan[] = [];
   private readonly pendingToolContinuations = new Map<string, string>();
   private readonly functionCallTaskBindings = new Map<string, string>();
+  private liveSessionGeneration = 0;
+  private reconnectPromise: Promise<void> | null = null;
+  private sessionResumptionHandle: string | null = null;
+  private sessionResumable = false;
+  private closePromise: Promise<void> | null = null;
   private readonly conversationState: HostedConversationStateSnapshot = {
     connected: false,
     connecting: false,
@@ -193,6 +215,8 @@ export class CloudAgentSession {
     dependencies: CloudAgentSessionDependencies = {}
   ) {
     this.now = dependencies.now ?? nowIso;
+    this.profileMemoryService =
+      dependencies.profileMemoryService ?? createProfileMemoryService();
     const createPersistence =
       dependencies.createPersistence ??
       ((params: {
@@ -271,7 +295,17 @@ export class CloudAgentSession {
       state: this.getConversationState()
     });
 
-    this.liveSession = await this.liveTransport.connect({
+    await this.connectLiveSession({
+      announceReady: true
+    });
+  }
+
+  private async connectLiveSession(input: {
+    announceReady: boolean;
+    resumeHandle?: string;
+  }): Promise<void> {
+    const generation = ++this.liveSessionGeneration;
+    const session = await this.liveTransport.connect({
       brainSessionId: this.input.brainSessionId,
       model: process.env.LIVE_MODEL?.trim() || undefined,
       config: {
@@ -298,11 +332,15 @@ export class CloudAgentSession {
             }
           }
         },
+        sessionResumption: createSessionResumptionConfig(input.resumeHandle),
         tools: [createDelegateToGeminiCliTool()],
         systemInstruction: createPersonaInstruction()
       },
       callbacks: {
         onopen: () => {
+          if (generation !== this.liveSessionGeneration) {
+            return;
+          }
           this.conversationState.connected = true;
           this.conversationState.connecting = false;
           this.conversationState.status = "listening";
@@ -313,6 +351,9 @@ export class CloudAgentSession {
           });
         },
         onclose: (info) => {
+          if (generation !== this.liveSessionGeneration) {
+            return;
+          }
           this.conversationState.connected = false;
           this.conversationState.connecting = false;
           this.conversationState.status = "idle";
@@ -324,6 +365,9 @@ export class CloudAgentSession {
           });
         },
         onerror: (error) => {
+          if (generation !== this.liveSessionGeneration) {
+            return;
+          }
           this.conversationState.status = "error";
           this.conversationState.error = normalizeError(error);
           this.input.send({
@@ -336,17 +380,30 @@ export class CloudAgentSession {
           });
         },
         onevent: async (event) => {
+          if (generation !== this.liveSessionGeneration) {
+            return;
+          }
           await this.handleLiveEvent(event);
         }
       }
     });
 
-    this.input.send({
-      type: "session_ready",
-      brainSessionId: this.input.brainSessionId,
-      conversation: this.getConversationState(),
-      tasks: await this.buildTaskState()
-    });
+    if (generation !== this.liveSessionGeneration) {
+      session.close();
+      return;
+    }
+
+    this.liveSession = session;
+    await this.sendRuntimeContext(await this.buildTaskState());
+
+    if (input.announceReady) {
+      this.input.send({
+        type: "session_ready",
+        brainSessionId: this.input.brainSessionId,
+        conversation: this.getConversationState(),
+        tasks: await this.buildTaskState()
+      });
+    }
   }
 
   async handleClientEvent(event: CloudClientEvent): Promise<void> {
@@ -404,11 +461,43 @@ export class CloudAgentSession {
     }
   }
 
-  async close(): Promise<void> {
-    this.liveSession?.close();
-    this.liveSession = null;
-    this.executor.failAll("Desktop client disconnected");
-    this.input.onClose?.();
+  async close(
+    reason: "user_hangup" | "client_disconnect" | "startup_failed" = "client_disconnect"
+  ): Promise<void> {
+    if (this.closePromise) {
+      return this.closePromise;
+    }
+
+    this.closePromise = (async () => {
+      this.liveSessionGeneration += 1;
+      this.liveSession?.close();
+      this.liveSession = null;
+      this.conversationState.connected = false;
+      this.conversationState.connecting = false;
+      this.conversationState.status = "closed";
+      this.conversationState.error = null;
+      try {
+        const persistence = await this.persistencePromise;
+        await persistence.brainSessionRepository.close(
+          this.input.brainSessionId,
+          this.now()
+        );
+      } finally {
+        this.executor.failAll(
+          reason === "user_hangup"
+            ? "Session ended by user"
+            : "Desktop client disconnected"
+        );
+        this.input.onClose?.();
+      }
+    })();
+
+    return this.closePromise;
+  }
+
+  private async touchBrainSession(at = this.now()): Promise<void> {
+    const persistence = await this.persistencePromise;
+    await persistence.brainSessionRepository.touch(this.input.brainSessionId, at);
   }
 
   private async handleTypedTurn(text: string): Promise<void> {
@@ -431,6 +520,8 @@ export class CloudAgentSession {
       text: normalizedText,
       createdAt
     });
+    await this.touchBrainSession(createdAt);
+    await this.rememberProfileMemory(normalizedText, createdAt);
 
     this.liveSession.sendText(normalizedText, true);
     this.input.send({
@@ -476,6 +567,7 @@ export class CloudAgentSession {
               createdAt: this.now(),
               tone: "reply"
             });
+            await this.touchBrainSession();
           }
         }
         return;
@@ -518,9 +610,58 @@ export class CloudAgentSession {
           Array.isArray(event.functionCalls) ? event.functionCalls : []
         );
         return;
+      case "session_resumption_update":
+        this.sessionResumptionHandle =
+          typeof event.newHandle === "string" && event.newHandle.trim()
+            ? event.newHandle
+            : null;
+        this.sessionResumable = event.resumable === true;
+        return;
+      case "go_away":
+        await this.resumeLiveSession();
+        return;
       default:
         return;
     }
+  }
+
+  private async resumeLiveSession(): Promise<void> {
+    if (this.reconnectPromise) {
+      return this.reconnectPromise;
+    }
+
+    if (!this.sessionResumable || !this.sessionResumptionHandle) {
+      return;
+    }
+
+    this.reconnectPromise = (async () => {
+      const previousSession = this.liveSession;
+      const resumeHandle = this.sessionResumptionHandle;
+
+      this.conversationState.connected = false;
+      this.conversationState.connecting = true;
+      this.conversationState.status = "connecting";
+      this.conversationState.error = null;
+      this.input.send({
+        type: "conversation_state",
+        state: this.getConversationState()
+      });
+
+      this.liveSessionGeneration += 1;
+      previousSession?.close();
+      this.liveSession = null;
+
+      try {
+        await this.connectLiveSession({
+          announceReady: false,
+          resumeHandle: resumeHandle ?? undefined
+        });
+      } finally {
+        this.reconnectPromise = null;
+      }
+    })();
+
+    return this.reconnectPromise;
   }
 
   private async handleVoiceTranscriptFinal(text: string): Promise<void> {
@@ -543,6 +684,8 @@ export class CloudAgentSession {
       text: normalizedText,
       createdAt
     });
+    await this.touchBrainSession(createdAt);
+    await this.rememberProfileMemory(normalizedText, createdAt);
 
     this.input.send({
       type: "conversation_state",
@@ -1058,12 +1201,47 @@ export class CloudAgentSession {
 
   private async broadcastTaskState(): Promise<void> {
     const taskState = await this.buildTaskState();
-    if (this.liveSession) {
-      this.liveSession.sendContext(summarizeRuntimeContext(taskState));
-    }
+    await this.sendRuntimeContext(taskState);
     this.input.send({
       type: "task_state",
       state: taskState
     });
+  }
+
+  private async rememberProfileMemory(text: string, now: string): Promise<void> {
+    const result = await this.profileMemoryService.rememberFromUtterance({
+      brainSessionId: this.input.brainSessionId,
+      text,
+      now
+    });
+
+    if (!result.updated) {
+      return;
+    }
+
+    await this.sendRuntimeContext();
+  }
+
+  private async sendRuntimeContext(
+    taskState?: HostedTaskStateSnapshot
+  ): Promise<void> {
+    if (!this.liveSession) {
+      return;
+    }
+
+    const [profileContext, resolvedTaskState] = await Promise.all([
+      this.profileMemoryService.buildRuntimeContext(this.input.brainSessionId),
+      taskState ? Promise.resolve(taskState) : this.buildTaskState()
+    ]);
+
+    const combined = [profileContext, summarizeRuntimeContext(resolvedTaskState)]
+      .filter((value) => typeof value === "string" && value.trim().length > 0)
+      .join("\n\n");
+
+    if (!combined) {
+      return;
+    }
+
+    this.liveSession.sendContext(combined);
   }
 }

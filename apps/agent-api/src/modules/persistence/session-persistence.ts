@@ -1,4 +1,9 @@
 import {
+  InMemoryBrainSessionRepository,
+  type BrainSessionRepository,
+  PostgresBrainSessionRepository
+} from "./brain-session-repository.js";
+import {
   InMemoryConversationMessageRepository,
   type ConversationMessageRepository
 } from "./conversation-message-repository.js";
@@ -19,7 +24,6 @@ import {
   PostgresTaskIntakeRepository,
   type TaskIntakeRepository
 } from "./task-intake-repository.js";
-import { PostgresBrainSessionRepository } from "./brain-session-repository.js";
 import { PostgresConversationMessageRepository } from "./conversation-message-repository.js";
 import { createPostgresPool, type SqlClientLike } from "./postgres-client.js";
 import { PostgresTaskEventRepository } from "./task-event-repository.js";
@@ -27,6 +31,7 @@ import { PostgresTaskExecutorSessionRepository } from "./task-executor-session-r
 import { PostgresTaskRepository } from "./task-repository.js";
 
 export interface SessionPersistence {
+  brainSessionRepository: BrainSessionRepository;
   taskRepository: TaskRepository;
   taskIntakeRepository: TaskIntakeRepository;
   taskEventRepository: TaskEventRepository;
@@ -34,8 +39,29 @@ export interface SessionPersistence {
   conversationRepository: ConversationMessageRepository;
 }
 
-export function createInMemorySessionPersistence(): SessionPersistence {
+export function createInMemorySessionPersistence(input?: {
+  ensureBrainSession?: {
+    brainSessionId: string;
+    userId: string;
+    source: "live" | "text_dev" | "desktop";
+    now: string;
+  };
+}): SessionPersistence {
+  const brainSessionRepository = new InMemoryBrainSessionRepository();
+  if (input?.ensureBrainSession) {
+    void brainSessionRepository.create({
+      id: input.ensureBrainSession.brainSessionId,
+      userId: input.ensureBrainSession.userId,
+      status: "active",
+      source: input.ensureBrainSession.source,
+      createdAt: input.ensureBrainSession.now,
+      updatedAt: input.ensureBrainSession.now,
+      closedAt: null
+    });
+  }
+
   return {
+    brainSessionRepository,
     conversationRepository: new InMemoryConversationMessageRepository(),
     taskRepository: new InMemoryTaskRepository(),
     taskIntakeRepository: new InMemoryTaskIntakeRepository(),
@@ -73,6 +99,7 @@ export async function createPostgresSessionPersistence(input: {
   }
 
   return {
+    brainSessionRepository: new PostgresBrainSessionRepository(sql),
     conversationRepository: new PostgresConversationMessageRepository(sql),
     taskRepository: new PostgresTaskRepository(sql),
     taskIntakeRepository: new PostgresTaskIntakeRepository(sql),

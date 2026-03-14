@@ -202,6 +202,76 @@ describe("createAgentServer", () => {
     await waitForClose(socket);
   });
 
+  it("treats end_session as an explicit user hangup", async () => {
+    const sessionClose = vi.fn(async () => undefined);
+    const serverBundle = createAgentServer({
+      port: 8080,
+      userRepository: {
+        getByEmail: vi.fn(async () => null),
+        create: vi.fn(async () => undefined)
+      },
+      judgePasscode: "correct-passcode",
+      judgeTokenSecret: "secret",
+      judgeUserEmail: "judge@example.com",
+      judgeUserDisplayName: "Judge",
+      judgeSessionTtlSeconds: 3600,
+      createSession: ({ send }) => ({
+        start: async () => {
+          send({
+            type: "session_ready",
+            brainSessionId: "brain-test",
+            conversation: createConversationState(),
+            tasks: createTaskState()
+          });
+        },
+        handleClientEvent: vi.fn(async () => undefined),
+        close: sessionClose
+      })
+    });
+    servers.add(serverBundle.server);
+    const baseUrl = await listen(serverBundle.server);
+
+    const response = await fetch(`${baseUrl}/judge/session`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        passcode: "correct-passcode"
+      })
+    });
+    const payload = (await response.json()) as {
+      token: string;
+      wsUrl: string;
+    };
+
+    const socket = new WebSocket(payload.wsUrl);
+    await new Promise<void>((resolve) => {
+      socket.once("open", () => resolve());
+    });
+
+    socket.send(
+      JSON.stringify({
+        type: "auth",
+        token: payload.token
+      })
+    );
+    await waitForMessage(socket);
+
+    socket.send(
+      JSON.stringify({
+        type: "end_session",
+        reason: "user_hangup"
+      })
+    );
+
+    await expect(waitForClose(socket)).resolves.toEqual({
+      code: 1000,
+      reason: "session_ended"
+    });
+    expect(sessionClose).toHaveBeenCalledWith("user_hangup");
+  });
+
   it("rejects websocket auth when the token is invalid", async () => {
     const serverBundle = createAgentServer({
       port: 8080,

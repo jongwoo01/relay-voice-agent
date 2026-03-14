@@ -20,6 +20,7 @@ describe("session-persistence", () => {
   it("creates in-memory persistence by default", () => {
     const persistence = createInMemorySessionPersistence();
 
+    expect(persistence.brainSessionRepository).toBeTruthy();
     expect(persistence.conversationRepository).toBeTruthy();
     expect(persistence.taskRepository).toBeTruthy();
     expect(persistence.taskEventRepository).toBeTruthy();
@@ -40,6 +41,7 @@ describe("session-persistence", () => {
     });
 
     expect(persistence.conversationRepository).toBeTruthy();
+    expect(persistence.brainSessionRepository).toBeTruthy();
     expect(persistence.taskRepository).toBeTruthy();
     expect(persistence.taskEventRepository).toBeTruthy();
     expect(persistence.taskExecutorSessionRepository).toBeTruthy();

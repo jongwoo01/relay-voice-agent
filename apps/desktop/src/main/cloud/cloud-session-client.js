@@ -34,6 +34,34 @@ function normalizeError(error) {
   return String(error);
 }
 
+async function waitForSocketClose(socket, timeoutMs = 250) {
+  await new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve();
+    };
+
+    const timer = setTimeout(() => {
+      try {
+        if (socket.readyState !== WebSocket.CLOSED) {
+          socket.close();
+        }
+      } finally {
+        finish();
+      }
+    }, timeoutMs);
+
+    socket.addEventListener("close", () => {
+      clearTimeout(timer);
+      finish();
+    });
+  });
+}
+
 export class CloudSessionClient {
   constructor(options = {}) {
     this.baseUrl =
@@ -115,8 +143,17 @@ export class CloudSessionClient {
   }
 
   async disconnect() {
-    if (this.webSocket) {
-      this.webSocket.close();
+    const socket = this.webSocket;
+    if (socket) {
+      if (socket.readyState === WebSocket.OPEN) {
+        this.send({
+          type: "end_session",
+          reason: "user_hangup"
+        });
+        await waitForSocketClose(socket);
+      } else if (socket.readyState !== WebSocket.CLOSED) {
+        socket.close();
+      }
       this.webSocket = null;
     }
     this.sessionToken = null;
