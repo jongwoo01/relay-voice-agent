@@ -338,6 +338,92 @@ describe("CloudAgentSession", () => {
     );
   });
 
+  it("merges assistant streaming transcripts without collapsing spaces between chunks", async () => {
+    const sentEvents: Array<{ type: string; state?: any }> = [];
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      close: vi.fn()
+    };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-transcript-spacing",
+        userId: "user-transcript-spacing",
+        send: (event) => {
+          sentEvents.push(event as { type: string; state?: any });
+        }
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-15T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+    await session.handleClientEvent({
+      type: "typed_turn",
+      text: "Say hello"
+    });
+
+    await liveCallbacks?.onevent?.({
+      type: "output_transcription",
+      text: "Hello, ",
+      finished: false
+    });
+    await liveCallbacks?.onevent?.({
+      type: "output_transcription",
+      text: "how",
+      finished: false
+    });
+    await liveCallbacks?.onevent?.({
+      type: "output_transcription",
+      text: " can I help you today?",
+      finished: false
+    });
+    await liveCallbacks?.onevent?.({
+      type: "output_transcription",
+      text: "Hello, how can I help you today?",
+      finished: true
+    });
+
+    const conversationStates = sentEvents.filter(
+      (event) => event.type === "conversation_state"
+    );
+    const lastState = conversationStates.at(-1)?.state;
+    const assistantMessage = lastState?.conversationTimeline?.find(
+      (item: { id?: string }) => item.id === "turn-1:assistant"
+    );
+
+    expect(assistantMessage).toEqual(
+      expect.objectContaining({
+        text: "Hello, how can I help you today?",
+        partial: false,
+        streaming: false
+      })
+    );
+  });
+
   it("ignores late audio events after the live session closes", async () => {
     const liveSession = {
       sendText: vi.fn(),
@@ -462,16 +548,125 @@ describe("CloudAgentSession", () => {
 
     expect(liveTransport.connect).toHaveBeenCalledTimes(2);
     expect(liveTransport.connect).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        config: expect.objectContaining({
+          contextWindowCompression: {
+            slidingWindow: {}
+          }
+        })
+      })
+    );
+    expect(liveTransport.connect).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         config: expect.objectContaining({
           sessionResumption: {
             handle: "resume-handle-1"
+          },
+          contextWindowCompression: {
+            slidingWindow: {}
           }
         })
       })
     );
     expect(liveSessions[0].close).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconnects automatically after a resumable live session closes", async () => {
+    const liveSessions = [
+      {
+        sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
+        sendRealtimeText: vi.fn(),
+        sendRealtimeAudio: vi.fn(),
+        sendActivityStart: vi.fn(),
+        sendActivityEnd: vi.fn(),
+        sendAudioStreamEnd: vi.fn(),
+        close: vi.fn()
+      },
+      {
+        sendText: vi.fn(),
+        sendContext: vi.fn(),
+        sendToolResponse: vi.fn(),
+        sendRealtimeText: vi.fn(),
+        sendRealtimeAudio: vi.fn(),
+        sendActivityStart: vi.fn(),
+        sendActivityEnd: vi.fn(),
+        sendAudioStreamEnd: vi.fn(),
+        close: vi.fn()
+      }
+    ];
+    const liveCallbacks: GoogleLiveApiTransportCallbacks[] = [];
+    const sentEvents: unknown[] = [];
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks.push(callbacks ?? {});
+        callbacks?.onopen?.();
+        return liveSessions[liveCallbacks.length - 1];
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-resume-on-close",
+        userId: "user-resume-on-close",
+        send: (event) => {
+          sentEvents.push(event);
+        }
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-14T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+    await liveCallbacks[0]?.onevent?.({
+      type: "session_resumption_update",
+      newHandle: "resume-handle-close",
+      resumable: true
+    });
+    liveCallbacks[0]?.onclose?.({
+      reason: "Deadline expired before operation could complete."
+    });
+    await waitFor(() => liveTransport.connect.mock.calls.length === 2);
+
+    expect(liveTransport.connect).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        config: expect.objectContaining({
+          sessionResumption: {
+            handle: "resume-handle-close"
+          }
+        })
+      })
+    );
+    expect(sentEvents).toContainEqual(
+      expect.objectContaining({
+        type: "conversation_state",
+        state: expect.objectContaining({
+          status: "connecting",
+          error: null
+        })
+      })
+    );
+    expect(sentEvents).toContainEqual(
+      expect.objectContaining({
+        type: "conversation_state",
+        state: expect.objectContaining({
+          status: "listening",
+          error: null
+        })
+      })
+    );
   });
 
   it("starts a fresh live session with empty sessionResumption config", async () => {
@@ -516,7 +711,10 @@ describe("CloudAgentSession", () => {
     expect(liveTransport.connect).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
-          sessionResumption: {}
+          sessionResumption: {},
+          contextWindowCompression: {
+            slidingWindow: {}
+          }
         })
       })
     );
@@ -592,10 +790,10 @@ describe("CloudAgentSession", () => {
               status: "completed" as const,
               message: result.completionEvent.message,
               presentation: {
-                ownership: "runtime" as const,
+                ownership: "live" as const,
                 speechMode: "grounded_summary" as const,
                 speechText: result.report?.summary ?? result.completionEvent.message,
-                allowLiveModelOutput: false
+                allowLiveModelOutput: true
               },
               summary: result.report?.summary,
               verification: result.report?.verification,
@@ -681,7 +879,7 @@ describe("CloudAgentSession", () => {
         expect.objectContaining({
           id: "tool-1",
           name: "delegate_to_gemini_cli",
-          scheduling: "SILENT",
+          scheduling: "WHEN_IDLE",
           willContinue: false,
           response: {
             output: expect.objectContaining({
@@ -799,10 +997,10 @@ describe("CloudAgentSession", () => {
         status: "completed" as const,
         message: "Checked the desktop items.",
         presentation: {
-          ownership: "runtime" as const,
+          ownership: "live" as const,
           speechMode: "grounded_summary" as const,
           speechText: "Checked the desktop items.",
-          allowLiveModelOutput: false
+          allowLiveModelOutput: true
         },
         summary: "Checked the desktop items."
       }));
@@ -880,7 +1078,7 @@ describe("CloudAgentSession", () => {
         expect.objectContaining({
           id: "function-call-2",
           name: "delegate_to_gemini_cli",
-          scheduling: "SILENT",
+          scheduling: "WHEN_IDLE",
           willContinue: false,
           response: {
             output: expect.objectContaining({
@@ -899,6 +1097,84 @@ describe("CloudAgentSession", () => {
         })
       })
     );
+  });
+
+  it("uses interrupt scheduling for urgent non-blocking tool results that need user action", async () => {
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      close: vi.fn()
+    };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const handleDelegateToGeminiCli = vi.fn(async () => ({
+      action: "status" as const,
+      accepted: true,
+      taskId: "task-1",
+      status: "waiting_input" as const,
+      message: "I need one more answer to continue.",
+      presentation: {
+        ownership: "live" as const,
+        speechMode: "canonical" as const,
+        speechText: "I need one more answer to continue.",
+        allowLiveModelOutput: true
+      }
+    }));
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-urgent",
+        userId: "user-urgent",
+        send: () => undefined
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli
+        }),
+        liveTransport,
+        now: () => "2026-03-14T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+    await liveCallbacks?.onevent?.({
+      type: "tool_call",
+      functionCalls: [
+        {
+          id: "function-call-urgent",
+          name: "delegate_to_gemini_cli",
+          args: {
+            request: "Continue the task",
+            taskId: "task-1",
+            mode: "status"
+          }
+        }
+      ]
+    });
+
+    expect(liveSession.sendToolResponse).toHaveBeenCalledWith({
+      functionResponses: [
+        expect.objectContaining({
+          id: "function-call-urgent",
+          name: "delegate_to_gemini_cli",
+          scheduling: "INTERRUPT",
+          willContinue: true
+        })
+      ]
+    });
   });
 
   it("does not delegate unresolved internal function-call references to the desktop executor", async () => {

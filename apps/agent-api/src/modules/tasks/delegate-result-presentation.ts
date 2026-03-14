@@ -1,6 +1,22 @@
 import type { Task } from "@agent/shared-types";
 import { englishOnlyDetail } from "./english-only-text.js";
 
+const MAX_COMPLETION_SPEECH_CHARS = 220;
+
+function selectCompletionSpeechText(task: Task, message: string): string {
+  const detailedAnswer = englishOnlyDetail(task.completionReport?.detailedAnswer);
+  if (detailedAnswer && detailedAnswer.length <= MAX_COMPLETION_SPEECH_CHARS) {
+    return detailedAnswer;
+  }
+
+  return (
+    englishOnlyDetail(task.completionReport?.summary) ??
+    detailedAnswer ??
+    englishOnlyDetail(message) ??
+    "The task is done."
+  );
+}
+
 export interface DelegateResultPresentation {
   ownership: "live" | "runtime";
   speechMode: "canonical" | "grounded_summary" | "freeform";
@@ -25,46 +41,43 @@ export function buildTaskResultPresentation(input: {
   if (task.status === "completed") {
     if (task.completionReport?.verification === "verified") {
       return {
-        ownership: "runtime",
+        ownership: "live",
         speechMode: "grounded_summary",
-        speechText:
-          englishOnlyDetail(task.completionReport.summary) ??
-          englishOnlyDetail(message) ??
-          "The task is done.",
-        allowLiveModelOutput: false
+        speechText: selectCompletionSpeechText(task, message),
+        allowLiveModelOutput: true
       };
     }
 
     return {
-      ownership: "runtime",
+      ownership: "live",
       speechMode: "canonical",
       speechText:
         englishOnlyDetail(task.completionReport?.summary) ??
         englishOnlyDetail(message) ??
         "The task finished, but I still need to verify the final result.",
-      allowLiveModelOutput: false
+      allowLiveModelOutput: true
     };
   }
 
   if (task.status === "failed") {
     return {
-      ownership: "runtime",
+      ownership: "live",
       speechMode: "canonical",
       speechText: englishOnlyDetail(message) || "The task failed.",
-      allowLiveModelOutput: false
+      allowLiveModelOutput: true
     };
   }
 
   if (task.status === "waiting_input" || task.status === "approval_required") {
     return {
-      ownership: "runtime",
+      ownership: "live",
       speechMode: "canonical",
       speechText:
         englishOnlyDetail(message) ||
         (task.status === "waiting_input"
           ? "I need one more answer to continue."
           : "I need approval before I continue."),
-      allowLiveModelOutput: false
+      allowLiveModelOutput: true
     };
   }
 
@@ -96,5 +109,16 @@ export function buildRuntimePresentation(
     speechMode: "canonical",
     speechText,
     allowLiveModelOutput: false
+  };
+}
+
+export function buildLivePresentation(
+  speechText: string
+): DelegateResultPresentation {
+  return {
+    ownership: "live",
+    speechMode: "canonical",
+    speechText,
+    allowLiveModelOutput: true
   };
 }

@@ -185,11 +185,74 @@ describe("delegate-to-gemini-cli-service", () => {
         verification: "verified",
         changes: ["Closed 3 tabs", "Pinned 2 tabs"],
         presentation: {
-          ownership: "runtime",
+          ownership: "live",
           speechMode: "grounded_summary",
           speechText: "Verified 3 closed tabs and 2 pinned tabs.",
-          allowLiveModelOutput: false
+          allowLiveModelOutput: true
         }
+      })
+    );
+  });
+
+  it("prefers the detailed completed answer for follow-up status requests and live speech when it is concise", async () => {
+    const taskRepository = new InMemoryTaskRepository();
+    const taskEventRepository = new InMemoryTaskEventRepository();
+    await taskRepository.save("brain-1", {
+      id: "task-detailed",
+      title: "Check desktop",
+      normalizedGoal: "check desktop",
+      status: "completed",
+      createdAt: "2026-03-12T00:00:00.000Z",
+      updatedAt: "2026-03-12T00:03:00.000Z",
+      completionReport: {
+        summary: "Found 3 folders and 2 hidden files on the Desktop.",
+        detailedAnswer:
+          'On your Desktop, I found folders named "I love you jongwoo", "projects", and "WorkSpace", plus hidden files ".DS_Store" and ".localized".',
+        keyFindings: [
+          "Folder: I love you jongwoo",
+          "Folder: projects",
+          "Folder: WorkSpace",
+          "Hidden file: .DS_Store",
+          "Hidden file: .localized"
+        ],
+        verification: "verified",
+        changes: ["Read the Desktop directory entries"]
+      }
+    });
+    await taskEventRepository.saveMany("task-detailed", [
+      {
+        taskId: "task-detailed",
+        type: "executor_completed",
+        message: "The task is complete.",
+        createdAt: "2026-03-12T00:03:00.000Z"
+      }
+    ]);
+
+    const service = new DelegateToGeminiCliService(
+      taskRepository,
+      taskEventRepository,
+      { dispatch: vi.fn() } as never,
+      vi.fn()
+    );
+
+    const result = await service.handle({
+      brainSessionId: "brain-1",
+      request: "What names did you find?",
+      now: "2026-03-12T00:04:00.000Z",
+      taskId: "task-detailed",
+      mode: "status"
+    });
+
+    expect(result.message).toBe(
+      'On your Desktop, I found folders named "I love you jongwoo", "projects", and "WorkSpace", plus hidden files ".DS_Store" and ".localized".'
+    );
+    expect(result.presentation).toEqual(
+      expect.objectContaining({
+        ownership: "live",
+        speechMode: "grounded_summary",
+        speechText:
+          'On your Desktop, I found folders named "I love you jongwoo", "projects", and "WorkSpace", plus hidden files ".DS_Store" and ".localized".',
+        allowLiveModelOutput: true
       })
     );
   });
@@ -370,6 +433,51 @@ describe("delegate-to-gemini-cli-service", () => {
     expect(result.accepted).toBe(false);
     expect(result.action).toBe("clarify");
     expect(result.message).toContain("multiple active tasks");
+    expect(result.status).toBe("waiting_input");
+    expect(result.needsInput).toBe(true);
+    expect(result.presentation).toEqual({
+      ownership: "live",
+      speechMode: "canonical",
+      speechText: "There are multiple active tasks, so tell me which one you mean first.",
+      allowLiveModelOutput: true
+    });
+  });
+
+  it("treats clarify-only delegate responses as waiting for input instead of failed", async () => {
+    const service = new DelegateToGeminiCliService(
+      new InMemoryTaskRepository(),
+      new InMemoryTaskEventRepository(),
+      { dispatch: vi.fn() } as never,
+      vi.fn(async () => ({
+        assistant: {
+          text: "Tell me what rule or scope to use.",
+          tone: "clarify" as const
+        }
+      }))
+    );
+
+    const result = await service.handle({
+      brainSessionId: "brain-1",
+      request: "check my desktop and tell me the name and count of folders and files",
+      now: "2026-03-12T00:00:00.000Z"
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        action: "clarify",
+        accepted: false,
+        status: "waiting_input",
+        needsInput: true,
+        needsApproval: false,
+        message: "Tell me what rule or scope to use.",
+        presentation: {
+          ownership: "live",
+          speechMode: "canonical",
+          speechText: "Tell me what rule or scope to use.",
+          allowLiveModelOutput: true
+        }
+      })
+    );
   });
 
   it("surfaces explicit Vertex routing failures instead of clarify", async () => {
@@ -410,10 +518,10 @@ describe("delegate-to-gemini-cli-service", () => {
         verification: undefined,
         changes: undefined,
         presentation: {
-          ownership: "runtime",
+          ownership: "live",
           speechMode: "canonical",
           speechText: "Task routing failed because the Vertex AI quota was exhausted.",
-          allowLiveModelOutput: false
+          allowLiveModelOutput: true
         }
       })
     );

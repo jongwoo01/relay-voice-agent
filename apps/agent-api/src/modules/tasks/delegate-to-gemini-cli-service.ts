@@ -21,6 +21,7 @@ import {
 } from "../config/vertex-ai-config.js";
 import { createTaskId } from "./task-id.js";
 import {
+  buildLivePresentation,
   buildRuntimePresentation,
   buildTaskResultPresentation,
   type DelegateResultAction,
@@ -310,23 +311,28 @@ export class DelegateToGeminiCliService {
     message: string,
     fallbackTask?: Task
   ): DelegateToGeminiCliResult {
-    const presentation = buildRuntimePresentation(message);
+    const presentation = buildLivePresentation(message);
+    const status =
+      fallbackTask?.status === "approval_required"
+        ? "approval_required"
+        : "waiting_input";
     logDelegate("clarify result", {
       message: truncateForLog(message),
       presentation,
       fallbackTaskId: fallbackTask?.id ?? null,
-      fallbackTaskStatus: fallbackTask?.status ?? null,
+      fallbackTaskStatus: status,
       fallbackTaskTitle: fallbackTask?.title ?? null
     });
     return {
       action: "clarify",
       accepted: false,
       taskId: fallbackTask?.id,
-      status: fallbackTask?.status ?? "failed",
+      status,
       message,
       presentation,
-      needsInput: fallbackTask?.status === "waiting_input",
-      needsApproval: fallbackTask?.status === "approval_required",
+      needsInput:
+        status === "waiting_input" || status === "approval_required",
+      needsApproval: status === "approval_required",
       summary: fallbackTask?.completionReport?.summary,
       verification: fallbackTask?.completionReport?.verification,
       changes: fallbackTask?.completionReport?.changes
@@ -338,7 +344,7 @@ export class DelegateToGeminiCliService {
     failureReason: VertexAiFailureReason,
     fallbackTask?: Task
   ): DelegateToGeminiCliResult {
-    const presentation = buildRuntimePresentation(message);
+    const presentation = buildLivePresentation(message);
     logDelegate("error result", {
       message: truncateForLog(message),
       failureReason,

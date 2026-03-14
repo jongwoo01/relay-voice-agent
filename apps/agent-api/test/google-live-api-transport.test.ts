@@ -128,6 +128,58 @@ describe("google-live-api-transport", () => {
     );
   });
 
+  it("preserves transcription spacing in streaming events", async () => {
+    const events: unknown[] = [];
+    let onmessage: ((message: LiveServerMessage) => void) | undefined;
+    const connect = vi.fn(async (params) => {
+      onmessage = params.callbacks.onmessage;
+      return {
+        sendClientContent: vi.fn(),
+        sendToolResponse: vi.fn(),
+        sendRealtimeInput: vi.fn(),
+        close: vi.fn()
+      };
+    });
+
+    const transport = new GoogleLiveApiTransport(undefined, () => ({
+      live: { connect }
+    }));
+
+    await transport.connect({
+      brainSessionId: "brain-spacing",
+      callbacks: {
+        onevent: async (event) => {
+          events.push(event);
+        }
+      }
+    });
+
+    onmessage?.({
+      serverContent: {
+        inputTranscription: {
+          text: " hello ",
+          finished: false
+        },
+        outputTranscription: {
+          text: " how",
+          finished: false
+        }
+      }
+    } as unknown as LiveServerMessage);
+
+    await flushAsyncWork();
+
+    expect(events).toContainEqual({
+      type: "input_transcription_partial",
+      text: " hello "
+    });
+    expect(events).toContainEqual({
+      type: "output_transcription",
+      text: " how",
+      finished: false
+    });
+  });
+
   it("forwards model text and turn lifecycle events", async () => {
     const events: unknown[] = [];
     let onmessage: ((message: LiveServerMessage) => void) | undefined;

@@ -65,4 +65,32 @@ describe("task-intake-resolver", () => {
       }
     });
   });
+
+  it("drops scope for self-contained file inspection requests that already specify the output rule", async () => {
+    const resolver = new GeminiTaskIntakeResolver({
+      models: {
+        generateContent: async () => ({
+          text: JSON.stringify({
+            requiredSlots: ["scope"],
+            filledSlots: {
+              location: "desktop",
+              target: "folders and files"
+            }
+          })
+        })
+      }
+    });
+
+    await expect(
+      resolver.analyzeStart(
+        "check my desktop and tell me the name and count of folders and files"
+      )
+    ).resolves.toEqual({
+      requiredSlots: [],
+      filledSlots: {
+        location: "desktop",
+        target: "folders and files"
+      }
+    });
+  });
 });

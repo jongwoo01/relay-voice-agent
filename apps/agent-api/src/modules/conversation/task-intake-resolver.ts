@@ -65,15 +65,79 @@ function normalizeSlotArray(value: unknown): TaskIntakeSlot[] {
   return value.filter(isSlot);
 }
 
-function parseStartResponse(text: string): TaskIntakeStartResponse {
-  const parsed = JSON.parse(text) as {
+function dedupeSlots(slots: TaskIntakeSlot[]): TaskIntakeSlot[] {
+  return [...new Set(slots)];
+}
+
+function isSelfContainedInspectionRequest(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  const hasInspectionVerb = [
+    "check",
+    "list",
+    "show",
+    "tell me",
+    "look at",
+    "scan",
+    "read"
+  ].some((token) => normalized.includes(token));
+  const hasFileSystemTarget = [
+    "desktop",
+    "folder",
+    "folders",
+    "file",
+    "files",
+    "directory",
+    "directories",
+    "downloads",
+    "documents"
+  ].some((token) => normalized.includes(token));
+  const hasOutputRule = [
+    "count",
+    "counts",
+    "how many",
+    "name",
+    "names",
+    "content",
+    "contents",
+    "list"
+  ].some((token) => normalized.includes(token));
+
+  return hasInspectionVerb && hasFileSystemTarget && hasOutputRule;
+}
+
+function sanitizeRequiredSlots(
+  userText: string,
+  requiredSlots: TaskIntakeSlot[],
+  filledSlots: TaskIntakeFilledSlots
+): TaskIntakeSlot[] {
+  const filtered = requiredSlots.filter((slot) => !filledSlots[slot]);
+  if (
+    filtered.includes("scope") &&
+    isSelfContainedInspectionRequest(userText)
+  ) {
+    return dedupeSlots(filtered.filter((slot) => slot !== "scope"));
+  }
+
+  return dedupeSlots(filtered);
+}
+
+function parseStartResponse(
+  responseText: string,
+  userText: string
+): TaskIntakeStartResponse {
+  const parsed = JSON.parse(responseText) as {
     requiredSlots?: unknown;
     filledSlots?: unknown;
   };
+  const filledSlots = normalizeFilledSlots(parsed.filledSlots);
 
   return {
-    requiredSlots: normalizeSlotArray(parsed.requiredSlots),
-    filledSlots: normalizeFilledSlots(parsed.filledSlots)
+    requiredSlots: sanitizeRequiredSlots(
+      userText,
+      normalizeSlotArray(parsed.requiredSlots),
+      filledSlots
+    ),
+    filledSlots
   };
 }
 
@@ -89,7 +153,7 @@ function parseUpdateResponse(text: string): TaskIntakeUpdateResponse {
       parsed.resolution === "replace_task"
         ? "replace_task"
         : "answer_current_intake",
-    requiredSlots: normalizeSlotArray(parsed.requiredSlots),
+    requiredSlots: dedupeSlots(normalizeSlotArray(parsed.requiredSlots)),
     filledSlots: normalizeFilledSlots(parsed.filledSlots)
   };
 }
@@ -124,6 +188,8 @@ export class GeminiTaskIntakeResolver implements TaskIntakeResolver {
         "Do not ask for optional details.",
         "Allowed slots: target, time, scope, location, risk_ack.",
         "If the request can be executed immediately, return an empty requiredSlots array.",
+        'Treat file inspection requests like "check my desktop and tell me the names and counts of folders and files" as immediately executable.',
+        "Do not require scope when the user already specified the output format, such as names, counts, contents, or a simple listing.",
         "Fill only slots explicitly present in the user's text.",
         `User request: ${text}`
       ].join("\n"),
@@ -162,7 +228,7 @@ export class GeminiTaskIntakeResolver implements TaskIntakeResolver {
       throw new Error("Task intake resolver returned an empty response");
     }
 
-    return parseStartResponse(response.text);
+    return parseStartResponse(response.text, text);
   }
 
   async analyzeUpdate(

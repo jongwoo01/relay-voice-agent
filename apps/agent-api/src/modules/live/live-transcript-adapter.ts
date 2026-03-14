@@ -42,11 +42,12 @@ export class LiveTranscriptAdapter {
   async handleTranscript(
     input: LiveTranscriptInput
   ): Promise<LiveTranscriptResult> {
-    const normalizedText = input.text.trim();
+    const rawText = typeof input.text === "string" ? input.text : "";
+    const normalizedText = rawText.trim();
 
     if (!input.isFinal) {
-      if (normalizedText) {
-        this.partialBySession.set(input.brainSessionId, normalizedText);
+      if (rawText.length > 0) {
+        this.partialBySession.set(input.brainSessionId, rawText);
       }
 
       return {

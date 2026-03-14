@@ -133,13 +133,13 @@ export interface LiveTranscriptControllerLike {
 }
 
 function collectInputTranscriptionText(message: LiveServerMessage): string | undefined {
-  const text = message.serverContent?.inputTranscription?.text?.trim();
-  return text ? text : undefined;
+  const text = message.serverContent?.inputTranscription?.text;
+  return typeof text === "string" ? text : undefined;
 }
 
 function collectOutputTranscriptionText(message: LiveServerMessage): string | undefined {
-  const text = message.serverContent?.outputTranscription?.text?.trim();
-  return text ? text : undefined;
+  const text = message.serverContent?.outputTranscription?.text;
+  return typeof text === "string" ? text : undefined;
 }
 
 function collectModelText(message: LiveServerMessage): string | undefined {

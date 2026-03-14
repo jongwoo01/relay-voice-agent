@@ -12,6 +12,7 @@ import type {
   ConversationTimelineItem,
   ConversationTurnViewModel,
   Task,
+  TaskExecutionArtifact,
   TaskEvent,
   TaskRunnerDetailViewModel,
   TaskRunnerTimelineEntry,
@@ -43,6 +44,58 @@ import type {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function findTranscriptOverlap(previous: string, next: string): number {
+  const maxLength = Math.min(previous.length, next.length);
+
+  for (let length = maxLength; length > 0; length -= 1) {
+    if (previous.slice(-length) === next.slice(0, length)) {
+      return length;
+    }
+  }
+
+  return 0;
+}
+
+function shouldInsertTranscriptSpace(previous: string, next: string): boolean {
+  const previousChar = previous.at(-1);
+  const nextChar = next[0];
+
+  if (!previousChar || !nextChar) {
+    return false;
+  }
+
+  return /[A-Za-z0-9]$/.test(previousChar) && /^[A-Za-z0-9]/.test(nextChar);
+}
+
+function mergeStreamingTranscript(previous: string, next: string): string {
+  if (!previous) {
+    return next;
+  }
+
+  if (!next || next === previous) {
+    return previous;
+  }
+
+  if (next.startsWith(previous)) {
+    return next;
+  }
+
+  if (previous.startsWith(next)) {
+    return previous;
+  }
+
+  const overlap = findTranscriptOverlap(previous, next);
+  if (overlap > 0) {
+    return `${previous}${next.slice(overlap)}`;
+  }
+
+  if (shouldInsertTranscriptSpace(previous, next)) {
+    return `${previous} ${next}`;
+  }
+
+  return `${previous}${next}`;
 }
 
 export interface CloudAgentSessionLoopLike {
@@ -115,6 +168,21 @@ function createSessionResumptionConfig(resumeHandle?: string): { handle?: string
   }
 
   return {};
+}
+
+function createContextWindowCompressionConfig(): {
+  triggerTokens?: string;
+  slidingWindow: { targetTokens?: string };
+} {
+  const triggerTokens = process.env.LIVE_CONTEXT_COMPRESSION_TRIGGER_TOKENS?.trim();
+  const targetTokens = process.env.LIVE_CONTEXT_COMPRESSION_TARGET_TOKENS?.trim();
+
+  return {
+    ...(triggerTokens ? { triggerTokens } : {}),
+    slidingWindow: {
+      ...(targetTokens ? { targetTokens } : {})
+    }
+  };
 }
 
 function createPersonaInstruction(): string {
@@ -397,6 +465,7 @@ function buildTaskRunner(task: Task, latestEvent?: TaskEvent): TaskRunnerViewMod
 function buildTaskRunnerDetail(
   task: Task,
   events: TaskEvent[],
+  executionTrace: TaskExecutionArtifact[],
   notification?: AssistantDeliveryPlan,
   requestSummary?: string
 ): TaskRunnerDetailViewModel {
@@ -419,9 +488,12 @@ function buildTaskRunnerDetail(
     lastUpdatedAt: task.updatedAt,
     timeline: buildTaskRunnerTimeline(task, events),
     resultSummary: task.completionReport?.summary,
+    detailedAnswer: task.completionReport?.detailedAnswer,
+    keyFindings: task.completionReport?.keyFindings ?? [],
     verification: task.completionReport?.verification,
     changes: task.completionReport?.changes ?? [],
     question: task.completionReport?.question,
+    executionTrace,
     advancedTrace: []
   };
 }
@@ -433,7 +505,25 @@ function summarizeRuntimeContext(snapshot: HostedTaskStateSnapshot): string {
   const intake = snapshot.intake.active
     ? `Intake: ${snapshot.intake.workingText || snapshot.intake.lastQuestion || "active"}`
     : "Intake: none";
-  return [intake, `Active tasks: ${activeTasks.join(", ") || "none"}`].join("\n");
+  const latestCompleted = snapshot.recentTasks.find(
+    (task) => task.status === "completed" && task.completionReport
+  );
+  const latestCompletedContext = latestCompleted?.completionReport
+    ? [
+        `Latest completed task: ${latestCompleted.title}`,
+        latestCompleted.completionReport.detailedAnswer
+          ? `Detailed result: ${latestCompleted.completionReport.detailedAnswer}`
+          : null,
+        latestCompleted.completionReport.keyFindings?.length
+          ? `Key findings: ${latestCompleted.completionReport.keyFindings.join("; ")}`
+          : null
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : null;
+  return [intake, `Active tasks: ${activeTasks.join(", ") || "none"}`, latestCompletedContext]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export class CloudAgentSession {
@@ -452,6 +542,7 @@ export class CloudAgentSession {
   private sessionMemoryUpdatePromise: Promise<void> | null = null;
   private sessionMemoryDirty = true;
   private lastSentSessionMemoryContext = "";
+  private lastSentTaskRuntimeContext = "";
   private sessionResumptionHandle: string | null = null;
   private sessionResumable = false;
   private closePromise: Promise<void> | null = null;
@@ -587,6 +678,7 @@ export class CloudAgentSession {
         responseModalities: [Modality.AUDIO],
         inputAudioTranscription: {},
         outputAudioTranscription: {},
+        contextWindowCompression: createContextWindowCompressionConfig(),
         thinkingConfig: {
           thinkingBudget: 0
         },
@@ -631,9 +723,29 @@ export class CloudAgentSession {
           }
           this.conversationState.connected = false;
           this.conversationState.connecting = false;
+          this.liveSession = null;
+
+          if (!this.closePromise && this.sessionResumable && this.sessionResumptionHandle) {
+            void this.resumeLiveSession().catch((error) => {
+              if (generation !== this.liveSessionGeneration || this.closePromise) {
+                return;
+              }
+
+              this.conversationState.connected = false;
+              this.conversationState.connecting = false;
+              this.conversationState.status = "idle";
+              this.conversationState.error =
+                info.reason ? `closed: ${info.reason}` : normalizeError(error);
+              this.input.send({
+                type: "conversation_state",
+                state: this.getConversationState()
+              });
+            });
+            return;
+          }
+
           this.conversationState.status = "idle";
           this.conversationState.error = info.reason ? `closed: ${info.reason}` : null;
-          this.liveSession = null;
           this.input.send({
             type: "conversation_state",
             state: this.getConversationState()
@@ -1049,24 +1161,6 @@ export class CloudAgentSession {
         this.pendingToolContinuations.delete(result.taskId);
       }
 
-      const presentation = result.presentation;
-      if (
-        presentation?.ownership === "runtime" &&
-        presentation.allowLiveModelOutput === false &&
-        typeof presentation.speechText === "string" &&
-        presentation.speechText.trim()
-      ) {
-        this.injectAssistantMessage(
-          presentation.speechText,
-          result.status === "waiting_input" || result.status === "approval_required"
-            ? "clarify"
-            : result.action === "created" || result.action === "resumed"
-              ? "task_ack"
-              : "reply",
-          result.taskId,
-          result.status
-        );
-      }
     }
 
     this.liveSession?.sendToolResponse({
@@ -1109,22 +1203,6 @@ export class CloudAgentSession {
       ]
     });
 
-    if (
-      result.presentation?.ownership === "runtime" &&
-      result.presentation.allowLiveModelOutput === false &&
-      result.presentation.speechText
-    ) {
-      this.injectAssistantMessage(
-        result.presentation.speechText,
-        "reply",
-        result.taskId,
-        result.status
-      );
-      this.input.send({
-        type: "conversation_state",
-        state: this.getConversationState()
-      });
-    }
   }
 
   private shouldContinueFunctionCall(result: {
@@ -1142,16 +1220,26 @@ export class CloudAgentSession {
   }
 
   private resolveResponseScheduling(result: {
+    status: string;
     presentation?: {
       ownership: "live" | "runtime";
       allowLiveModelOutput: boolean;
     };
   }): FunctionResponseScheduling {
-    if (
-      result.presentation?.ownership === "runtime" &&
-      result.presentation.allowLiveModelOutput === false
-    ) {
+    if (!result.presentation?.allowLiveModelOutput) {
       return FunctionResponseScheduling.SILENT;
+    }
+
+    if (
+      result.status === "failed" ||
+      result.status === "waiting_input" ||
+      result.status === "approval_required"
+    ) {
+      return FunctionResponseScheduling.INTERRUPT;
+    }
+
+    if (result.status === "completed") {
+      return FunctionResponseScheduling.WHEN_IDLE;
     }
 
     return FunctionResponseScheduling.WHEN_IDLE;
@@ -1257,8 +1345,8 @@ export class CloudAgentSession {
       (item: ConversationTimelineItem) => item.id === assistantMessageId
     );
     const mergedText = finished
-      ? text
-      : `${existing?.text ?? ""}${text}`.trim();
+      ? text.trim()
+      : mergeStreamingTranscript(existing?.text ?? "", text);
     const nextItem: ConversationTimelineItem = {
       id: assistantMessageId,
       turnId: activeTurnId,
@@ -1287,64 +1375,6 @@ export class CloudAgentSession {
       stage: finished ? "responding" : "responding",
       assistantMessageId,
       startedAt: existing?.createdAt ?? createdAt,
-      updatedAt: createdAt
-    });
-  }
-
-  private injectAssistantMessage(
-    text: string,
-    tone: "reply" | "clarify" | "task_ack",
-    taskId?: string,
-    taskStatus?: Task["status"]
-  ): void {
-    const activeTurnId = this.conversationState.activeTurnId ?? `turn-${++this.turnSequence}`;
-    if (!this.conversationState.activeTurnId) {
-      this.conversationState.activeTurnId = activeTurnId;
-    }
-    const createdAt = this.now();
-    const item: ConversationTimelineItem = {
-      id: `${activeTurnId}:assistant-runtime:${createdAt}`,
-      turnId: activeTurnId,
-      kind: "assistant_message",
-      inputMode:
-        this.conversationState.conversationTurns.find(
-          (turn: ConversationTurnViewModel) => turn.turnId === activeTurnId
-        )
-          ?.inputMode ?? "voice",
-      speaker: "assistant",
-      text,
-      partial: false,
-      streaming: false,
-      interrupted: false,
-      tone,
-      taskId,
-      taskStatus,
-      responseSource: "delegate",
-      createdAt,
-      updatedAt: createdAt
-    };
-    this.conversationState.outputTranscript = text;
-    this.conversationState.status = "listening";
-    this.conversationState.routing = {
-      mode: "delegate",
-      summary: text,
-      detail: taskId ? `task ${taskId} · ${taskStatus ?? "unknown"}` : ""
-    };
-    this.conversationState.conversationTimeline.push(item);
-    this.upsertTurn({
-      turnId: activeTurnId,
-      inputMode: item.inputMode,
-      stage:
-        taskStatus === "waiting_input" || taskStatus === "approval_required"
-          ? "waiting_input"
-          : taskStatus === "failed"
-            ? "failed"
-            : taskStatus === "completed"
-              ? "completed"
-              : "delegated",
-      assistantMessageId: item.id,
-      taskId,
-      startedAt: createdAt,
       updatedAt: createdAt
     });
   }
@@ -1450,6 +1480,12 @@ export class CloudAgentSession {
         events: await persistence.taskEventRepository.listByTaskId(task.id)
       }))
     );
+    const taskExecutionArtifacts = await Promise.all(
+      timelineTasks.map(async (task) => ({
+        taskId: task.id,
+        artifacts: await persistence.taskExecutionArtifactRepository.listByTaskId(task.id)
+      }))
+    );
     const intake = await (await this.loopPromise).getActiveTaskIntake(
       this.input.brainSessionId
     );
@@ -1468,9 +1504,12 @@ export class CloudAgentSession {
     const taskRunnerDetails = timelineTasks.map((task) => {
       const events =
         taskTimelines.find((timeline) => timeline.taskId === task.id)?.events ?? [];
+      const executionTrace =
+        taskExecutionArtifacts.find((artifact) => artifact.taskId === task.id)?.artifacts ?? [];
       return buildTaskRunnerDetail(
         task,
         events,
+        executionTrace,
         latestNotificationByTaskId.get(task.id),
         this.findTaskRequestSummary(task.id)
       );
@@ -1589,9 +1628,15 @@ export class CloudAgentSession {
     const resolvedTaskState = taskState ? await Promise.resolve(taskState) : await this.buildTaskState();
     const runtimeSummary = summarizeRuntimeContext(resolvedTaskState).trim();
     if (!runtimeSummary) {
+      this.lastSentTaskRuntimeContext = "";
       return;
     }
 
+    if (runtimeSummary === this.lastSentTaskRuntimeContext) {
+      return;
+    }
+
+    this.lastSentTaskRuntimeContext = runtimeSummary;
     this.liveSession.sendContext(runtimeSummary);
   }
 }

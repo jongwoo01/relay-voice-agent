@@ -5,6 +5,13 @@ export function buildTaskStatusMessage(
   task: Task,
   latestEvent?: TaskEvent
 ): string {
+  if (task.status === "completed") {
+    const detailedAnswer = englishOnlyDetail(task.completionReport?.detailedAnswer);
+    if (detailedAnswer) {
+      return detailedAnswer;
+    }
+  }
+
   const summary = englishOnlyDetail(task.completionReport?.summary);
   if (summary) {
     return summary;
