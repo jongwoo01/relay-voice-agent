@@ -5,14 +5,15 @@ Desktop Companion is a real-time Gemini Live agent for desktop work. A user can 
 This repository contains the public submission package for the prototype:
 
 - an Electron companion client used as the live demo surface
-- the agent core modules that handle intent, intake, task routing, persistence, and follow-up policy
-- a Gemini CLI executor adapter for grounded local-machine work
+- a Cloud Run-ready agent service that owns the live session, task orchestration, and canonical state
+- a Gemini CLI executor adapter for grounded local-machine work on the connected desktop
 - Postgres schema and repository layers for canonical task and memory state
 
 ## Why This Fits The Gemini Live Agent Challenge
 
 - Uses Gemini Live for real-time audio interaction and interruption handling
 - Uses Gemini models for intent resolution, task intake, and task routing
+- Fails explicitly when intent, intake, or routing model calls are unavailable instead of guessing with local heuristics
 - Keeps spoken task results grounded through a single live tool path, `delegate_to_gemini_cli`
 - Supports multi-turn task clarification, background task continuity, and grounded completion briefings
 - Maps to a Google Cloud submission topology where the agent core runs on Cloud Run and state lives in Cloud SQL
@@ -26,18 +27,18 @@ This repository contains the public submission package for the prototype:
 
 ## What Works Today
 
-- Live audio path with Gemini Live inside the Electron companion
-- Shared typed and voice companion surface
-- Runtime-backed task intake and follow-up loop
-- Single-tool delegation path from Gemini Live to the task runtime
+- Cloud-owned live session path with judge-authenticated WebSocket control channel
+- Shared typed and voice companion surface in Electron
+- Runtime-backed task intake and follow-up loop on the server
+- Single-tool delegation path from Gemini Live to the connected desktop executor
 - Structured completion reports for grounded task summaries
 - Postgres persistence layer for sessions, tasks, task events, intake sessions, and completion reports
-- Smoke and test flows for desktop runtime, text runtime, transport, routing, and persistence contracts
+- Automated tests for judge auth, hosted WebSocket control, cloud-session executor round-trips, desktop hosted client behavior, routing, and persistence contracts
 
 ## What Is Still Outside The Repo-Managed Submission Package
 
-- No repo-managed Cloud Run wrapper, Dockerfile, or IaC assets yet
 - No committed Cloud deployment screenshots or service URLs yet
+- No IaC or Cloud Build automation yet
 - No judge credentials or private hosted-demo access details are stored in this repository
 
 These gaps are documented on purpose so the public repository does not over-claim what has already been packaged.
@@ -52,11 +53,12 @@ These gaps are documented on purpose so the public repository does not over-clai
 
 - `apps/desktop`
   - Electron companion window
-  - live voice session
-  - live-to-runtime bridge
+  - hosted Cloud session client
+  - local audio/UI shell and local `gemini` CLI worker
 - `apps/agent-api`
   - agent core modules
-  - live transport and session logic
+  - Cloud Run HTTP + WebSocket entrypoint
+  - hosted live transport and session logic
   - task routing, intake, follow-up, and persistence
 - `packages/gemini-cli-runner`
   - Gemini CLI command builder and subprocess executor
@@ -99,12 +101,115 @@ If needed, set the active project:
 gcloud config set project <project-id>
 ```
 
+### Run The Cloud Agent Service
+
+```bash
+npm run dev:agent-api
+```
+
+For local development with Docker-managed Postgres, start the database separately:
+
+```bash
+npm run dev:postgres
+```
+
+Required environment for the hosted path:
+
+- `GOOGLE_CLOUD_PROJECT`
+- `GOOGLE_CLOUD_LOCATION`
+- `GEMINI_API_KEY` or `GOOGLE_API_KEY`
+- `DATABASE_URL`
+- `JUDGE_PASSCODE`
+- `JUDGE_TOKEN_SECRET`
+
+Optional local Postgres overrides:
+
+- `DEV_POSTGRES_CONTAINER_NAME`
+- `DEV_POSTGRES_USER`
+- `DEV_POSTGRES_PASSWORD`
+- `DEV_POSTGRES_DB`
+- `DEV_POSTGRES_PORT`
+
+### Deploy The Hosted Agent To Cloud Run
+
+Use the included deployment helper:
+
+```bash
+GCP_PROJECT_ID=<project-id> \
+GCP_REGION=<region> \
+CLOUD_RUN_SERVICE=gemini-live-agent \
+ARTIFACT_REGISTRY_REPO=<repo> \
+GOOGLE_CLOUD_LOCATION=<region> \
+DATABASE_URL_SECRET=<secret-name> \
+JUDGE_PASSCODE_SECRET=<secret-name> \
+JUDGE_TOKEN_SECRET_SECRET=<secret-name> \
+GEMINI_API_KEY_SECRET=<secret-name> \
+npm run deploy:agent-api:cloud-run
+```
+
+The hosted service now fails fast if any of these are missing:
+
+- `DATABASE_URL`
+- `GOOGLE_CLOUD_PROJECT`
+- `GOOGLE_CLOUD_LOCATION`
+- `JUDGE_PASSCODE`
+- `JUDGE_TOKEN_SECRET`
+- `GEMINI_API_KEY` or `GOOGLE_API_KEY`
+
+The hosted path now fails fast if `DATABASE_URL` is missing. The Cloud Run service is intentionally Postgres-backed only.
+
+### Deploy The Hosted Service To Cloud Run
+
+Set the deployment variables shown in `.env.example`, then run:
+
+```bash
+npm run deploy:agent-api:cloud-run
+```
+
+This script:
+
+- builds the monorepo image with `apps/agent-api/Dockerfile`
+- pushes it to Artifact Registry
+- deploys the service to Cloud Run with the required hosted-path environment
+
 ### Run The Desktop Companion
 
 ```bash
 npm run dev:desktop:prepare
 npm run dev:desktop
 ```
+
+Desktop environment:
+
+- `AGENT_CLOUD_URL` pointing at the Cloud Run or local agent service
+- local `gemini` CLI installed if you want real local task execution
+- microphone permissions enabled
+
+### Package The Desktop App
+
+Create an unpacked app bundle:
+
+```bash
+npm run dist:desktop:dir
+```
+
+Platform-specific builds:
+
+```bash
+npm run dist:desktop:mac
+npm run dist:desktop:win
+```
+
+Note: unsigned desktop builds may still show macOS Gatekeeper or Windows SmartScreen warnings.
+
+### Build Unsigned Judge Installers
+
+```bash
+npm run dist:desktop:mac
+npm run dist:desktop:win
+```
+
+These builds are intended for judge distribution. They are unsigned, so macOS Gatekeeper or Windows SmartScreen may show a first-launch warning.
 
 ### Fast Smoke Paths
 
@@ -132,7 +237,7 @@ Standalone live text harness:
 npm run dev:live-text-session
 ```
 
-Note: live/bidi sessions use the Gemini Developer API (`GEMINI_API_KEY` or `GOOGLE_API_KEY`) so the desktop companion can keep tool `NON_BLOCKING` behavior, while task routing, task intake, and intent resolution remain on Vertex AI runtime configuration.
+Note: the hosted service owns the Gemini Live connection and uses the Gemini Developer API (`GEMINI_API_KEY` or `GOOGLE_API_KEY`) for the live path, while task routing, task intake, and intent resolution remain on Vertex AI runtime configuration. The desktop app is intentionally thin: it captures audio, renders hosted state, and executes local `gemini` CLI requests on behalf of the server. If Vertex AI intent/intake/routing calls fail, the hosted path returns an explicit error instead of guessing.
 
 ## Testing And Verification
 
@@ -147,14 +252,16 @@ The repository is intentionally organized so the core behavior can be verified w
 ## Judge And Tester Notes
 
 - Start with [docs/judge-testing.md](docs/judge-testing.md)
-- The repo supports both a no-cost mock smoke path and a real live path
-- Real live desktop runs use Vertex AI project and ADC configuration
-- Real local task execution also requires the `gemini` CLI on the local machine
-- If a private hosted demo is used for submission, access details should be provided privately at submission time rather than committed to the public repository
+- The repo supports both a no-cost mock smoke path and a hosted judge path
+- The hosted service owns live/session/task orchestration on Google Cloud
+- The hosted path requires model-backed intent, intake, and routing; failures are surfaced explicitly to the user
+- Real local task execution still requires the `gemini` CLI on the connected desktop machine
+- Judge access details should be provided privately at submission time rather than committed to the public repository
+- The recommended submission pattern is: public repo + private hosted judge URL/passcode in Devpost Additional Info
 
 ## Known Limits
 
 - The public repo currently emphasizes the desktop demo client and agent core modules, not a finished Cloud Run packaging layer
 - Cloud deployment proof must be attached from the deployed environment; it cannot be inferred from this repo alone
 - Voice mode depends on local microphone/audio permissions and Gemini Live availability
-- Cloud SQL persistence exists at the repository and migration layer, but local dev defaults still allow in-memory runtime flows
+- Cloud SQL persistence exists at the repository and migration layer, but the hosted judge path is intentionally Postgres-only

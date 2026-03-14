@@ -47,7 +47,7 @@ contextBridge.exposeInMainWorld("desktopDebug", {
 
 contextBridge.exposeInMainWorld("desktopLive", {
   init: () => ipcRenderer.invoke("live:init"),
-  connect: () => ipcRenderer.invoke("live:connect"),
+  connect: (passcode) => ipcRenderer.invoke("live:connect", passcode),
   disconnect: () => ipcRenderer.invoke("live:disconnect"),
   setMuted: (muted) => ipcRenderer.invoke("live:set-muted", muted),
   endAudioStream: () => ipcRenderer.invoke("live:end-audio-stream"),

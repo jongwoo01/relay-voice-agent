@@ -28,7 +28,7 @@ describe("live-voice-session", () => {
       }
     });
 
-    await session.connect();
+    await session.connect({ model: "gemini-live-2.5-flash-preview" });
     expect(connect).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
@@ -146,7 +146,7 @@ describe("live-voice-session", () => {
       onUserTranscriptFinal
     });
 
-    await session.connect();
+    await session.connect({ model: "gemini-live-2.5-flash-preview" });
     callbacks.onopen();
     await callbacks.onevent({
       type: "input_transcription_partial",
@@ -196,7 +196,7 @@ describe("live-voice-session", () => {
       transport: { connect }
     });
 
-    await session.connect();
+    await session.connect({ model: "gemini-live-2.5-flash-preview" });
     callbacks.onopen();
     await callbacks.onevent({
       type: "input_transcription_final",
@@ -454,18 +454,14 @@ describe("live-voice-session", () => {
       transport: { connect }
     });
 
-    await session.connect({ model: "gemini-live-2.5-flash-preview" });
+    await session.connect({
+      model: "gemini-2.5-flash-native-audio-preview-12-2025"
+    });
 
     expect(connect).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: "gemini-live-2.5-flash-preview",
+        model: "gemini-2.5-flash-native-audio-preview-12-2025",
         config: expect.objectContaining({
-          sessionResumption: {
-            handle: undefined
-          },
-          contextWindowCompression: {
-            triggerTokens: "24000"
-          },
           tools: [
             expect.objectContaining({
               functionDeclarations: expect.arrayContaining([
@@ -500,7 +496,7 @@ describe("live-voice-session", () => {
       }
     });
 
-    await session.connect();
+    await session.connect({ model: "gemini-live-2.5-flash-preview" });
     callbacks.onopen();
     await callbacks.onevent({
       type: "live_error",
@@ -545,7 +541,7 @@ describe("live-voice-session", () => {
       transport: { connect }
     });
 
-    await session.connect();
+    await session.connect({ model: "gemini-live-2.5-flash-preview" });
     callbacks.onopen();
     await callbacks.onevent({
       type: "output_transcription",
@@ -622,7 +618,7 @@ describe("live-voice-session", () => {
       onAudioChunk
     });
 
-    await session.connect();
+    await session.connect({ model: "gemini-live-2.5-flash-preview" });
     callbacks.onopen();
     await callbacks.onevent({
       type: "input_transcription_final",
@@ -953,7 +949,7 @@ describe("live-voice-session", () => {
       lastConsumedClientMessageIndex: "9"
     });
     await session.disconnect();
-    await session.connect();
+    await session.connect({ model: "gemini-live-2.5-flash-preview" });
 
     expect(sendContext).not.toHaveBeenCalled();
     expect(connect).toHaveBeenLastCalledWith(

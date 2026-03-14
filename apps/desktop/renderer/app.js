@@ -16,6 +16,7 @@ const liveStatusTextEl = document.getElementById("live-status-text");
 const liveConnectButtonEl = document.getElementById("live-connect-button");
 const liveMuteButtonEl = document.getElementById("live-mute-button");
 const liveHangupButtonEl = document.getElementById("live-hangup-button");
+const livePasscodeEl = document.getElementById("live-passcode");
 const liveMicSelectEl = document.getElementById("live-mic-select");
 const pendingBriefingsCountEl = document.getElementById(
   "pending-briefings-count"
@@ -1302,6 +1303,9 @@ function performUiRender(nextState) {
     liveMuteButtonEl.disabled = !voiceState.connected;
     liveHangupButtonEl.disabled = !voiceState.connected && !voiceState.connecting;
     liveMuteButtonEl.textContent = voiceState.muted ? "Unmute" : "Mute";
+    if (livePasscodeEl) {
+      livePasscodeEl.disabled = voiceState.connecting;
+    }
 
     if (desktopUiState.runtimeError) {
       showRuntimeError(desktopUiState.runtimeError);
@@ -1424,7 +1428,8 @@ liveConnectButtonEl.addEventListener("click", async () => {
     hideRuntimeError();
     stopPlayback();
     liveLastProducedAudioAt = null;
-    await window.desktopLive.connect();
+    const passcode = livePasscodeEl?.value?.trim?.() ?? "";
+    await window.desktopLive.connect(passcode);
     await startVoiceCapture();
   } catch (error) {
     showRuntimeError(error);

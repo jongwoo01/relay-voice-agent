@@ -3,7 +3,10 @@ import { ActivityHandling, Behavior, Modality, Type } from "@google/genai";
 import { logDesktop } from "../debug/desktop-log.js";
 
 function resolveSupportedLiveModel() {
-  return process.env.LIVE_MODEL?.trim() ?? "gemini-live-2.5-flash-preview";
+  return (
+    process.env.LIVE_MODEL?.trim() ??
+    "gemini-2.5-flash-native-audio-preview-12-2025"
+  );
 }
 
 function createMetrics() {
