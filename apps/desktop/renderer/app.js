@@ -36,21 +36,43 @@ const taskRunnerDetailLabelEl = document.getElementById(
 const taskRunnerDetailTitleEl = document.getElementById(
   "task-runner-detail-title"
 );
+const taskRunnerDetailHeroEl = document.getElementById("task-runner-detail-hero");
 const taskRunnerDetailStatusEl = document.getElementById(
   "task-runner-detail-status"
 );
 const taskRunnerDetailIdEl = document.getElementById("task-runner-detail-id");
-const taskRunnerDetailUpdateEl = document.getElementById(
-  "task-runner-detail-update"
+const taskRunnerDetailRequestEl = document.getElementById(
+  "task-runner-detail-request"
 );
-const taskRunnerDetailBlockingEl = document.getElementById(
-  "task-runner-detail-blocking"
+const taskRunnerDetailNeedsActionEl = document.getElementById(
+  "task-runner-detail-needs-action"
+);
+const taskRunnerDetailNeedsActionTextEl = document.getElementById(
+  "task-runner-detail-needs-action-text"
 );
 const taskRunnerDetailUpdatedAtEl = document.getElementById(
   "task-runner-detail-updated-at"
 );
-const taskRunnerDetailSummaryEl = document.getElementById(
-  "task-runner-detail-summary"
+const taskRunnerDetailTimelineListEl = document.getElementById(
+  "task-runner-detail-timeline-list"
+);
+const taskRunnerDetailResultEl = document.getElementById(
+  "task-runner-detail-result"
+);
+const taskRunnerDetailResultSummaryEl = document.getElementById(
+  "task-runner-detail-result-summary"
+);
+const taskRunnerDetailResultVerificationEl = document.getElementById(
+  "task-runner-detail-result-verification"
+);
+const taskRunnerDetailResultChangesEl = document.getElementById(
+  "task-runner-detail-result-changes"
+);
+const taskRunnerDetailResultChangesListEl = document.getElementById(
+  "task-runner-detail-result-changes-list"
+);
+const taskRunnerDetailAdvancedEl = document.getElementById(
+  "task-runner-detail-advanced"
 );
 const taskRunnerDetailExecutionEl = document.getElementById(
   "task-runner-detail-execution"
@@ -79,7 +101,7 @@ const debugSourceFilterEls = [
 const debugSourceFilters = new Set(
   debugSourceFilterEls.map((element) => element.dataset.sourceFilter)
 );
-const timeFormatter = new Intl.DateTimeFormat("ko-KR", {
+const timeFormatter = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
   minute: "2-digit",
   second: "2-digit"
@@ -163,6 +185,7 @@ function getTaskSummary() {
       activeTasks: [],
       recentTasks: [],
       taskTimelines: [],
+      taskRunnerDetails: [],
       intake: { active: false, missingSlots: [], lastQuestion: null, workingText: "" },
       avatar: { mainState: "idle", taskRunners: [] },
       notifications: { pending: [], delivered: [] },
@@ -272,23 +295,24 @@ function buildTaskRunnerSignature(summary, debugInspector) {
     selectedTaskId,
     taskRunners: (summary.avatar?.taskRunners ?? []).map((runner) => ({
       taskId: runner.taskId,
-      label: runner.label,
       title: runner.title,
       status: runner.status,
-      progressSummary: runner.progressSummary ?? null,
-      blockingReason: runner.blockingReason ?? null,
+      latestHumanUpdate: runner.latestHumanUpdate ?? null,
+      needsUserAction: runner.needsUserAction ?? null,
       lastUpdatedAt: runner.lastUpdatedAt ?? null
+    })),
+    taskRunnerDetails: (summary.taskRunnerDetails ?? []).map((detail) => ({
+      taskId: detail.taskId,
+      status: detail.status,
+      heroSummary: detail.heroSummary,
+      lastUpdatedAt: detail.lastUpdatedAt ?? null,
+      timelineCount: detail.timeline?.length ?? 0,
+      resultSummary: detail.resultSummary ?? null
     })),
     activeTasks: (summary.activeTasks ?? []).map((task) => ({
       id: task.id,
       status: task.status,
-      updatedAt: task.updatedAt ?? null,
-      completionSummary: task.completionReport?.summary ?? null
-    })),
-    timelines: (summary.taskTimelines ?? []).map((timeline) => ({
-      taskId: timeline.taskId,
-      eventCount: timeline.events?.length ?? 0,
-      lastEventAt: timeline.events?.at(-1)?.createdAt ?? null
+      updatedAt: task.updatedAt ?? null
     })),
     selectedExecutionEvents
   });
@@ -299,18 +323,16 @@ function buildTaskDrawerSignature(summary) {
     recentTasks: (summary.recentTasks ?? []).map((task) => ({
       id: task.id,
       status: task.status,
-      updatedAt: task.updatedAt ?? null,
-      summary: task.completionReport?.summary ?? null,
-      verification: task.completionReport?.verification ?? null,
-      changes: task.completionReport?.changes ?? []
+      updatedAt: task.updatedAt ?? null
+    })),
+    taskRunnerDetails: (summary.taskRunnerDetails ?? []).map((detail) => ({
+      taskId: detail.taskId,
+      heroSummary: detail.heroSummary,
+      resultSummary: detail.resultSummary ?? null,
+      verification: detail.verification ?? null,
+      changes: detail.changes ?? []
     })),
     activeTaskIds: (summary.activeTasks ?? []).map((task) => task.id),
-    timelines: (summary.taskTimelines ?? []).map((timeline) => ({
-      taskId: timeline.taskId,
-      eventCount: timeline.events?.length ?? 0,
-      lastEventAt: timeline.events?.at(-1)?.createdAt ?? null,
-      lastMessage: timeline.events?.at(-1)?.message ?? null
-    })),
     notifications: [
       ...(summary.notifications?.delivered ?? []),
       ...(summary.notifications?.pending ?? [])
@@ -532,7 +554,7 @@ async function handleAudioChunk(chunk) {
 
 async function populateMicrophones() {
   if (!navigator.mediaDevices?.enumerateDevices) {
-    liveStatusTextEl.textContent = "이 환경에서는 microphone device 조회를 지원하지 않습니다.";
+    liveStatusTextEl.textContent = "This environment does not support microphone device discovery.";
     return;
   }
 
@@ -579,16 +601,16 @@ async function stopVoiceCapture() {
 
 async function startVoiceCapture() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("이 환경에서는 getUserMedia를 사용할 수 없습니다.");
+    throw new Error("getUserMedia is not available in this environment.");
   }
 
   const deviceId = liveMicSelectEl.value;
   const constraints = {
     audio: deviceId ? { deviceId: { exact: deviceId } } : true
   };
-  liveStatusTextEl.textContent = "microphone 권한을 요청하는 중…";
+  liveStatusTextEl.textContent = "Requesting microphone permission…";
   liveRecorderStream = await navigator.mediaDevices.getUserMedia(constraints);
-  liveStatusTextEl.textContent = "microphone 연결 완료. Gemini Live에 연결 중…";
+  liveStatusTextEl.textContent = "Microphone connected. Connecting to Gemini Live…";
   await populateMicrophones();
 
   liveRecorderContext = new AudioContext({
@@ -630,7 +652,7 @@ async function startVoiceCapture() {
   liveRecorderSource.connect(liveRecorderFallbackNode);
   liveRecorderFallbackNode.connect(liveRecorderGainNode);
   liveRecorderGainNode.connect(liveRecorderContext.destination);
-  liveStatusTextEl.textContent = "microphone 연결 완료. 실시간 음성 입력 준비가 끝났습니다.";
+  liveStatusTextEl.textContent = "Microphone connected. Real-time voice input is ready.";
 }
 
 function buildConversationKey(item) {
@@ -658,7 +680,7 @@ function renderConversationFeed(state) {
       const empty = document.createElement("p");
       empty.className = "conversation-empty";
       empty.textContent =
-        "아직 대화가 없습니다. 음성으로 말하거나 텍스트를 입력하면 같은 피드에 이어집니다.";
+        "No conversation yet. Speak or type and everything will continue in the same feed.";
       conversationFeedEl.appendChild(empty);
     }
     return;
@@ -800,26 +822,26 @@ function renderSummaryCardState(state) {
       task.status === "waiting_input" || task.status === "approval_required"
   );
 
-  let companionStateText = "대기 중";
-  let companionRouteText = "아직 확인 중인 요청이 없습니다.";
-  let companionIntakeText = "지금 보충 질문 중인 작업이 없습니다.";
+  let companionStateText = "Idle";
+  let companionRouteText = "No request is being reviewed yet.";
+  let companionIntakeText = "No task is waiting for clarification.";
 
   if (summary.intake?.active) {
-    companionStateText = "입력 대기 중";
-    companionRouteText = "작업을 시작하기 전에 필요한 정보를 모으고 있습니다.";
+    companionStateText = "Waiting for input";
+    companionRouteText = "Gathering the details needed before starting the task.";
     const missing = (summary.intake.missingSlots ?? []).join(", ");
     companionIntakeText = missing
       ? `${summary.intake.workingText} · missing: ${missing}`
       : summary.intake.workingText;
   } else if (latestBlockingTask) {
-    companionStateText = "확인 필요";
-    companionRouteText = "진행 중인 작업이 사용자 입력 또는 승인을 기다리고 있습니다.";
+    companionStateText = "Needs attention";
+    companionRouteText = "An active task is waiting for user input or approval.";
     companionIntakeText = latestBlockingTask.title;
   } else if (activeRunnerCount > 0) {
-    companionStateText = `${activeRunnerCount}개 작업 진행 중`;
+    companionStateText = `${activeRunnerCount} active task${activeRunnerCount === 1 ? "" : "s"}`;
     companionRouteText =
-      voiceState.routing?.summary ?? "백그라운드에서 task runner가 작업을 수행하고 있습니다.";
-    companionIntakeText = "완료되면 채팅과 서랍에 결과가 반영됩니다.";
+      voiceState.routing?.summary ?? "Background task runners are working.";
+    companionIntakeText = "Results will appear in the chat and drawers when they are ready.";
   }
 
   mainAvatarStateEl.textContent = companionStateText;
@@ -908,19 +930,36 @@ function uniqueNonEmptyLines(values) {
 
 function formatTaskRunnerStatus(status) {
   switch (status) {
+    case "created":
+    case "queued":
+      return "Preparing";
     case "running":
       return "Running";
     case "waiting_input":
-      return "Need Input";
+      return "Waiting for input";
     case "approval_required":
-      return "Need Approval";
+      return "Waiting for approval";
     case "completed":
       return "Completed";
     case "failed":
-      return "Failed";
+      return "Needs attention";
+    case "cancelled":
+      return "Cancelled";
     default:
       return status;
   }
+}
+
+function formatVerificationStatus(verification) {
+  if (verification === "verified") {
+    return "Verified directly";
+  }
+
+  if (verification === "uncertain") {
+    return "Needs more verification";
+  }
+
+  return "No verification details";
 }
 
 function parseExecutorDebugDetail(detail) {
@@ -935,10 +974,22 @@ function parseExecutorDebugDetail(detail) {
   }
 }
 
-function buildExecutionTraceEntries(taskId) {
-  const events = desktopUiState?.debugInspector?.events ?? [];
+function getTaskRunnerDetailMap(summary) {
+  return new Map(
+    (summary.taskRunnerDetails ?? []).map((detail) => [detail.taskId, detail])
+  );
+}
 
-  return events
+function buildAdvancedTraceEntries(taskId, selectedRunner) {
+  const events = desktopUiState?.debugInspector?.events ?? [];
+  const detailEntries = (selectedRunner?.advancedTrace ?? []).map((entry, index) => ({
+    id: `${taskId}:detail:${entry.createdAt}:${index}`,
+    kind: entry.kind,
+    createdAt: entry.createdAt,
+    body: entry.summary,
+    meta: entry.detail ?? ""
+  }));
+  const debugEntries = events
     .filter((event) => event.source === "executor" && event.taskId === taskId)
     .map((event) => {
       const parsed = parseExecutorDebugDetail(event.detail);
@@ -963,6 +1014,11 @@ function buildExecutionTraceEntries(taskId) {
         meta
       };
     });
+
+  return [...detailEntries, ...debugEntries].sort(
+    (left, right) =>
+      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+  );
 }
 
 function getTaskRunnerAccent(status) {
@@ -981,33 +1037,95 @@ function getTaskRunnerAccent(status) {
   return "running";
 }
 
+function getTaskRunnerPriority(status) {
+  if (status === "waiting_input" || status === "approval_required") {
+    return 0;
+  }
+
+  if (status === "running") {
+    return 1;
+  }
+
+  if (status === "created" || status === "queued") {
+    return 2;
+  }
+
+  if (status === "completed") {
+    return 3;
+  }
+
+  return 4;
+}
+
 function buildTaskRunnerEntries(summary) {
   const timelineByTaskId = buildTaskTimelineMap(summary);
+  const detailByTaskId = getTaskRunnerDetailMap(summary);
   const activeTasksById = new Map(
     (summary.activeTasks ?? []).map((task) => [task.id, task])
   );
 
-  return (summary.avatar?.taskRunners ?? []).map((runner, index) => {
-    const task = activeTasksById.get(runner.taskId);
-    const latestEvent = (timelineByTaskId.get(runner.taskId) ?? []).at(-1);
+  return (summary.avatar?.taskRunners ?? [])
+    .map((runner, index) => {
+      const task = activeTasksById.get(runner.taskId);
+      const detail = detailByTaskId.get(runner.taskId);
+      const latestEvent = (timelineByTaskId.get(runner.taskId) ?? []).at(-1);
 
-    return {
-      ...runner,
-      label: runner.label ?? `Task Runner ${index + 1}`,
-      title: runner.title ?? task?.title ?? "Untitled task",
-      latestUpdate:
-        runner.progressSummary ??
-        latestEvent?.message ??
-        "진행 상황을 기다리는 중입니다.",
-      completionSummary: task?.completionReport?.summary ?? null,
-      lastUpdatedAt:
-        runner.lastUpdatedAt ?? latestEvent?.createdAt ?? task?.updatedAt ?? null
-    };
-  });
+      return {
+        ...runner,
+        label: runner.label ?? `Task Runner ${index + 1}`,
+        title: detail?.title ?? runner.title ?? task?.title ?? "Untitled task",
+        headline: detail?.headline ?? runner.headline ?? runner.title ?? task?.title ?? "Untitled task",
+        statusLabel:
+          detail?.statusLabel ?? runner.statusLabel ?? formatTaskRunnerStatus(runner.status),
+        heroSummary:
+          detail?.heroSummary ??
+          runner.latestHumanUpdate ??
+          runner.progressSummary ??
+          latestEvent?.message ??
+          "Summarizing the current progress for this task.",
+        latestHumanUpdate:
+          detail?.latestHumanUpdate ??
+          runner.latestHumanUpdate ??
+          runner.progressSummary ??
+          latestEvent?.message ??
+          "A progress update will appear here shortly.",
+        needsUserAction:
+          detail?.needsUserAction ??
+          runner.needsUserAction ??
+          runner.blockingReason ??
+          null,
+        requestSummary: detail?.requestSummary ?? null,
+        timeline: detail?.timeline ?? [],
+        resultSummary:
+          detail?.resultSummary ?? task?.completionReport?.summary ?? null,
+        verification:
+          detail?.verification ?? task?.completionReport?.verification ?? null,
+        changes: detail?.changes ?? task?.completionReport?.changes ?? [],
+        question: detail?.question ?? task?.completionReport?.question ?? null,
+        advancedTrace: detail?.advancedTrace ?? [],
+        lastUpdatedAt:
+          detail?.lastUpdatedAt ??
+          runner.lastUpdatedAt ??
+          latestEvent?.createdAt ??
+          task?.updatedAt ??
+          null
+      };
+    })
+    .sort((left, right) => {
+      const priorityDiff =
+        getTaskRunnerPriority(left.status) - getTaskRunnerPriority(right.status);
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
+
+      const leftTime = left.lastUpdatedAt ? new Date(left.lastUpdatedAt).getTime() : 0;
+      const rightTime = right.lastUpdatedAt ? new Date(right.lastUpdatedAt).getTime() : 0;
+      return rightTime - leftTime;
+    });
 }
 
 function buildDrawerEntries(summary) {
-  const timelineByTaskId = buildTaskTimelineMap(summary);
+  const detailByTaskId = getTaskRunnerDetailMap(summary);
   const activeTaskIds = new Set((summary.activeTasks ?? []).map((task) => task.id));
   const latestNotificationByTaskId = new Map();
 
@@ -1023,21 +1141,21 @@ function buildDrawerEntries(summary) {
   const taskEntries = (summary.recentTasks ?? [])
     .filter((task) => !activeTaskIds.has(task.id))
     .map((task) => {
-      const latestEvent = (timelineByTaskId.get(task.id) ?? []).at(-1);
+      const detail = detailByTaskId.get(task.id);
       const relatedNotification = latestNotificationByTaskId.get(task.id);
       const primaryText =
-        task.completionReport?.summary ??
+        detail?.resultSummary ??
+        detail?.heroSummary ??
         relatedNotification?.uiText ??
-        latestEvent?.message ??
-        "저장된 결과 요약이 없습니다.";
+        "No saved result summary yet.";
       const detailLines = uniqueNonEmptyLines([
+        detail?.needsUserAction,
         relatedNotification?.uiText,
-        latestEvent?.message,
-        task.completionReport?.changes?.length
-          ? `changes · ${task.completionReport.changes.join(", ")}`
+        detail?.changes?.length
+          ? `changes · ${detail.changes.join(", ")}`
           : null,
-        task.completionReport?.verification
-          ? `verification · ${task.completionReport.verification}`
+        detail?.verification
+          ? `verification · ${formatVerificationStatus(detail.verification)}`
           : null
       ]).filter((line) => line !== primaryText);
 
@@ -1056,7 +1174,7 @@ function buildDrawerEntries(summary) {
         meta: detailLines.join(" · "),
         updatedAt:
           relatedNotification?.createdAt ??
-          latestEvent?.createdAt ??
+          detail?.lastUpdatedAt ??
           task.updatedAt
       };
     });
@@ -1076,7 +1194,7 @@ function buildDrawerEntries(summary) {
       ]
         .filter(Boolean)
         .join(" · "),
-      text: plan.uiText ?? "표시할 브리핑이 없습니다.",
+      text: plan.uiText ?? "No briefing to show.",
       meta: plan.delivery ? `delivery · ${plan.delivery}` : "",
       updatedAt: plan.createdAt ?? null
     }));
@@ -1108,9 +1226,10 @@ function reconcileSelectedTaskRunner(taskRunners) {
 function renderTaskRunnerDetail(selectedRunner) {
   if (!selectedRunner) {
     taskRunnerDetailCardEl.hidden = true;
-    taskRunnerDetailBlockingEl.hidden = true;
-    taskRunnerDetailSummaryEl.hidden = true;
+    taskRunnerDetailNeedsActionEl.hidden = true;
+    taskRunnerDetailResultEl.hidden = true;
     taskRunnerDetailExecutionEl.hidden = true;
+    taskRunnerDetailTimelineListEl.innerHTML = "";
     taskRunnerDetailExecutionListEl.innerHTML = "";
     return;
   }
@@ -1118,37 +1237,96 @@ function renderTaskRunnerDetail(selectedRunner) {
   taskRunnerDetailCardEl.hidden = false;
   taskRunnerDetailCardEl.dataset.status = selectedRunner.status;
   taskRunnerDetailLabelEl.textContent = selectedRunner.label;
-  taskRunnerDetailTitleEl.textContent = selectedRunner.title;
-  taskRunnerDetailStatusEl.textContent = formatTaskRunnerStatus(selectedRunner.status);
+  taskRunnerDetailTitleEl.textContent = selectedRunner.headline;
+  taskRunnerDetailHeroEl.textContent = selectedRunner.heroSummary;
+  taskRunnerDetailStatusEl.textContent =
+    selectedRunner.statusLabel ?? formatTaskRunnerStatus(selectedRunner.status);
   taskRunnerDetailStatusEl.className = `task-runner-status-pill ${
     getTaskRunnerAccent(selectedRunner.status)
   }`;
   taskRunnerDetailIdEl.textContent = `taskId · ${selectedRunner.taskId}`;
-  taskRunnerDetailUpdateEl.textContent = selectedRunner.latestUpdate;
+  if (selectedRunner.requestSummary) {
+    taskRunnerDetailRequestEl.hidden = false;
+    taskRunnerDetailRequestEl.textContent = `Request summary · ${selectedRunner.requestSummary}`;
+  } else {
+    taskRunnerDetailRequestEl.hidden = true;
+    taskRunnerDetailRequestEl.textContent = "";
+  }
   taskRunnerDetailUpdatedAtEl.textContent = selectedRunner.lastUpdatedAt
-    ? `updated · ${formatTime(selectedRunner.lastUpdatedAt)}`
+    ? `Last updated · ${formatTime(selectedRunner.lastUpdatedAt)}`
     : "";
 
-  if (selectedRunner.blockingReason) {
-    taskRunnerDetailBlockingEl.hidden = false;
-    taskRunnerDetailBlockingEl.textContent = `blocked · ${selectedRunner.blockingReason}`;
+  if (selectedRunner.needsUserAction) {
+    taskRunnerDetailNeedsActionEl.hidden = false;
+    taskRunnerDetailNeedsActionTextEl.textContent = selectedRunner.needsUserAction;
   } else {
-    taskRunnerDetailBlockingEl.hidden = true;
-    taskRunnerDetailBlockingEl.textContent = "";
+    taskRunnerDetailNeedsActionEl.hidden = true;
+    taskRunnerDetailNeedsActionTextEl.textContent = "";
   }
 
-  if (selectedRunner.completionSummary) {
-    taskRunnerDetailSummaryEl.hidden = false;
-    taskRunnerDetailSummaryEl.textContent = `summary · ${selectedRunner.completionSummary}`;
+  taskRunnerDetailTimelineListEl.innerHTML = "";
+  if ((selectedRunner.timeline ?? []).length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "stack-empty";
+    empty.textContent = "No progress log is available yet.";
+    taskRunnerDetailTimelineListEl.appendChild(empty);
   } else {
-    taskRunnerDetailSummaryEl.hidden = true;
-    taskRunnerDetailSummaryEl.textContent = "";
+    for (const entry of selectedRunner.timeline) {
+      const item = document.createElement("article");
+      item.className = `task-runner-timeline-item ${entry.emphasis ?? "normal"}`.trim();
+      item.innerHTML = `
+        <span class="task-runner-timeline-dot" aria-hidden="true"></span>
+        <div class="task-runner-timeline-copy">
+          <div class="task-runner-timeline-head">
+            <p class="task-runner-timeline-title"></p>
+            <p class="task-runner-timeline-time"></p>
+          </div>
+          <p class="task-runner-timeline-body"></p>
+        </div>
+      `;
+      item.querySelector(".task-runner-timeline-title").textContent = entry.title;
+      item.querySelector(".task-runner-timeline-time").textContent = formatTime(
+        entry.createdAt
+      );
+      item.querySelector(".task-runner-timeline-body").textContent = entry.body;
+      taskRunnerDetailTimelineListEl.appendChild(item);
+    }
   }
 
-  const executionTrace = buildExecutionTraceEntries(selectedRunner.taskId);
+  const hasResult =
+    Boolean(selectedRunner.resultSummary) ||
+    Boolean(selectedRunner.verification) ||
+    (selectedRunner.changes?.length ?? 0) > 0;
+  if (hasResult) {
+    taskRunnerDetailResultEl.hidden = false;
+    taskRunnerDetailResultSummaryEl.textContent =
+      selectedRunner.resultSummary ?? "No result summary yet.";
+    taskRunnerDetailResultVerificationEl.textContent = formatVerificationStatus(
+      selectedRunner.verification
+    );
+    taskRunnerDetailResultChangesListEl.innerHTML = "";
+    if ((selectedRunner.changes?.length ?? 0) > 0) {
+      taskRunnerDetailResultChangesEl.hidden = false;
+      for (const change of selectedRunner.changes) {
+        const item = document.createElement("li");
+        item.textContent = change;
+        taskRunnerDetailResultChangesListEl.appendChild(item);
+      }
+    } else {
+      taskRunnerDetailResultChangesEl.hidden = true;
+    }
+  } else {
+    taskRunnerDetailResultEl.hidden = true;
+    taskRunnerDetailResultChangesEl.hidden = true;
+    taskRunnerDetailResultSummaryEl.textContent = "";
+    taskRunnerDetailResultVerificationEl.textContent = "";
+    taskRunnerDetailResultChangesListEl.innerHTML = "";
+  }
+
+  const executionTrace = buildAdvancedTraceEntries(selectedRunner.taskId, selectedRunner);
   taskRunnerDetailExecutionListEl.innerHTML = "";
+  taskRunnerDetailExecutionEl.hidden = false;
   if (executionTrace.length > 0) {
-    taskRunnerDetailExecutionEl.hidden = false;
     for (const entry of executionTrace) {
       const item = document.createElement("article");
       item.className = "task-runner-detail-event";
@@ -1176,10 +1354,9 @@ function renderTaskRunnerDetail(selectedRunner) {
       taskRunnerDetailExecutionListEl.appendChild(item);
     }
   } else {
-    taskRunnerDetailExecutionEl.hidden = false;
     const empty = document.createElement("p");
     empty.className = "stack-empty";
-    empty.textContent = "이 task에 연결된 executor 이벤트가 아직 없습니다.";
+    empty.textContent = "No advanced execution trace is available yet.";
     taskRunnerDetailExecutionListEl.appendChild(empty);
   }
 }
@@ -1194,7 +1371,7 @@ function renderTaskRunnerCards() {
   if (taskRunners.length === 0) {
     const empty = document.createElement("p");
     empty.className = "stack-empty";
-    empty.textContent = "활성 task runner가 없습니다.";
+    empty.textContent = "There is no active task runner right now.";
     taskRunnerListEl.appendChild(empty);
     renderTaskRunnerDetail(null);
     return;
@@ -1212,20 +1389,20 @@ function renderTaskRunnerCards() {
         <span class="task-runner-avatar-core"></span>
       </span>
       <span class="task-runner-copy">
-        <span class="task-runner-label-row">
-          <span class="task-runner-label"></span>
-          <span class="task-runner-pill"></span>
-        </span>
         <span class="task-runner-title"></span>
-        <span class="task-runner-update"></span>
+        <span class="task-runner-meta-row">
+          <span class="task-runner-pill"></span>
+          <span class="task-runner-update"></span>
+        </span>
       </span>
     `;
-    card.querySelector(".task-runner-label").textContent = runner.label;
     const runnerPill = card.querySelector(".task-runner-pill");
-    runnerPill.textContent = formatTaskRunnerStatus(runner.status);
+    runnerPill.textContent =
+      runner.statusLabel ?? formatTaskRunnerStatus(runner.status);
     runnerPill.className = `task-runner-pill ${getTaskRunnerAccent(runner.status)}`;
-    card.querySelector(".task-runner-title").textContent = runner.title;
-    card.querySelector(".task-runner-update").textContent = runner.latestUpdate;
+    card.querySelector(".task-runner-title").textContent = runner.headline;
+    card.querySelector(".task-runner-update").textContent =
+      runner.latestHumanUpdate;
     card.addEventListener("click", () => {
       selectedTaskRunnerId = runner.taskId;
       renderTaskRunnerCards();
@@ -1243,13 +1420,13 @@ function renderTaskLists(state) {
   taskDrawerCountEl.textContent = `${drawerEntries.length} items`;
   taskDrawerDescriptionEl.textContent =
     drawerEntries.length > 0
-      ? "완료되거나 멈춘 작업의 결과와 최근 브리핑을 여기에서 다시 확인할 수 있습니다."
-      : "완료되거나 멈춘 작업은 여기에서 다시 확인할 수 있습니다.";
+      ? "Completed or paused task results are collected here for quick review."
+      : "Completed or paused tasks will appear here.";
   taskDrawerDescriptionEl.className =
     drawerEntries.length > 0 ? "summary-detail" : "summary-detail empty-state";
 
   renderStackList(taskDrawerListEl, drawerEntries, {
-    emptyText: "아직 서랍에 들어온 작업이 없습니다.",
+    emptyText: "There are no tasks in the drawer yet.",
     renderEntry(item, entry) {
       item.innerHTML = `
         <p class="stack-title"></p>
@@ -1272,7 +1449,7 @@ function buildHistoryEntries(historySummary) {
       session.lastAssistantMessage ??
       session.lastUserMessage ??
       latestTask?.summary ??
-      "저장된 대화 미리보기가 없습니다.";
+      "No saved conversation preview.";
     const taskSummary =
       (session.recentTasks ?? []).length > 0
         ? (session.recentTasks ?? [])
@@ -1280,7 +1457,7 @@ function buildHistoryEntries(historySummary) {
               [task.title, task.status, task.summary ?? null].filter(Boolean).join(" · ")
             )
             .join(" | ")
-        : "저장된 task가 없습니다.";
+        : "No saved tasks.";
 
     return {
       id: session.brainSessionId,
@@ -1312,19 +1489,19 @@ function renderHistoryList() {
     historyDrawerDescriptionEl.textContent = `history error · ${historySummary.error}`;
     historyDrawerDescriptionEl.className = "summary-detail";
   } else if (historySummary.loading) {
-    historyDrawerDescriptionEl.textContent = "최근 세션 요약을 불러오는 중입니다.";
+    historyDrawerDescriptionEl.textContent = "Loading recent session summaries.";
     historyDrawerDescriptionEl.className = "summary-detail";
   } else if (historyEntries.length > 0) {
     historyDrawerDescriptionEl.textContent =
-      "현재 judge user에 저장된 최근 세션과 task 요약입니다.";
+      "These are the recent sessions and task summaries saved for the current judge user.";
     historyDrawerDescriptionEl.className = "summary-detail";
   } else {
-    historyDrawerDescriptionEl.textContent = "저장된 최근 세션 요약이 없습니다.";
+    historyDrawerDescriptionEl.textContent = "No saved recent session summaries.";
     historyDrawerDescriptionEl.className = "summary-detail empty-state";
   }
 
   renderStackList(historyDrawerListEl, historyEntries, {
-    emptyText: "저장된 최근 세션이 없습니다.",
+    emptyText: "No saved recent sessions.",
     renderEntry(item, entry) {
       item.innerHTML = `
         <p class="stack-title"></p>
@@ -1362,7 +1539,7 @@ function renderDebugInspector(state) {
   if (filteredEvents.length === 0) {
     const empty = document.createElement("p");
     empty.className = "stack-empty";
-    empty.textContent = "선택한 조건에 맞는 디버그 이벤트가 없습니다.";
+    empty.textContent = "No debug events match the current filters.";
     debugEventListEl.appendChild(empty);
     return;
   }
@@ -1431,10 +1608,10 @@ function performUiRender(nextState) {
     liveStatusTextEl.textContent = voiceState.error
       ? `voice error: ${voiceState.error}`
       : voiceState.connecting
-        ? "Gemini Live에 연결 중입니다…"
+        ? "Connecting to Gemini Live…"
         : voiceState.connected
-          ? "실시간 대화를 듣고 바로 반응할 준비가 됐습니다."
-          : "라이브 대화가 아직 시작되지 않았습니다.";
+          ? "READY to listen and respond in real time."
+          : "Live conversation has not started yet.";
 
     liveConnectButtonEl.disabled = voiceState.connected || voiceState.connecting;
     liveMuteButtonEl.disabled = !voiceState.connected;

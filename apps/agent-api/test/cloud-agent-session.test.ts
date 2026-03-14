@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createInMemorySessionPersistence,
-  createProfileMemoryService,
-  type GoogleLiveApiTransportCallbacks
+  type GoogleLiveApiTransportCallbacks,
+  type SessionMemoryServiceLike
 } from "../src/index.js";
 import { CloudAgentSession } from "../src/server/cloud-agent-session.js";
 
@@ -15,6 +15,42 @@ async function waitFor(predicate: () => boolean, attempts = 20): Promise<void> {
   }
 
   throw new Error("Timed out waiting for condition");
+}
+
+function createStubSessionMemoryService(
+  initial?: Record<string, string>
+): SessionMemoryServiceLike {
+  const memory = new Map(Object.entries(initial ?? {}));
+
+  return {
+    async rememberFromUtterance({ brainSessionId, text }) {
+      const normalized = text.trim().toLowerCase();
+      if (!normalized.startsWith("call me ")) {
+        return { updated: false, storedItems: [] };
+      }
+
+      const preferredName = text.trim().slice("call me ".length).trim();
+      const summary = `Preferred name: ${preferredName}`;
+      const updated = memory.get(brainSessionId) !== summary;
+      if (updated) {
+        memory.set(brainSessionId, summary);
+      }
+
+      return { updated, storedItems: [] };
+    },
+    async buildRuntimeContext(brainSessionId) {
+      const summary = memory.get(brainSessionId);
+      if (!summary) {
+        return "";
+      }
+
+      return [
+        "Session memory for this conversation only:",
+        `- ${summary}`,
+        "Use these notes only when relevant. Do not invent any extra profile details."
+      ].join("\n");
+    }
+  };
 }
 
 describe("CloudAgentSession", () => {
@@ -61,11 +97,11 @@ describe("CloudAgentSession", () => {
     await session.start();
     await session.handleClientEvent({
       type: "typed_turn",
-      text: "데스크톱 정리해줘"
+      text: "Clean up the desktop"
     });
 
     expect(liveTransport.connect).toHaveBeenCalledTimes(1);
-    expect(liveSession.sendText).toHaveBeenCalledWith("데스크톱 정리해줘", true);
+    expect(liveSession.sendText).toHaveBeenCalledWith("Clean up the desktop", true);
     expect(sentEvents).toContainEqual(
       expect.objectContaining({
         type: "session_ready",
@@ -76,7 +112,7 @@ describe("CloudAgentSession", () => {
       expect.objectContaining({
         type: "conversation_state",
         state: expect.objectContaining({
-          lastUserTranscript: "데스크톱 정리해줘",
+          lastUserTranscript: "Clean up the desktop",
           status: "thinking"
         })
       })
@@ -142,12 +178,9 @@ describe("CloudAgentSession", () => {
     );
   });
 
-  it("injects stored profile memory into the live runtime context on startup", async () => {
-    const profileMemoryService = createProfileMemoryService();
-    await profileMemoryService.rememberFromUtterance({
-      brainSessionId: "brain-profile",
-      text: "내 이름은 종우야",
-      now: "2026-03-14T00:00:00.000Z"
+  it("injects stored session memory into the live runtime context on startup", async () => {
+    const sessionMemoryService = createStubSessionMemoryService({
+      "brain-profile": "Preferred name: Jongwoo"
     });
     const liveSession = {
       sendText: vi.fn(),
@@ -181,7 +214,7 @@ describe("CloudAgentSession", () => {
           }
         }),
         liveTransport,
-        profileMemoryService,
+        sessionMemoryService,
         now: () => "2026-03-14T00:00:00.000Z"
       }
     );
@@ -189,11 +222,11 @@ describe("CloudAgentSession", () => {
     await session.start();
 
     expect(liveSession.sendContext).toHaveBeenCalledWith(
-      expect.stringContaining("Preferred name: 종우")
+      expect.stringContaining("Preferred name: Jongwoo")
     );
   });
 
-  it("refreshes runtime context when a new profile fact is learned", async () => {
+  it("refreshes session memory only after the live turn reaches a safe point", async () => {
     const liveSession = {
       sendText: vi.fn(),
       sendContext: vi.fn(),
@@ -205,12 +238,15 @@ describe("CloudAgentSession", () => {
       sendAudioStreamEnd: vi.fn(),
       close: vi.fn()
     };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
     const liveTransport = {
       connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
         callbacks?.onopen?.();
         return liveSession;
       })
     };
+    const sessionMemoryService = createStubSessionMemoryService();
     const session = new CloudAgentSession(
       {
         brainSessionId: "brain-profile-update",
@@ -226,6 +262,7 @@ describe("CloudAgentSession", () => {
           }
         }),
         liveTransport,
+        sessionMemoryService,
         now: () => "2026-03-14T00:00:00.000Z"
       }
     );
@@ -235,21 +272,28 @@ describe("CloudAgentSession", () => {
 
     await session.handleClientEvent({
       type: "typed_turn",
-      text: "내 이름은 종우야"
+      text: "Call me Jongwoo"
     });
 
-    expect(liveSession.sendContext).toHaveBeenCalledWith(
-      expect.stringContaining("Preferred name: 종우")
+    expect(liveSession.sendText).toHaveBeenCalledWith("Call me Jongwoo", true);
+    expect(liveSession.sendContext).not.toHaveBeenCalledWith(
+      expect.stringContaining("Preferred name: Jongwoo")
     );
-    expect(liveSession.sendText).toHaveBeenCalledWith("내 이름은 종우야", true);
+
+    await liveCallbacks?.onevent?.({
+      type: "turn_complete"
+    });
+
+    await waitFor(() =>
+      liveSession.sendContext.mock.calls.some(([text]) =>
+        String(text).includes("Preferred name: Jongwoo")
+      )
+    );
   });
 
-  it("does not carry profile memory into a different brain session", async () => {
-    const profileMemoryService = createProfileMemoryService();
-    await profileMemoryService.rememberFromUtterance({
-      brainSessionId: "brain-session-a",
-      text: "내 이름은 종우야",
-      now: "2026-03-14T00:00:00.000Z"
+  it("does not carry session memory into a different brain session", async () => {
+    const sessionMemoryService = createStubSessionMemoryService({
+      "brain-session-a": "Preferred name: Jongwoo"
     });
     const liveSession = {
       sendText: vi.fn(),
@@ -282,7 +326,7 @@ describe("CloudAgentSession", () => {
             return liveSession;
           })
         },
-        profileMemoryService,
+        sessionMemoryService,
         now: () => "2026-03-14T00:00:00.000Z"
       }
     );
@@ -290,7 +334,7 @@ describe("CloudAgentSession", () => {
     await session.start();
 
     expect(liveSession.sendContext).not.toHaveBeenCalledWith(
-      expect.stringContaining("Preferred name: 종우")
+      expect.stringContaining("Preferred name: Jongwoo")
     );
   });
 
@@ -515,8 +559,8 @@ describe("CloudAgentSession", () => {
           handleDelegateToGeminiCli: async ({ brainSessionId, request, now }) => {
             const task = {
               id: "task-1",
-              title: "바탕화면 정리",
-              normalizedGoal: "바탕화면 정리",
+              title: "Desktop cleanup",
+              normalizedGoal: "desktop cleanup",
               status: "running" as const,
               createdAt: now,
               updatedAt: now
@@ -573,7 +617,7 @@ describe("CloudAgentSession", () => {
           id: "tool-1",
           name: "delegate_to_gemini_cli",
           args: {
-            request: "바탕화면 정리해줘"
+            request: "Clean up the desktop"
           }
         }
       ]
@@ -605,7 +649,7 @@ describe("CloudAgentSession", () => {
       event: {
         taskId: "task-1",
         type: "executor_progress",
-        message: "작업 중",
+        message: "Task is running",
         createdAt: "2026-03-14T00:00:01.000Z"
       }
     });
@@ -619,14 +663,14 @@ describe("CloudAgentSession", () => {
         completionEvent: {
           taskId: "task-1",
           type: "executor_completed",
-          message: "정리 완료",
+          message: "Cleanup completed",
           createdAt: "2026-03-14T00:00:02.000Z"
         },
         outcome: "completed",
         report: {
-          summary: "바탕화면 정리를 마쳤어요.",
+          summary: "Finished cleaning up the desktop.",
           verification: "verified",
-          changes: ["불필요한 파일을 정리함"]
+          changes: ["Removed unnecessary files"]
         }
       }
     });
@@ -644,24 +688,71 @@ describe("CloudAgentSession", () => {
               accepted: true,
               taskId: "task-1",
               status: "completed",
-              summary: "바탕화면 정리를 마쳤어요."
+              summary: "Finished cleaning up the desktop."
             })
           }
         })
       ]
     });
-    expect(sentEvents).toContainEqual(
-      expect.objectContaining({
-        type: "task_state",
-        state: expect.objectContaining({
-          recentTasks: expect.arrayContaining([
-            expect.objectContaining({
-              id: "task-1",
-              status: "completed"
+    const taskStates = sentEvents.filter(
+      (event): event is {
+        type: "task_state";
+        state: {
+          avatar: { taskRunners: Array<Record<string, unknown>> };
+          recentTasks: Array<Record<string, unknown>>;
+          taskRunnerDetails: Array<Record<string, unknown>>;
+        };
+      } =>
+        typeof event === "object" &&
+        event !== null &&
+        "type" in event &&
+        event.type === "task_state"
+    );
+
+    expect(taskStates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          state: expect.objectContaining({
+            avatar: expect.objectContaining({
+              taskRunners: expect.arrayContaining([
+                expect.objectContaining({
+                  taskId: "task-1",
+                  status: "running",
+                  statusLabel: "Running"
+                })
+              ])
             })
-          ])
+          })
+        }),
+        expect.objectContaining({
+          state: expect.objectContaining({
+            recentTasks: expect.arrayContaining([
+              expect.objectContaining({
+                id: "task-1",
+                status: "completed"
+              })
+            ]),
+            taskRunnerDetails: expect.arrayContaining([
+              expect.objectContaining({
+                taskId: "task-1",
+                status: "completed",
+                heroSummary: "Finished cleaning up the desktop.",
+                resultSummary: "Finished cleaning up the desktop.",
+                verification: "verified",
+                changes: ["Removed unnecessary files"],
+                timeline: expect.arrayContaining([
+                  expect.objectContaining({
+                    title: "Completion received"
+                  }),
+                  expect.objectContaining({
+                    title: "Final summary"
+                  })
+                ])
+              })
+            ])
+          })
         })
-      })
+      ])
     );
   });
 
@@ -697,7 +788,7 @@ describe("CloudAgentSession", () => {
         presentation: {
           ownership: "runtime" as const,
           speechMode: "canonical" as const,
-          speechText: "작업을 시작했어요.",
+          speechText: "The task has started.",
           allowLiveModelOutput: false
         }
       }))
@@ -706,14 +797,14 @@ describe("CloudAgentSession", () => {
         accepted: true,
         taskId: "task-1",
         status: "completed" as const,
-        message: "바탕화면 항목을 확인했어요.",
+        message: "Checked the desktop items.",
         presentation: {
           ownership: "runtime" as const,
           speechMode: "grounded_summary" as const,
-          speechText: "바탕화면 항목을 확인했어요.",
+          speechText: "Checked the desktop items.",
           allowLiveModelOutput: false
         },
-        summary: "바탕화면 항목을 확인했어요."
+        summary: "Checked the desktop items."
       }));
     const session = new CloudAgentSession(
       {
@@ -742,7 +833,7 @@ describe("CloudAgentSession", () => {
           id: "function-call-1",
           name: "delegate_to_gemini_cli",
           args: {
-            request: "바탕화면 항목 읽어줘"
+            request: "Read the desktop contents"
           }
         }
       ]
@@ -762,14 +853,14 @@ describe("CloudAgentSession", () => {
 
     expect(handleDelegateToGeminiCli).toHaveBeenNthCalledWith(1, {
       brainSessionId: "brain-3",
-      request: "바탕화면 항목 읽어줘",
+      request: "Read the desktop contents",
       taskId: undefined,
       mode: undefined,
       now: "2026-03-14T00:00:00.000Z"
     });
     expect(handleDelegateToGeminiCli).toHaveBeenNthCalledWith(2, {
       brainSessionId: "brain-3",
-      request: "상태 알려줘",
+      request: "status update",
       taskId: "task-1",
       mode: "status",
       now: "2026-03-14T00:00:00.000Z"

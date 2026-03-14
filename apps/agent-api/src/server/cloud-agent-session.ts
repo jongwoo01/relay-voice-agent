@@ -13,6 +13,8 @@ import type {
   ConversationTurnViewModel,
   Task,
   TaskEvent,
+  TaskRunnerDetailViewModel,
+  TaskRunnerTimelineEntry,
   TaskRunnerViewModel
 } from "@agent/shared-types";
 import {
@@ -25,9 +27,9 @@ import {
   type SessionPersistence
 } from "../index.js";
 import {
-  createProfileMemoryService,
-  type ProfileMemoryServiceLike
-} from "../modules/memory/profile-memory-service.js";
+  createSessionMemoryService,
+  type SessionMemoryServiceLike
+} from "../modules/memory/session-memory-service.js";
 import type { AssistantMessageListener } from "../modules/realtime/text-realtime-session-loop.js";
 import type { SqlClientLike } from "../modules/persistence/postgres-client.js";
 import { ConnectedClientExecutor } from "./connected-client-executor.js";
@@ -70,7 +72,8 @@ export interface CloudAgentSessionDependencies {
     onAssistantMessage: AssistantMessageListener | undefined;
   }) => Promise<CloudAgentSessionLoopLike> | CloudAgentSessionLoopLike;
   liveTransport?: CloudAgentLiveTransportLike;
-  profileMemoryService?: ProfileMemoryServiceLike;
+  sessionMemoryService?: SessionMemoryServiceLike;
+  profileMemoryService?: SessionMemoryServiceLike;
   now?: () => string;
 }
 
@@ -119,7 +122,7 @@ function createPersonaInstruction(): string {
     "You are Desktop Companion, a desktop voice assistant.",
     "The desktop app provides microphone, speaker, UI, and local executor access.",
     "All agent logic, task state, and follow-up policy are owned by the server.",
-    "Runtime context may include a known user profile supplied by the server.",
+    "Runtime context may include session memory supplied by the server.",
     "Never claim local work succeeded unless it was confirmed by delegate_to_gemini_cli.",
     "When local-machine work, task follow-up, or task status is needed, call delegate_to_gemini_cli.",
     "Do not invent local files, browser tabs, app state, or task results."
@@ -143,18 +146,283 @@ function normalizeError(error: unknown): string {
   return String(error);
 }
 
+function formatTaskRunnerStatusLabel(status: Task["status"]): string {
+  switch (status) {
+    case "created":
+    case "queued":
+      return "Preparing";
+    case "running":
+      return "Running";
+    case "waiting_input":
+      return "Waiting for input";
+    case "approval_required":
+      return "Waiting for approval";
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Needs attention";
+    case "cancelled":
+      return "Cancelled";
+    default:
+      return status;
+  }
+}
+
+function toHumanProgressCopy(message: string): string {
+  if (message.startsWith("Tool requested: ")) {
+    return `Checking the required tool. ${message.slice("Tool requested: ".length)}`;
+  }
+
+  if (message.startsWith("Tool finished: ")) {
+    return `Finished checking the tool. ${message.slice("Tool finished: ".length)}`;
+  }
+
+  if (message === "Task is running") {
+    return "Execution has started and progress updates are coming in.";
+  }
+
+  return message;
+}
+
+function buildTaskHeroSummary(
+  task: Task,
+  latestEvent?: TaskEvent,
+  notification?: AssistantDeliveryPlan
+): string {
+  const latestMessage =
+    latestEvent?.type === "executor_progress"
+      ? toHumanProgressCopy(latestEvent.message)
+      : latestEvent?.message;
+
+  if (task.status === "waiting_input" || task.status === "approval_required") {
+    return latestMessage ?? "This task needs user input before it can continue.";
+  }
+
+  if (task.status === "completed") {
+    return (
+      task.completionReport?.summary ??
+      notification?.uiText ??
+      latestMessage ??
+      "The task is complete."
+    );
+  }
+
+  if (task.status === "failed") {
+    return latestMessage ?? "The task needs attention before it can continue.";
+  }
+
+  return (
+    latestMessage ??
+    notification?.uiText ??
+    "Reviewing the request and moving through the task step by step."
+  );
+}
+
+function createTimelineEntry(
+  kind: TaskRunnerTimelineEntry["kind"],
+  title: string,
+  body: string,
+  createdAt: string,
+  emphasis: TaskRunnerTimelineEntry["emphasis"],
+  source: TaskRunnerTimelineEntry["source"]
+): TaskRunnerTimelineEntry {
+  return {
+    kind,
+    title,
+    body,
+    createdAt,
+    emphasis,
+    source
+  };
+}
+
+function toTimelineEntry(task: Task, event: TaskEvent): TaskRunnerTimelineEntry | null {
+  switch (event.type) {
+    case "task_created":
+      return createTimelineEntry(
+        "request_received",
+        "Request received",
+        `Created the task “${task.title}.”`,
+        event.createdAt,
+        "info",
+        "task"
+      );
+    case "task_queued":
+      return createTimelineEntry(
+        "runner_preparing",
+        "Task runner prepared",
+        "The execution plan is ready and the task runner is set up.",
+        event.createdAt,
+        "normal",
+        "task"
+      );
+    case "task_started":
+      return createTimelineEntry(
+        "execution_dispatched",
+        "Execution dispatched",
+        "Execution has started and the runner is waiting for progress updates.",
+        event.createdAt,
+        "info",
+        "executor"
+      );
+    case "executor_progress":
+      return createTimelineEntry(
+        "progress_update",
+        "Progress update",
+        toHumanProgressCopy(event.message),
+        event.createdAt,
+        "normal",
+        "executor"
+      );
+    case "executor_waiting_input":
+      return createTimelineEntry(
+        "needs_input",
+        "Needs input",
+        event.message,
+        event.createdAt,
+        "warning",
+        "system"
+      );
+    case "executor_approval_required":
+      return createTimelineEntry(
+        "needs_approval",
+        "Needs approval",
+        event.message,
+        event.createdAt,
+        "warning",
+        "system"
+      );
+    case "executor_completed":
+      return createTimelineEntry(
+        "completion_received",
+        "Completion received",
+        event.message,
+        event.createdAt,
+        "success",
+        "executor"
+      );
+    case "executor_failed":
+      return createTimelineEntry(
+        "failure",
+        "Execution issue",
+        event.message,
+        event.createdAt,
+        "error",
+        "system"
+      );
+    default:
+      return null;
+  }
+}
+
+function buildTaskRunnerTimeline(
+  task: Task,
+  events: TaskEvent[]
+): TaskRunnerTimelineEntry[] {
+  const entries = events
+    .map((event) => toTimelineEntry(task, event))
+    .filter((entry): entry is TaskRunnerTimelineEntry => entry !== null);
+
+  if (!entries.some((entry) => entry.kind === "request_received")) {
+    entries.unshift(
+      createTimelineEntry(
+        "request_received",
+        "Request received",
+        `Turned “${task.title}” into a tracked task.`,
+        task.createdAt,
+        "info",
+        "task"
+      )
+    );
+  }
+
+  if (task.completionReport?.summary) {
+    entries.push(
+      createTimelineEntry(
+        "final_summary",
+        "Final summary",
+        task.completionReport.summary,
+        task.updatedAt,
+        task.completionReport.verification === "verified" ? "success" : "info",
+        "system"
+      )
+    );
+  }
+
+  const deduped: TaskRunnerTimelineEntry[] = [];
+  for (const entry of entries) {
+    const previous = deduped.at(-1);
+    if (
+      previous &&
+      previous.kind === entry.kind &&
+      previous.title === entry.title &&
+      previous.body === entry.body
+    ) {
+      continue;
+    }
+    deduped.push(entry);
+  }
+
+  return deduped.sort(
+    (left, right) =>
+      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+  );
+}
+
 function buildTaskRunner(task: Task, latestEvent?: TaskEvent): TaskRunnerViewModel {
+  const statusLabel = formatTaskRunnerStatusLabel(task.status);
+  const latestHumanUpdate = buildTaskHeroSummary(task, latestEvent);
+
   return {
     taskId: task.id,
     label: `Task ${task.id.slice(-4)}`,
     title: task.title,
     status: task.status,
+    headline: task.title,
+    statusLabel,
+    latestHumanUpdate,
+    needsUserAction:
+      task.status === "waiting_input" || task.status === "approval_required"
+        ? latestEvent?.message
+        : undefined,
     progressSummary: latestEvent?.message ?? task.completionReport?.summary,
     blockingReason:
       task.status === "waiting_input" || task.status === "approval_required"
         ? latestEvent?.message
         : undefined,
     lastUpdatedAt: task.updatedAt
+  };
+}
+
+function buildTaskRunnerDetail(
+  task: Task,
+  events: TaskEvent[],
+  notification?: AssistantDeliveryPlan,
+  requestSummary?: string
+): TaskRunnerDetailViewModel {
+  const latestEvent = events.at(-1);
+  const latestHumanUpdate = buildTaskHeroSummary(task, latestEvent, notification);
+
+  return {
+    taskId: task.id,
+    title: task.title,
+    status: task.status,
+    headline: task.title,
+    statusLabel: formatTaskRunnerStatusLabel(task.status),
+    heroSummary: latestHumanUpdate,
+    latestHumanUpdate,
+    needsUserAction:
+      task.status === "waiting_input" || task.status === "approval_required"
+        ? task.completionReport?.question ?? latestEvent?.message
+        : undefined,
+    requestSummary,
+    lastUpdatedAt: task.updatedAt,
+    timeline: buildTaskRunnerTimeline(task, events),
+    resultSummary: task.completionReport?.summary,
+    verification: task.completionReport?.verification,
+    changes: task.completionReport?.changes ?? [],
+    question: task.completionReport?.question,
+    advancedTrace: []
   };
 }
 
@@ -173,7 +441,7 @@ export class CloudAgentSession {
   private readonly executor: ConnectedClientExecutor;
   private readonly loopPromise: Promise<CloudAgentSessionLoopLike>;
   private readonly liveTransport: CloudAgentLiveTransportLike;
-  private readonly profileMemoryService: ProfileMemoryServiceLike;
+  private readonly sessionMemoryService: SessionMemoryServiceLike;
   private readonly now: () => string;
   private liveSession: GoogleLiveSessionTransport | null = null;
   private readonly notifications: AssistantDeliveryPlan[] = [];
@@ -181,6 +449,9 @@ export class CloudAgentSession {
   private readonly functionCallTaskBindings = new Map<string, string>();
   private liveSessionGeneration = 0;
   private reconnectPromise: Promise<void> | null = null;
+  private sessionMemoryUpdatePromise: Promise<void> | null = null;
+  private sessionMemoryDirty = true;
+  private lastSentSessionMemoryContext = "";
   private sessionResumptionHandle: string | null = null;
   private sessionResumable = false;
   private closePromise: Promise<void> | null = null;
@@ -192,7 +463,7 @@ export class CloudAgentSession {
     error: null,
     routing: {
       mode: "idle",
-      summary: "아직 확인 중인 요청이 없습니다.",
+      summary: "No request is being reviewed yet.",
       detail: ""
     },
     conversationTimeline: [],
@@ -215,8 +486,12 @@ export class CloudAgentSession {
     dependencies: CloudAgentSessionDependencies = {}
   ) {
     this.now = dependencies.now ?? nowIso;
-    this.profileMemoryService =
-      dependencies.profileMemoryService ?? createProfileMemoryService();
+    this.sessionMemoryService =
+      dependencies.sessionMemoryService ??
+      dependencies.profileMemoryService ??
+      createSessionMemoryService({
+        sql: input.sql
+      });
     const createPersistence =
       dependencies.createPersistence ??
       ((params: {
@@ -296,12 +571,12 @@ export class CloudAgentSession {
     });
 
     await this.connectLiveSession({
-      announceReady: true
+      announceREADY: true
     });
   }
 
   private async connectLiveSession(input: {
-    announceReady: boolean;
+    announceREADY: boolean;
     resumeHandle?: string;
   }): Promise<void> {
     const generation = ++this.liveSessionGeneration;
@@ -394,9 +669,10 @@ export class CloudAgentSession {
     }
 
     this.liveSession = session;
-    await this.sendRuntimeContext(await this.buildTaskState());
+    await this.flushSessionMemoryContextIfNeeded(true);
+    await this.sendTaskRuntimeContext(await this.buildTaskState());
 
-    if (input.announceReady) {
+    if (input.announceREADY) {
       this.input.send({
         type: "session_ready",
         brainSessionId: this.input.brainSessionId,
@@ -521,7 +797,7 @@ export class CloudAgentSession {
       createdAt
     });
     await this.touchBrainSession(createdAt);
-    await this.rememberProfileMemory(normalizedText, createdAt);
+    this.queueSessionMemoryCapture(normalizedText, createdAt);
 
     this.liveSession.sendText(normalizedText, true);
     this.input.send({
@@ -584,6 +860,7 @@ export class CloudAgentSession {
         return;
       case "waiting_for_input":
         this.conversationState.status = "listening";
+        await this.flushSessionMemoryContextIfNeeded();
         this.input.send({
           type: "conversation_state",
           state: this.getConversationState()
@@ -592,6 +869,7 @@ export class CloudAgentSession {
       case "turn_complete":
         this.finalizeActiveTurn("completed");
         this.conversationState.status = "listening";
+        await this.flushSessionMemoryContextIfNeeded();
         this.input.send({
           type: "conversation_state",
           state: this.getConversationState()
@@ -653,7 +931,7 @@ export class CloudAgentSession {
 
       try {
         await this.connectLiveSession({
-          announceReady: false,
+          announceREADY: false,
           resumeHandle: resumeHandle ?? undefined
         });
       } finally {
@@ -685,7 +963,7 @@ export class CloudAgentSession {
       createdAt
     });
     await this.touchBrainSession(createdAt);
-    await this.rememberProfileMemory(normalizedText, createdAt);
+    this.queueSessionMemoryCapture(normalizedText, createdAt);
 
     this.input.send({
       type: "conversation_state",
@@ -811,7 +1089,7 @@ export class CloudAgentSession {
     const loop = await this.loopPromise;
     const result = await loop.handleDelegateToGeminiCli({
       brainSessionId: this.input.brainSessionId,
-      request: "상태 알려줘",
+      request: "status update",
       taskId,
       mode: "status",
       now: this.now()
@@ -901,7 +1179,7 @@ export class CloudAgentSession {
     if (directTaskId) {
       return {
         kind: "resolved_internal_call",
-        request: "상태 알려줘",
+        request: "status update",
         taskId: directTaskId,
         mode: "status"
       };
@@ -922,7 +1200,7 @@ export class CloudAgentSession {
 
     return {
       kind: "resolved_internal_call",
-      request: "상태 알려줘",
+      request: "status update",
       taskId: mappedTaskId,
       mode: "status"
     };
@@ -1141,6 +1419,19 @@ export class CloudAgentSession {
     };
   }
 
+  private findTaskRequestSummary(taskId: string): string | undefined {
+    const taskTurn = this.conversationState.conversationTurns.find(
+      (turn) => turn.taskId === taskId && turn.userMessageId
+    );
+    if (!taskTurn?.userMessageId) {
+      return undefined;
+    }
+
+    return this.conversationState.conversationTimeline.find(
+      (item) => item.id === taskTurn.userMessageId
+    )?.text;
+  }
+
   private async buildTaskState(): Promise<HostedTaskStateSnapshot> {
     const persistence = await this.persistencePromise;
     const activeTasks = await persistence.taskRepository.listActiveByBrainSessionId(
@@ -1150,8 +1441,11 @@ export class CloudAgentSession {
       this.input.brainSessionId,
       8
     );
+    const timelineTasks = [...activeTasks, ...recentTasks].filter(
+      (task, index, all) => all.findIndex((candidate) => candidate.id === task.id) === index
+    );
     const taskTimelines = await Promise.all(
-      recentTasks.slice(0, 8).map(async (task) => ({
+      timelineTasks.map(async (task) => ({
         taskId: task.id,
         events: await persistence.taskEventRepository.listByTaskId(task.id)
       }))
@@ -1163,9 +1457,24 @@ export class CloudAgentSession {
     const latestEventByTaskId = new Map(
       taskTimelines.map((timeline) => [timeline.taskId, timeline.events.at(-1)])
     );
+    const latestNotificationByTaskId = new Map(
+      [...this.notifications]
+        .filter((plan) => typeof plan.taskId === "string")
+        .map((plan) => [plan.taskId!, plan] as const)
+    );
     const taskRunners = activeTasks.map((task) =>
       buildTaskRunner(task, latestEventByTaskId.get(task.id))
     );
+    const taskRunnerDetails = timelineTasks.map((task) => {
+      const events =
+        taskTimelines.find((timeline) => timeline.taskId === task.id)?.events ?? [];
+      return buildTaskRunnerDetail(
+        task,
+        events,
+        latestNotificationByTaskId.get(task.id),
+        this.findTaskRequestSummary(task.id)
+      );
+    });
     const mainState =
       activeTasks.some(
         (task) => task.status === "waiting_input" || task.status === "approval_required"
@@ -1181,6 +1490,7 @@ export class CloudAgentSession {
       tasks: activeTasks,
       recentTasks,
       taskTimelines,
+      taskRunnerDetails,
       intake: {
         active: Boolean(intake),
         missingSlots: intake?.missingSlots ?? [],
@@ -1201,47 +1511,87 @@ export class CloudAgentSession {
 
   private async broadcastTaskState(): Promise<void> {
     const taskState = await this.buildTaskState();
-    await this.sendRuntimeContext(taskState);
+    await this.sendTaskRuntimeContext(taskState);
     this.input.send({
       type: "task_state",
       state: taskState
     });
   }
 
-  private async rememberProfileMemory(text: string, now: string): Promise<void> {
-    const result = await this.profileMemoryService.rememberFromUtterance({
-      brainSessionId: this.input.brainSessionId,
-      text,
-      now
-    });
+  private queueSessionMemoryCapture(text: string, now: string): void {
+    const run = async (): Promise<void> => {
+      try {
+        const result = await this.sessionMemoryService.rememberFromUtterance({
+          brainSessionId: this.input.brainSessionId,
+          text,
+          now
+        });
 
-    if (!result.updated) {
+        if (result.updated) {
+          this.sessionMemoryDirty = true;
+        }
+      } catch (error) {
+        console.error(
+          `[cloud-agent-session] session memory extraction failed ${normalizeError(error)}`
+        );
+      }
+    };
+
+    const pending = this.sessionMemoryUpdatePromise
+      ? this.sessionMemoryUpdatePromise.then(run, run)
+      : run();
+
+    this.sessionMemoryUpdatePromise = pending.finally(() => {
+      if (this.sessionMemoryUpdatePromise === pending) {
+        this.sessionMemoryUpdatePromise = null;
+      }
+    });
+  }
+
+  private async flushSessionMemoryContextIfNeeded(force = false): Promise<void> {
+    if (!this.liveSession) {
       return;
     }
 
-    await this.sendRuntimeContext();
+    if (this.sessionMemoryUpdatePromise) {
+      await this.sessionMemoryUpdatePromise;
+    }
+
+    if (!force && !this.sessionMemoryDirty) {
+      return;
+    }
+
+    const context = await this.sessionMemoryService.buildRuntimeContext(
+      this.input.brainSessionId
+    );
+
+    this.sessionMemoryDirty = false;
+    if (!context.trim()) {
+      this.lastSentSessionMemoryContext = "";
+      return;
+    }
+
+    if (!force && context === this.lastSentSessionMemoryContext) {
+      return;
+    }
+
+    this.lastSentSessionMemoryContext = context;
+    this.liveSession.sendContext(context);
   }
 
-  private async sendRuntimeContext(
+  private async sendTaskRuntimeContext(
     taskState?: HostedTaskStateSnapshot
   ): Promise<void> {
     if (!this.liveSession) {
       return;
     }
 
-    const [profileContext, resolvedTaskState] = await Promise.all([
-      this.profileMemoryService.buildRuntimeContext(this.input.brainSessionId),
-      taskState ? Promise.resolve(taskState) : this.buildTaskState()
-    ]);
-
-    const combined = [profileContext, summarizeRuntimeContext(resolvedTaskState)]
-      .filter((value) => typeof value === "string" && value.trim().length > 0)
-      .join("\n\n");
-
-    if (!combined) {
+    const resolvedTaskState = taskState ? await Promise.resolve(taskState) : await this.buildTaskState();
+    const runtimeSummary = summarizeRuntimeContext(resolvedTaskState).trim();
+    if (!runtimeSummary) {
       return;
     }
 
-    this.liveSession.sendContext(combined);
+    this.liveSession.sendContext(runtimeSummary);
   }
 }

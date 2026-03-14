@@ -46,6 +46,7 @@ function createTaskState() {
     tasks: [],
     recentTasks: [],
     taskTimelines: [],
+    taskRunnerDetails: [],
     intake: {
       active: false,
       missingSlots: [],
@@ -74,8 +75,8 @@ function createHistoryState() {
         createdAt: "2026-03-14T00:00:00.000Z",
         updatedAt: "2026-03-14T00:05:00.000Z",
         closedAt: "2026-03-14T00:05:00.000Z",
-        lastUserMessage: "내 바탕화면 읽어줘",
-        lastAssistantMessage: "좋아, 바로 확인할게.",
+        lastUserMessage: "Read my desktop",
+        lastAssistantMessage: "Okay, I'll check right away.",
         recentTasks: []
       }
     ]
@@ -176,7 +177,7 @@ describe("CloudSessionClient", () => {
       await onProgress?.({
         taskId: request.task.id,
         type: "executor_progress",
-        message: "작업 중",
+        message: "Task is running",
         createdAt: request.now
       });
       return {
@@ -184,14 +185,14 @@ describe("CloudSessionClient", () => {
         completionEvent: {
           taskId: request.task.id,
           type: "executor_completed",
-          message: "완료",
+          message: "Completed",
           createdAt: request.now
         },
         outcome: "completed",
         report: {
-          summary: "정리를 마쳤어요.",
+          summary: "Finished cleanup.",
           verification: "verified",
-          changes: ["정리 완료"]
+          changes: ["Cleanup completed"]
         }
       };
     });
@@ -234,14 +235,14 @@ describe("CloudSessionClient", () => {
         request: {
           task: {
             id: "task-1",
-            title: "바탕화면 정리",
-            normalizedGoal: "바탕화면 정리",
+            title: "Desktop cleanup",
+            normalizedGoal: "Desktop cleanup",
             status: "running",
             createdAt: "2026-03-14T00:00:00.000Z",
             updatedAt: "2026-03-14T00:00:00.000Z"
           },
           now: "2026-03-14T00:00:00.000Z",
-          prompt: "바탕화면 정리해줘"
+          prompt: "Clean up the desktop"
         }
       }
     });
@@ -257,7 +258,7 @@ describe("CloudSessionClient", () => {
 
     expect(runMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: "바탕화면 정리해줘"
+        prompt: "Clean up the desktop"
       }),
       expect.any(Function)
     );
@@ -268,7 +269,7 @@ describe("CloudSessionClient", () => {
       event: {
         taskId: "task-1",
         type: "executor_progress",
-        message: "작업 중",
+        message: "Task is running",
         createdAt: "2026-03-14T00:00:00.000Z"
       }
     });
@@ -288,9 +289,9 @@ describe("CloudSessionClient", () => {
         result: expect.objectContaining({
           outcome: "completed",
           report: {
-            summary: "정리를 마쳤어요.",
+            summary: "Finished cleanup.",
             verification: "verified",
-            changes: ["정리 완료"]
+            changes: ["Cleanup completed"]
           }
         })
       })
@@ -305,7 +306,7 @@ describe("CloudSessionClient", () => {
       completionEvent: {
         taskId: "task-1",
         type: "executor_completed",
-        message: "완료",
+        message: "Completed",
         createdAt: "2026-03-14T00:00:00.000Z"
       }
     });

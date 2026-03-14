@@ -14,7 +14,7 @@ describe("desktop-ui-state", () => {
       notifications: {
         delivered: [
           {
-            uiText: "좋아, 끝냈어. 바탕화면 정리를 마쳤어요.",
+            uiText: "Done. I finished cleaning up the desktop.",
             delivery: "immediate",
             reason: "task_completed",
             taskId: "task-1",
@@ -25,8 +25,35 @@ describe("desktop-ui-state", () => {
       },
       pendingBriefingCount: 0,
       tasks: [],
-      recentTasks: [{ id: "task-1", title: "바탕화면 정리", status: "completed" }],
+      recentTasks: [{ id: "task-1", title: "Desktop cleanup", status: "completed" }],
       taskTimelines: [],
+      taskRunnerDetails: [
+        {
+          taskId: "task-1",
+          title: "Desktop cleanup",
+          status: "completed",
+          headline: "Desktop cleanup",
+          statusLabel: "Completed",
+          heroSummary: "Finished cleaning up the desktop.",
+          latestHumanUpdate: "Finished cleaning up the desktop.",
+          requestSummary: "Clean up my desktop",
+          lastUpdatedAt: "2026-03-13T05:00:02.000Z",
+          timeline: [
+            {
+              kind: "request_received",
+              title: "Request received",
+              body: "Created the task “Desktop cleanup.”",
+              createdAt: "2026-03-13T05:00:00.000Z",
+              emphasis: "info",
+              source: "task"
+            }
+          ],
+          resultSummary: "Finished cleaning up the desktop.",
+          verification: "verified",
+          changes: ["Removed unnecessary files"],
+          advancedTrace: []
+        }
+      ],
       intake: { active: false, missingSlots: [], lastQuestion: null, workingText: "" },
       avatar: { mainState: "idle", taskRunners: [] },
       messages: []
@@ -37,7 +64,7 @@ describe("desktop-ui-state", () => {
       status: "listening",
       muted: false,
       error: null,
-      routing: { mode: "idle", summary: "다음 요청을 기다리고 있습니다.", detail: "" },
+      routing: { mode: "idle", summary: "Waiting for the next request.", detail: "" },
       conversationTimeline: [
         {
           id: "turn-1:user",
@@ -45,7 +72,7 @@ describe("desktop-ui-state", () => {
           kind: "user_message",
           inputMode: "voice",
           speaker: "user",
-          text: "내 바탕화면 정리해줘",
+          text: "Clean up my desktop",
           partial: false,
           streaming: false,
           interrupted: false,
@@ -58,7 +85,7 @@ describe("desktop-ui-state", () => {
           kind: "assistant_message",
           inputMode: "voice",
           speaker: "assistant",
-          text: "좋아, 바로 확인해볼게.",
+          text: "Okay, I'll check right away.",
           partial: false,
           streaming: false,
           interrupted: false,
@@ -82,7 +109,7 @@ describe("desktop-ui-state", () => {
       ],
       activeTurnId: null,
       inputPartial: "",
-      lastUserTranscript: "내 바탕화면 정리해줘",
+      lastUserTranscript: "Clean up my desktop",
       outputTranscript: ""
     });
     store.appendDebugEvent({
@@ -133,6 +160,15 @@ describe("desktop-ui-state", () => {
         })
       ])
     );
+    expect(uiState.taskSummary.taskRunnerDetails).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskId: "task-1",
+          statusLabel: "Completed",
+          resultSummary: "Finished cleaning up the desktop."
+        })
+      ])
+    );
   });
 
   it("keeps bubble order stable inside a turn when timestamps collide", () => {
@@ -160,7 +196,7 @@ describe("desktop-ui-state", () => {
       status: "listening",
       muted: false,
       error: null,
-      routing: { mode: "idle", summary: "다음 요청을 기다리고 있습니다.", detail: "" },
+      routing: { mode: "idle", summary: "Waiting for the next request.", detail: "" },
       conversationTimeline: [
         {
           id: "turn-1:assistant",
@@ -168,7 +204,7 @@ describe("desktop-ui-state", () => {
           kind: "assistant_message",
           inputMode: "voice",
           speaker: "assistant",
-          text: "바로 확인할게.",
+          text: "I'll check right away.",
           partial: false,
           streaming: false,
           interrupted: false,
@@ -181,7 +217,7 @@ describe("desktop-ui-state", () => {
           kind: "user_message",
           inputMode: "voice",
           speaker: "user",
-          text: "내 바탕화면 확인해줘",
+          text: "Check my desktop",
           partial: false,
           streaming: false,
           interrupted: false,
@@ -194,7 +230,7 @@ describe("desktop-ui-state", () => {
           kind: "task_event",
           inputMode: "voice",
           speaker: "system",
-          text: "추가 확인이 필요해.",
+          text: "More input is needed.",
           partial: false,
           streaming: false,
           interrupted: false,
@@ -213,7 +249,7 @@ describe("desktop-ui-state", () => {
       ],
       activeTurnId: null,
       inputPartial: "",
-      lastUserTranscript: "내 바탕화면 확인해줘",
+      lastUserTranscript: "Check my desktop",
       outputTranscript: ""
     });
 
@@ -238,7 +274,7 @@ describe("desktop-ui-state", () => {
       notifications: {
         delivered: [
           {
-            uiText: "좋아, 첫 번째 작업을 끝냈어.",
+            uiText: "Done. I finished the first task.",
             delivery: "immediate",
             reason: "task_completed",
             taskId: "task-1",
@@ -261,7 +297,7 @@ describe("desktop-ui-state", () => {
       status: "listening",
       muted: false,
       error: null,
-      routing: { mode: "idle", summary: "다음 요청을 기다리고 있습니다.", detail: "" },
+      routing: { mode: "idle", summary: "Waiting for the next request.", detail: "" },
       conversationTimeline: [
         {
           id: "turn-1:user",
@@ -269,7 +305,7 @@ describe("desktop-ui-state", () => {
           kind: "user_message",
           inputMode: "voice",
           speaker: "user",
-          text: "첫 번째 작업 해줘",
+          text: "Do the first task",
           partial: false,
           streaming: false,
           interrupted: false,
@@ -283,7 +319,7 @@ describe("desktop-ui-state", () => {
           kind: "user_message",
           inputMode: "voice",
           speaker: "user",
-          text: "두 번째 질문도 있어",
+          text: "I have a second question too",
           partial: false,
           streaming: false,
           interrupted: false,
@@ -312,7 +348,7 @@ describe("desktop-ui-state", () => {
       ],
       activeTurnId: null,
       inputPartial: "",
-      lastUserTranscript: "두 번째 질문도 있어",
+      lastUserTranscript: "I have a second question too",
       outputTranscript: ""
     });
 
@@ -339,15 +375,15 @@ describe("desktop-ui-state", () => {
           createdAt: "2026-03-13T05:00:00.000Z",
           updatedAt: "2026-03-13T05:10:00.000Z",
           closedAt: "2026-03-13T05:10:00.000Z",
-          lastUserMessage: "내 이름 기억해줘",
-          lastAssistantMessage: "좋아, 종우라고 기억할게.",
+          lastUserMessage: "Remember my name",
+          lastAssistantMessage: "Okay, I'll remember you as Jongwoo.",
           recentTasks: [
             {
               id: "task-1",
-              title: "바탕화면 정리",
+              title: "Desktop cleanup",
               status: "completed",
               updatedAt: "2026-03-13T05:09:00.000Z",
-              summary: "바탕화면 파일 정리를 마쳤습니다."
+              summary: "Finished organizing the desktop files."
             }
           ]
         }
@@ -362,11 +398,11 @@ describe("desktop-ui-state", () => {
       sessions: [
         expect.objectContaining({
           brainSessionId: "judge-session-1",
-          lastAssistantMessage: "좋아, 종우라고 기억할게.",
+          lastAssistantMessage: "Okay, I'll remember you as Jongwoo.",
           recentTasks: [
             expect.objectContaining({
               id: "task-1",
-              title: "바탕화면 정리",
+              title: "Desktop cleanup",
               status: "completed"
             })
           ]

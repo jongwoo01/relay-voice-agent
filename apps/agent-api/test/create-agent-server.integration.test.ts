@@ -32,6 +32,7 @@ function createTaskState() {
     tasks: [],
     recentTasks: [],
     taskTimelines: [],
+    taskRunnerDetails: [],
     intake: {
       active: false,
       missingSlots: [],
@@ -432,15 +433,15 @@ describe("createAgentServer", () => {
           createdAt: "2026-03-14T00:00:00.000Z",
           updatedAt: "2026-03-14T00:05:00.000Z",
           closedAt: "2026-03-14T00:05:00.000Z",
-          lastUserMessage: "내 바탕화면 읽어줘",
-          lastAssistantMessage: "좋아, 바로 확인할게.",
+          lastUserMessage: "Read my desktop",
+          lastAssistantMessage: "Okay, I'll check right away.",
           recentTasks: [
             {
               id: "task-1",
-              title: "바탕화면 읽기",
+              title: "Read desktop contents",
               status: "completed",
               updatedAt: "2026-03-14T00:05:00.000Z",
-              summary: "바탕화면 항목을 읽었어요."
+              summary: "Read the desktop contents."
             }
           ]
         }
@@ -484,7 +485,7 @@ describe("createAgentServer", () => {
       sessions: [
         expect.objectContaining({
           brainSessionId: "brain-history-1",
-          lastUserMessage: "내 바탕화면 읽어줘"
+          lastUserMessage: "Read my desktop"
         })
       ]
     });

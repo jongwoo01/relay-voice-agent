@@ -7,6 +7,7 @@ import type {
   TaskCompletionReport,
   TaskEvent,
   TaskIntakeSlot,
+  TaskRunnerDetailViewModel,
   TaskRunnerViewModel
 } from "@agent/shared-types";
 
@@ -17,6 +18,7 @@ export interface HostedTaskStateSnapshot {
     taskId: string;
     events: TaskEvent[];
   }>;
+  taskRunnerDetails: TaskRunnerDetailViewModel[];
   intake: {
     active: boolean;
     missingSlots: TaskIntakeSlot[];

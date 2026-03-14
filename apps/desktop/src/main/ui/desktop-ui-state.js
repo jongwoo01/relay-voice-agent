@@ -220,6 +220,7 @@ export class DesktopUiStateStore {
       tasks: [],
       recentTasks: [],
       taskTimelines: [],
+      taskRunnerDetails: [],
       intake: { active: false, missingSlots: [], lastQuestion: null, workingText: "" },
       avatar: { mainState: "idle", taskRunners: [] },
       messages: []
@@ -277,6 +278,7 @@ export class DesktopUiStateStore {
         activeTasks: sessionState.tasks ?? [],
         recentTasks: sessionState.recentTasks ?? [],
         taskTimelines: sessionState.taskTimelines ?? [],
+        taskRunnerDetails: sessionState.taskRunnerDetails ?? [],
         intake: sessionState.intake,
         avatar: sessionState.avatar,
         notifications: sessionState.notifications,

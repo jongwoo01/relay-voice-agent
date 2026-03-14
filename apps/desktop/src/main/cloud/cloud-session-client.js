@@ -196,7 +196,7 @@ export class CloudSessionClient {
   }
 
   endAudioStream() {
-    if (!this.isReadyForLiveInput()) {
+    if (!this.isREADYForLiveInput()) {
       return;
     }
     this.send({
@@ -217,7 +217,7 @@ export class CloudSessionClient {
   }
 
   sendAudioChunk(audioData, mimeType = "audio/pcm;rate=16000") {
-    if (this.state.muted || !this.isReadyForLiveInput()) {
+    if (this.state.muted || !this.isREADYForLiveInput()) {
       return;
     }
     this.send({
@@ -431,7 +431,7 @@ export class CloudSessionClient {
     this.webSocket.send(JSON.stringify(payload));
   }
 
-  isReadyForLiveInput() {
+  isREADYForLiveInput() {
     return (
       Boolean(this.webSocket) &&
       this.webSocket.readyState === WebSocket.OPEN &&

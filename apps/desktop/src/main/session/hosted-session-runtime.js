@@ -10,6 +10,7 @@ function createInitialState() {
     tasks: [],
     recentTasks: [],
     taskTimelines: [],
+    taskRunnerDetails: [],
     intake: { active: false, missingSlots: [], lastQuestion: null, workingText: "" },
     avatar: { mainState: "idle", taskRunners: [] },
     messages: []
@@ -44,6 +45,7 @@ export class HostedSessionRuntime {
       tasks: taskState.tasks ?? [],
       recentTasks: taskState.recentTasks ?? [],
       taskTimelines: taskState.taskTimelines ?? [],
+      taskRunnerDetails: taskState.taskRunnerDetails ?? [],
       intake:
         taskState.intake ?? {
           active: false,

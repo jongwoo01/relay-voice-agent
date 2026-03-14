@@ -79,6 +79,7 @@ export interface TaskCompletionReport {
 export interface FinalizedUtterance {
   text: string;
   intent: IntentType;
+  assistantReplyText?: string;
   createdAt: string;
 }
 
@@ -187,12 +188,72 @@ export interface TaskRunnerViewModel {
   label: string;
   title: string;
   status: TaskStatus;
+  headline: string;
+  statusLabel: string;
+  latestHumanUpdate: string;
+  needsUserAction?: string;
   progressSummary?: string;
   blockingReason?: string;
   lastUpdatedAt?: string;
 }
 
 export type SubAvatarViewModel = TaskRunnerViewModel;
+
+export type TaskRunnerTimelineEntryKind =
+  | "request_received"
+  | "runner_preparing"
+  | "execution_dispatched"
+  | "progress_update"
+  | "needs_input"
+  | "needs_approval"
+  | "completion_received"
+  | "final_summary"
+  | "failure";
+
+export type TaskRunnerTimelineEntrySource = "task" | "executor" | "system";
+
+export type TaskRunnerTimelineEntryEmphasis =
+  | "normal"
+  | "info"
+  | "warning"
+  | "success"
+  | "error";
+
+export interface TaskRunnerTimelineEntry {
+  kind: TaskRunnerTimelineEntryKind;
+  title: string;
+  body: string;
+  createdAt: string;
+  emphasis: TaskRunnerTimelineEntryEmphasis;
+  source: TaskRunnerTimelineEntrySource;
+}
+
+export interface TaskRunnerAdvancedTraceEntry {
+  kind: string;
+  summary: string;
+  createdAt: string;
+  source: string;
+  detail?: string;
+}
+
+export interface TaskRunnerDetailViewModel {
+  taskId: string;
+  title: string;
+  status: TaskStatus;
+  headline: string;
+  statusLabel: string;
+  heroSummary: string;
+  latestHumanUpdate: string;
+  needsUserAction?: string;
+  requestSummary?: string;
+  lastUpdatedAt?: string;
+  timeline: TaskRunnerTimelineEntry[];
+  resultSummary?: string;
+  verification?: TaskCompletionReport["verification"];
+  changes: string[];
+  question?: string;
+  advancedTrace: TaskRunnerAdvancedTraceEntry[];
+}
 
 export type ConversationInputMode = "typed" | "voice";
 
@@ -266,6 +327,7 @@ export interface HostedTaskStateSnapshot {
     taskId: string;
     events: TaskEvent[];
   }>;
+  taskRunnerDetails: TaskRunnerDetailViewModel[];
   intake: {
     active: boolean;
     missingSlots: TaskIntakeSlot[];

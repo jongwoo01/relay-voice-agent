@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -109,7 +109,7 @@
               name="prompt"
               rows="3"
               autocomplete="off"
-              placeholder="메시지를 입력하세요… (Enter 전송, Shift+Enter 줄바꿈)"
+              placeholder="Type a message… (Enter to send, Shift+Enter for a new line)"
             ></textarea>
           </div>
           <button type="submit" class="composer-submit">Send</button>
@@ -158,15 +158,15 @@
                 <div class="workspace-head">
                   <div>
                     <p class="message-role">Now</p>
-                    <p id="main-avatar-state" class="summary-text empty-state">대기 중</p>
+                    <p id="main-avatar-state" class="summary-text empty-state">Idle</p>
                   </div>
                   <span id="workspace-state-pill" class="task-runner-status-pill">idle</span>
                 </div>
               </div>
             </div>
-            <p id="live-route-summary" class="summary-text empty-state">아직 확인 중인 요청이 없습니다.</p>
+            <p id="live-route-summary" class="summary-text empty-state">No request is being reviewed yet.</p>
             <p id="live-route-detail" class="summary-detail"></p>
-            <p id="voice-intake-summary" class="summary-detail empty-state">지금 보충 질문 중인 작업이 없습니다.</p>
+            <p id="voice-intake-summary" class="summary-detail empty-state">No task is waiting for clarification.</p>
           </article>
         </section>
 
@@ -175,21 +175,57 @@
           <div id="task-runner-list" class="task-runner-grid"></div>
           <article id="task-runner-detail-card" class="side-card task-runner-detail-card" hidden>
             <div class="task-runner-detail-head">
-              <div>
-                <p id="task-runner-detail-label" class="message-role">Task Runner</p>
-                <h4 id="task-runner-detail-title" class="task-runner-detail-title">선택된 runner가 없습니다.</h4>
+              <span class="task-runner-avatar task-runner-detail-avatar" aria-hidden="true">
+                <span class="task-runner-avatar-core"></span>
+              </span>
+              <div class="task-runner-detail-head-copy">
+                <div class="task-runner-detail-head-top">
+                  <p id="task-runner-detail-label" class="message-role">Task Runner</p>
+                  <span id="task-runner-detail-status" class="task-runner-status-pill">idle</span>
+                </div>
+                <h4 id="task-runner-detail-title" class="task-runner-detail-title">No runner selected.</h4>
+                <p id="task-runner-detail-hero" class="stack-text"></p>
               </div>
-              <span id="task-runner-detail-status" class="task-runner-status-pill">idle</span>
             </div>
-            <p id="task-runner-detail-id" class="stack-subtitle"></p>
-            <p id="task-runner-detail-update" class="stack-text"></p>
-            <p id="task-runner-detail-blocking" class="stack-text" hidden></p>
-            <p id="task-runner-detail-updated-at" class="stack-subtitle"></p>
-            <p id="task-runner-detail-summary" class="stack-text" hidden></p>
-            <div id="task-runner-detail-execution" class="task-runner-detail-execution" hidden>
-              <p class="stack-subtitle">execution trace</p>
-              <div id="task-runner-detail-execution-list" class="task-runner-detail-execution-list"></div>
+            <div id="task-runner-detail-needs-action" class="task-runner-detail-callout" hidden>
+              <p class="stack-subtitle">Needs Attention</p>
+              <p id="task-runner-detail-needs-action-text" class="stack-text"></p>
             </div>
+            <div class="task-runner-detail-section">
+              <div class="task-runner-detail-section-head">
+                <p class="stack-subtitle">Progress Log</p>
+                <p id="task-runner-detail-updated-at" class="stack-subtitle"></p>
+              </div>
+              <div id="task-runner-detail-timeline-list" class="task-runner-detail-timeline-list"></div>
+            </div>
+            <div id="task-runner-detail-result" class="task-runner-detail-result" hidden>
+              <p class="stack-subtitle">Result</p>
+              <div class="task-runner-detail-result-grid">
+                <article class="task-runner-detail-result-card">
+                  <p class="task-runner-detail-result-label">What Changed</p>
+                  <p id="task-runner-detail-result-summary" class="task-runner-detail-result-text"></p>
+                </article>
+                <article class="task-runner-detail-result-card">
+                  <p class="task-runner-detail-result-label">Confidence</p>
+                  <p id="task-runner-detail-result-verification" class="task-runner-detail-result-text"></p>
+                </article>
+              </div>
+              <div id="task-runner-detail-result-changes" class="task-runner-detail-result-card" hidden>
+                <p class="task-runner-detail-result-label">Changes</p>
+                <ul id="task-runner-detail-result-changes-list" class="task-runner-detail-change-list"></ul>
+              </div>
+            </div>
+            <details id="task-runner-detail-advanced" class="task-runner-detail-advanced">
+              <summary>Advanced Details</summary>
+              <div class="task-runner-detail-advanced-copy">
+                <p id="task-runner-detail-id" class="stack-subtitle"></p>
+                <p id="task-runner-detail-request" class="stack-text" hidden></p>
+              </div>
+              <div id="task-runner-detail-execution" class="task-runner-detail-execution" hidden>
+                <p class="stack-subtitle">execution trace</p>
+                <div id="task-runner-detail-execution-list" class="task-runner-detail-execution-list"></div>
+              </div>
+            </details>
           </article>
         </section>
 
@@ -200,7 +236,7 @@
               <span id="task-drawer-count" class="pending-count">0 items</span>
             </summary>
             <p id="task-drawer-description" class="summary-detail empty-state">
-              완료되거나 멈춘 작업은 여기에서 다시 확인할 수 있습니다.
+              You can revisit completed or paused tasks here.
             </p>
             <div id="task-drawer-list" class="stack-list"></div>
           </details>
@@ -214,7 +250,7 @@
             </summary>
             <div class="voice-controls">
               <p id="history-drawer-description" class="summary-detail empty-state">
-                저장된 최근 세션 요약이 없습니다.
+                No saved recent session summaries.
               </p>
               <button id="history-refresh-button" type="button" class="voice-button">
                 Refresh
