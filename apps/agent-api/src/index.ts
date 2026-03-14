@@ -1,4 +1,3 @@
-export { ConversationOrchestrator } from "./modules/conversation/conversation-orchestrator.js";
 export {
   loadDotEnvFromRoot,
   parseDotEnv
@@ -33,10 +32,8 @@ export {
   createDefaultIntentResolver,
   createGeminiIntentClient,
   DEFAULT_INTENT_MODEL,
-  FallbackIntentResolver,
   GeminiIntentResolver,
-  HeuristicIntentResolver,
-  inferIntentFromText,
+  type IntentResolution,
   type IntentModelClientLike,
   type IntentResolver
 } from "./modules/conversation/intent-resolver.js";
@@ -46,12 +43,28 @@ export {
   type ConversationMessageRepository
 } from "./modules/persistence/conversation-message-repository.js";
 export {
-  createProfileMemoryService,
-  InMemoryProfileMemoryStore,
-  ProfileMemoryService,
-  type ProfileMemoryServiceLike,
-  type ProfileMemoryStore
-} from "./modules/memory/profile-memory-service.js";
+  createSessionMemoryService,
+  createDefaultSessionMemoryExtractor,
+  createGeminiSessionMemoryClient,
+  GeminiSessionMemoryExtractor,
+  NoopSessionMemoryExtractor,
+  SessionMemoryService,
+  type SessionMemoryExtractionItem,
+  type SessionMemoryExtractor,
+  type SessionMemoryModelClientLike,
+  type SessionMemoryServiceLike
+} from "./modules/memory/session-memory-service.js";
+export {
+  SESSION_MEMORY_IMPORTANCE,
+  SESSION_MEMORY_KINDS,
+  InMemorySessionMemoryRepository,
+  PostgresSessionMemoryRepository,
+  type SessionMemoryImportance,
+  type SessionMemoryItem,
+  type SessionMemoryKind,
+  type SessionMemoryRepository,
+  type SessionMemoryUpsertInput
+} from "./modules/persistence/session-memory-repository.js";
 export {
   createJudgeHistoryService,
   JudgeHistoryService,
@@ -61,18 +74,13 @@ export {
 export { TaskIntakeService } from "./modules/conversation/task-intake-service.js";
 export {
   createDefaultTaskIntakeResolver,
-  FallbackTaskIntakeResolver,
   GeminiTaskIntakeResolver,
-  HeuristicTaskIntakeResolver,
   type TaskIntakeResolver
 } from "./modules/conversation/task-intake-resolver.js";
 export {
   createDefaultTaskRoutingResolver,
   createGeminiTaskRoutingClient,
-  FallbackTaskRoutingResolver,
   GeminiTaskRoutingResolver,
-  HeuristicTaskRoutingResolver,
-  SafeTaskRoutingResolver,
   TASK_ROUTING_MODEL,
   type TaskRoutingModelClientLike,
   type TaskRoutingDecision,

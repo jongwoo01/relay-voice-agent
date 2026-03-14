@@ -20,6 +20,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "db:migrate": "tsx src/migrate.ts",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json"
   }

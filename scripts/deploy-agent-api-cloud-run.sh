@@ -103,12 +103,35 @@ append_secret_or_env "JUDGE_TOKEN_SECRET" "JUDGE_TOKEN_SECRET" "JUDGE_TOKEN_SECR
 append_secret_or_env "GEMINI_API_KEY" "GEMINI_API_KEY" "GEMINI_API_KEY_SECRET"
 append_secret_or_env "GOOGLE_API_KEY" "GOOGLE_API_KEY" "GOOGLE_API_KEY_SECRET"
 
+resolve_secret_or_env_value() {
+  local value_name="$1"
+  local secret_name="$2"
+  local value="${!value_name:-}"
+  local secret="${!secret_name:-}"
+
+  if [[ -n "${value}" ]]; then
+    printf '%s' "${value}"
+    return
+  fi
+
+  if [[ -n "${secret}" ]]; then
+    gcloud secrets versions access latest --secret "${secret}"
+    return
+  fi
+
+  return 1
+}
+
 echo "Project: ${GCP_PROJECT_ID}"
 echo "Region: ${GCP_REGION}"
 echo "Service: ${CLOUD_RUN_SERVICE}"
 echo "Image: ${IMAGE_URI}"
 
 gcloud config set project "${GCP_PROJECT_ID}" >/dev/null
+
+MIGRATION_DATABASE_URL="$(resolve_secret_or_env_value DATABASE_URL DATABASE_URL_SECRET)"
+echo "Applying database migrations..."
+DATABASE_URL="${MIGRATION_DATABASE_URL}" npm run db:migrate --workspace @agent/agent-api
 
 gcloud builds submit \
   --project "${GCP_PROJECT_ID}" \

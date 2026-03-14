@@ -13,12 +13,12 @@ Use this document to keep the public submission claims accurate and to collect t
   - model-backed intent, task routing, and intake
   - Postgres-backed persistence repositories
 - `db/migrations`
-  - schema for sessions, tasks, task events, intake sessions, and completion reports
+  - ordered schema for sessions, tasks, task events, intake sessions, completion reports, and session memory
 - `apps/desktop`
   - thin Electron demo client
   - local audio shell and local `gemini` CLI worker
 - `scripts/deploy-agent-api-cloud-run.sh`
-  - one-command image build and Cloud Run deploy flow for the hosted service
+  - one-command migration, image build, and Cloud Run deploy flow for the hosted service
 
 ## Submission Deployment Shape
 
@@ -73,7 +73,7 @@ GEMINI_API_KEY_SECRET=<secret-name> \
 npm run deploy:agent-api:cloud-run
 ```
 
-The deployment script uses `apps/agent-api/Dockerfile`, builds from the monorepo root, and deploys the hosted service with Cloud Run environment variables or Secret Manager-backed values. The server now refuses to boot without the required hosted variables, so the judge path cannot silently fall back to in-memory state or a degraded live mode.
+The deployment script uses `apps/agent-api/Dockerfile`, runs the repo migration set against the target database, builds from the monorepo root, and deploys the hosted service with Cloud Run environment variables or Secret Manager-backed values. The server now refuses to boot without the required hosted variables, and it also refuses to boot if the database schema is missing, behind, or drifted.
 
 ### Required for persistent state
 

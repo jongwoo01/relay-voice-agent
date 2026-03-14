@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 export function parseDotEnv(contents: string): Record<string, string> {
   const entries: Record<string, string> = {};
@@ -32,12 +32,29 @@ export function parseDotEnv(contents: string): Record<string, string> {
   return entries;
 }
 
+function findDotEnvPath(startDirectory: string): string | null {
+  let currentDirectory = resolve(startDirectory);
+
+  while (true) {
+    const envPath = resolve(currentDirectory, ".env");
+    if (existsSync(envPath)) {
+      return envPath;
+    }
+
+    const parentDirectory = dirname(currentDirectory);
+    if (parentDirectory === currentDirectory) {
+      return null;
+    }
+    currentDirectory = parentDirectory;
+  }
+}
+
 export function loadDotEnvFromRoot(
   rootDirectory: string = process.cwd()
 ): Record<string, string> {
-  const envPath = resolve(rootDirectory, ".env");
+  const envPath = findDotEnvPath(rootDirectory);
 
-  if (!existsSync(envPath)) {
+  if (!envPath) {
     return {};
   }
 

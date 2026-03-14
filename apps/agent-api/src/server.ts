@@ -1,4 +1,5 @@
 import { loadDotEnvFromRoot } from "./modules/config/env-loader.js";
+import { assertPostgresSchemaUpToDate } from "./modules/persistence/postgres-migrator.js";
 import { createPostgresPool } from "./modules/persistence/postgres-client.js";
 import { PostgresUserRepository } from "./modules/persistence/user-repository.js";
 import { createAgentServer } from "./server/create-agent-server.js";
@@ -105,6 +106,7 @@ const { server } = createAgentServer({
 
 async function bootstrap(): Promise<void> {
   await sql.query("select 1");
+  await assertPostgresSchemaUpToDate(sql);
 
   server.listen(port, () => {
     console.log(
