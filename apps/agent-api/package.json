@@ -14,10 +14,13 @@
     "@agent/shared-types": "file:../../packages/shared-types",
     "@google/genai": "^1.44.0",
     "@types/pg": "^8.18.0",
-    "pg": "^8.20.0"
+    "@types/ws": "^8.18.1",
+    "pg": "^8.20.0",
+    "ws": "^8.18.3"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json"
   }
 }

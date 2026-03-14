@@ -1,6 +1,6 @@
 # Cloud Deployment And Proof Checklist
 
-This repository contains the core modules and database schema needed for a Google Cloud submission, but it does not yet include repo-managed Cloud Run packaging assets such as a Dockerfile, Cloud Build config, or Terraform.
+This repository now includes a Cloud Run service entrypoint, Dockerfile, and deployment helper script for the hosted agent path, but it still does not include Terraform/IaC.
 
 Use this document to keep the public submission claims accurate and to collect the evidence judges will expect.
 
@@ -8,13 +8,17 @@ Use this document to keep the public submission claims accurate and to collect t
 
 - `apps/agent-api`
   - agent core modules
-  - live transport
-  - task routing and intake
+  - hosted HTTP + WebSocket service
+  - server-owned Gemini Live transport
+  - model-backed intent, task routing, and intake
   - Postgres-backed persistence repositories
 - `db/migrations`
   - schema for sessions, tasks, task events, intake sessions, and completion reports
 - `apps/desktop`
-  - Electron demo client and live companion surface
+  - thin Electron demo client
+  - local audio shell and local `gemini` CLI worker
+- `scripts/deploy-agent-api-cloud-run.sh`
+  - one-command image build and Cloud Run deploy flow for the hosted service
 
 ## Submission Deployment Shape
 
@@ -23,14 +27,16 @@ Use this document to keep the public submission claims accurate and to collect t
 - Package the agent core around `@agent/agent-api`
 - Run that service on Cloud Run
 - Keep canonical state in Cloud SQL for Postgres
-- Use Vertex AI for Gemini Live and model-assisted routing/intake
-- Connect the desktop or demo client to the hosted core for task truth and persistence
+- Use Gemini Live from the server and Vertex AI for intent, routing, and intake
+- Connect the desktop client to the hosted core over HTTP + WebSocket for task truth and persistence
+- Treat intent/routing/intake failures as explicit user-facing errors, not heuristic fallbacks
 
 ### Local or client-side pieces
 
 - Electron remains the companion demo surface
-- The live session and local runtime can still be demonstrated locally
-- Hosted proof should focus on the cloud-hosted agent core and persistence layer
+- The live session and task truth are hosted
+- The local runtime is reduced to the desktop executor worker that runs `gemini` CLI on the user's machine
+- Hosted proof should focus on the cloud-hosted live session, task orchestration, and persistence layer
 
 ## Environment Matrix
 
@@ -38,10 +44,38 @@ Use this document to keep the public submission claims accurate and to collect t
 
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_CLOUD_LOCATION`
+- `DATABASE_URL`
+- `JUDGE_PASSCODE`
+- `JUDGE_TOKEN_SECRET`
+- `GEMINI_API_KEY` or `GOOGLE_API_KEY`
+
+### Required for the deployment script
+
+- `GCP_PROJECT_ID`
+- `GCP_REGION`
+- `CLOUD_RUN_SERVICE`
+- `ARTIFACT_REGISTRY_REPO`
+
+## Fastest Deploy Path
+
+From the repo root:
+
+```bash
+GCP_PROJECT_ID=<project-id> \
+GCP_REGION=<region> \
+CLOUD_RUN_SERVICE=gemini-live-agent \
+ARTIFACT_REGISTRY_REPO=<repo> \
+GOOGLE_CLOUD_LOCATION=<region> \
+DATABASE_URL_SECRET=<secret-name> \
+JUDGE_PASSCODE_SECRET=<secret-name> \
+JUDGE_TOKEN_SECRET_SECRET=<secret-name> \
+GEMINI_API_KEY_SECRET=<secret-name> \
+npm run deploy:agent-api:cloud-run
+```
+
+The deployment script uses `apps/agent-api/Dockerfile`, builds from the monorepo root, and deploys the hosted service with Cloud Run environment variables or Secret Manager-backed values. The server now refuses to boot without the required hosted variables, so the judge path cannot silently fall back to in-memory state or a degraded live mode.
 
 ### Required for persistent state
-
-- `DATABASE_URL`
 
 ### Optional
 
@@ -50,7 +84,9 @@ Use this document to keep the public submission claims accurate and to collect t
 - `GEMINI_TASK_ROUTING_MODEL`
 - `GEMINI_TASK_INTAKE_MODEL`
 - `GEMINI_INTENT_MODEL`
-- `DEV_USER_ID` for local Postgres-backed dev harnesses
+- `JUDGE_USER_EMAIL`
+- `JUDGE_USER_DISPLAY_NAME`
+- `JUDGE_SESSION_TTL_SECONDS`
 - `DESKTOP_EXECUTOR`, `GEMINI_EXECUTOR`, `DEV_POSTGRES`, `DEV_RAW_EXECUTOR` for local testing modes
 
 ### Separate standalone harness path
@@ -78,9 +114,8 @@ When writing the public submission:
 
 ## Current Gap
 
-The main remaining cloud-packaging gap is not agent behavior. It is proof and packaging:
+The main remaining cloud-packaging gap is not agent behavior. It is operational proof:
 
-- Cloud Run service wrapper
-- deployment asset files
 - judge-safe access details
 - screenshots or logs from the deployed environment
+- optional IaC or Cloud Build automation if you want bonus-point packaging depth

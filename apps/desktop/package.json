@@ -2,13 +2,61 @@
   "name": "@agent/desktop",
   "private": true,
   "version": "0.0.0",
+  "description": "Electron companion for the Gemini Live desktop agent.",
+  "author": "jongwoo",
   "type": "module",
   "main": "./main.js",
   "scripts": {
-    "dev": "npm --prefix ../.. run build:runtimes && electron ."
+    "dev": "npm --prefix ../.. run build:runtimes && electron .",
+    "dist:dir": "npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir",
+    "dist:mac": "npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip",
+    "dist:win": "npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis"
   },
   "dependencies": {
+  },
+  "devDependencies": {
     "@agent/agent-api": "file:../agent-api",
-    "electron": "^40.8.0"
+    "cross-env": "^10.1.0",
+    "electron": "^40.8.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "dev.jongwoo.gemini.liveagent",
+    "productName": "Desktop Companion",
+    "electronVersion": "40.8.0",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.cjs",
+      "renderer/**/*",
+      "src/main/cloud/**/*",
+      "src/main/config/**/*",
+      "src/main/debug/**/*",
+      "src/main/execution/**/*",
+      "src/main/ipc/**/*",
+      "src/main/session/hosted-session-runtime.js",
+      "src/main/ui/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "identity": null,
+      "target": [
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }
