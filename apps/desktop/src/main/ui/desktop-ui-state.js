@@ -173,6 +173,9 @@ export class DesktopUiStateStore {
       conversationTimeline,
       conversationTurns,
       activeTurnId: liveState.activeTurnId ?? null,
+      inputPartial: liveState.inputPartial ?? "",
+      lastUserTranscript: liveState.lastUserTranscript ?? "",
+      outputTranscript: liveState.outputTranscript ?? "",
       debugInspector: {
         events: [...this.debugEvents].sort((left, right) =>
           compareByTimestamp(left.createdAt, right.createdAt)

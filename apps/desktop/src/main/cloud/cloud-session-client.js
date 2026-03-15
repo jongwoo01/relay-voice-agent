@@ -229,6 +229,24 @@ export class CloudSessionClient {
     });
   }
 
+  startActivity() {
+    if (this.state.muted || !this.isREADYForLiveInput()) {
+      return;
+    }
+    this.send({
+      type: "activity_start"
+    });
+  }
+
+  endActivity() {
+    if (!this.isREADYForLiveInput()) {
+      return;
+    }
+    this.send({
+      type: "activity_end"
+    });
+  }
+
   async openWebSocket(wsUrl) {
     await new Promise((resolve, reject) => {
       const socket = new WebSocket(wsUrl);
@@ -356,7 +374,11 @@ export class CloudSessionClient {
       case "session_ready":
         this.brainSessionId = event.brainSessionId;
         this.state = {
-          ...event.conversation
+          ...this.state,
+          ...event.conversation,
+          connected: true,
+          connecting: false,
+          error: null
         };
         await this.emitConversationDebugEvents(event.conversation);
         await this.emitTaskStateDebugEvents(event.tasks);
@@ -364,12 +386,25 @@ export class CloudSessionClient {
         await this.publishConversationState();
         return;
       case "conversation_state":
+        {
+          const socketOpen =
+            Boolean(this.webSocket) && this.webSocket.readyState === WebSocket.OPEN;
         this.state = {
-          ...event.state
+          ...this.state,
+          ...event.state,
+          connected:
+            typeof event.state?.connected === "boolean"
+              ? event.state.connected
+              : socketOpen || this.state.connected,
+          connecting:
+            typeof event.state?.connecting === "boolean"
+              ? event.state.connecting
+              : false
         };
         await this.emitConversationDebugEvents(event.state);
         await this.publishConversationState();
         return;
+        }
       case "task_state":
         await this.emitTaskStateDebugEvents(event.state);
         await this.onTaskState?.(event.state, this.brainSessionId);

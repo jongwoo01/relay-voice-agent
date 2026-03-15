@@ -51,6 +51,8 @@ contextBridge.exposeInMainWorld("desktopLive", {
   connect: (passcode) => ipcRenderer.invoke("live:connect", passcode),
   disconnect: () => ipcRenderer.invoke("live:disconnect"),
   setMuted: (muted) => ipcRenderer.invoke("live:set-muted", muted),
+  startActivity: () => ipcRenderer.send("live:activity-start"),
+  endActivity: () => ipcRenderer.send("live:activity-end"),
   endAudioStream: () => ipcRenderer.invoke("live:end-audio-stream"),
   sendText: (text) => ipcRenderer.invoke("live:send-text", text),
   sendAudioChunk: (audioData, mimeType) =>

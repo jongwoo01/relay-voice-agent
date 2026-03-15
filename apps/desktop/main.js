@@ -25,7 +25,7 @@ loadDotEnvFromRoot(path.resolve(__dirname, "..", ".."));
 clearDesktopLog();
 logDesktop("[desktop-main] boot (cloud-first)");
 
-const rendererEntry = path.join(__dirname, "renderer", "index.html");
+const rendererEntry = path.join(__dirname, "renderer", "dist", "index.html");
 const rendererEntryUrl = pathToFileURL(rendererEntry).toString();
 
 function assertTrustedSender(event) {
@@ -219,18 +219,25 @@ function createWindow() {
 
   cloudSession = new CloudSessionClient({
     onConversationState: async (state, brainSessionId) => {
-      if (brainSessionId) {
-        await runtime.setBrainSessionId(brainSessionId);
+      const runtimeInstance = runtime;
+
+      if (brainSessionId && runtimeInstance) {
+        await runtimeInstance.setBrainSessionId(brainSessionId);
       }
       desktopUiState.setLiveState(state);
       broadcastToWindow("live:state-updated", state);
       broadcastUiState();
     },
     onTaskState: async (state, brainSessionId) => {
-      if (brainSessionId) {
-        await runtime.setBrainSessionId(brainSessionId);
+      const runtimeInstance = runtime;
+
+      if (brainSessionId && runtimeInstance) {
+        await runtimeInstance.setBrainSessionId(brainSessionId);
       }
-      await runtime.applyRemoteTaskState(state);
+
+      if (runtimeInstance) {
+        await runtimeInstance.applyRemoteTaskState(state);
+      }
       scheduleHistoryRefresh();
     },
     onHistoryState: async (state) => {
@@ -390,6 +397,16 @@ app.whenReady().then(() => {
   registerIpcHandle("live:set-muted", async (event, muted) => {
     assertTrustedSender(event);
     return cloudSession.setMuted(muted);
+  });
+
+  ipcMain.on("live:activity-start", (event) => {
+    assertTrustedSender(event);
+    cloudSession.startActivity();
+  });
+
+  ipcMain.on("live:activity-end", (event) => {
+    assertTrustedSender(event);
+    cloudSession.endActivity();
   });
 
   registerIpcHandle("live:end-audio-stream", async (event) => {

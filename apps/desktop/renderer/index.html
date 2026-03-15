@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#131314" />
+    <meta name="theme-color" content="#f8f9fa" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' http://127.0.0.1:8080 http://localhost:8080 ws://127.0.0.1:8080 ws://localhost:8080 https: wss:;"
@@ -11,180 +11,14 @@
     <title>Gemini Live Agent</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Google+Sans+Text:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Google+Sans+Text:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <section class="panel conversation-panel">
-        <header class="panel-header">
-          <div>
-            <p class="eyebrow">Desktop Companion</p>
-            <h1>Unified Conversation</h1>
-            <p id="runtime-meta" class="runtime-meta" aria-live="polite">
-              shell booting…
-            </p>
-            <p id="input-status" class="input-status" aria-live="polite">idle</p>
-          </div>
-          <div class="header-actions">
-            <span id="executor-badge" class="executor-badge">executor=unknown</span>
-            <span id="mic-state" class="mic-state">idle</span>
-            <button id="mic-toggle" type="button" class="mic-toggle">Mic On</button>
-            <span id="user-speaking-state" class="status-pill">User Idle</span>
-            <span id="assistant-speaking-state" class="status-pill">Assistant Idle</span>
-          </div>
-        </header>
-
-        <p id="runtime-error" class="runtime-error" aria-live="polite" hidden></p>
-
-        <section class="control-strip">
-          <div class="voice-strip-layout">
-            <div class="live-avatar" id="live-avatar">
-              <div class="live-avatar-face">
-                <div class="live-avatar-mouth"></div>
-                <span class="cheek-left"></span>
-                <span class="cheek-right"></span>
-              </div>
-              <div class="live-avatar-waves">
-                <span></span><span></span><span></span>
-              </div>
-            </div>
-            <div class="voice-strip-content">
-              <div class="voice-panel-header">
-                <div>
-                  <p class="eyebrow">Live Voice</p>
-                  <h2>Talk Or Type</h2>
-                </div>
-                <span id="live-status-badge" class="executor-badge">voice: idle</span>
-              </div>
-              <div class="voice-controls">
-                <div class="field-stack mic-field">
-                  <label for="live-passcode" class="field-label">Judge Passcode</label>
-                  <input
-                    id="live-passcode"
-                    class="voice-select"
-                    type="password"
-                    placeholder="Enter passcode"
-                    autocomplete="current-password"
-                  />
-                </div>
-                <button id="live-connect-button" type="button" class="voice-button primary">
-                  Start Voice
-                </button>
-                <button id="live-mute-button" type="button" class="voice-button" disabled>
-                  Mute
-                </button>
-                <button id="live-hangup-button" type="button" class="voice-button danger" disabled>
-                  End
-                </button>
-                <div class="field-stack mic-field">
-                  <label for="live-mic-select" class="field-label">Mic</label>
-                  <select id="live-mic-select" class="voice-select" aria-label="Voice input microphone">
-                    <option value="">Default microphone</option>
-                  </select>
-                </div>
-              </div>
-              <p id="live-status-text" class="runtime-meta" aria-live="polite">
-                voice preview is idle
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section class="conversation-section">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Chat Feed</p>
-              <h2>Turn Timeline</h2>
-            </div>
-          </div>
-          <div id="conversation-feed" class="conversation-feed"></div>
-        </section>
-
-        <form id="composer" class="composer">
-          <div class="field-stack composer-field">
-            <label for="prompt" class="field-label">Message</label>
-            <textarea
-              id="prompt"
-              name="prompt"
-              rows="3"
-              autocomplete="off"
-              placeholder="Type a message… (Enter to send, Shift+Enter for a new line)"
-            ></textarea>
-          </div>
-          <button type="submit" class="composer-submit">Send</button>
-        </form>
-
-        <details class="debug-inspector">
-          <summary>Debug Inspector</summary>
-          <div class="debug-toolbar">
-            <label class="debug-filter"><input type="checkbox" data-source-filter="transport" checked />transport</label>
-            <label class="debug-filter"><input type="checkbox" data-source-filter="live" checked />live</label>
-            <label class="debug-filter"><input type="checkbox" data-source-filter="bridge" checked />bridge</label>
-            <label class="debug-filter"><input type="checkbox" data-source-filter="runtime" checked />runtime</label>
-            <label class="debug-filter"><input type="checkbox" data-source-filter="executor" checked />executor</label>
-            <div class="field-stack debug-field">
-              <label for="debug-turn-filter" class="field-label">Turn</label>
-              <input id="debug-turn-filter" name="debug-turn-filter" type="text" autocomplete="off" placeholder="turnId filter…" />
-            </div>
-            <div class="field-stack debug-field">
-              <label for="debug-task-filter" class="field-label">Task</label>
-              <input id="debug-task-filter" name="debug-task-filter" type="text" autocomplete="off" placeholder="taskId filter…" />
-            </div>
-          </div>
-          <div id="debug-event-list" class="debug-event-list"></div>
-        </details>
-      </section>
-
-      <aside class="panel side-panel">
-        <header class="panel-header">
-          <div>
-            <p class="eyebrow">Workspace</p>
-            <h2>Task Workspace</h2>
-          </div>
-          <span id="pending-briefings-count" class="pending-count">pending briefing 0</span>
-        </header>
-
-        <section class="side-section">
-          <div class="side-section-head">
-            <h3>Active Task Runners</h3>
-            <p class="summary-detail">Only tasks still in progress stay here and update live.</p>
-          </div>
-          <div id="task-runner-list" class="task-runner-grid"></div>
-        </section>
-
-        <section class="side-section">
-          <details id="task-drawer" class="task-drawer">
-            <summary>
-              <span>Task Drawer</span>
-              <span id="task-drawer-count" class="pending-count">0 items</span>
-            </summary>
-            <p id="task-drawer-description" class="summary-detail empty-state">
-              Finished tasks are archived here as the same cards, with full logs still available.
-            </p>
-            <div id="task-drawer-list" class="task-runner-grid task-drawer-grid"></div>
-          </details>
-        </section>
-
-        <section class="side-section">
-          <details id="history-drawer" class="task-drawer">
-            <summary>
-              <span>Session History</span>
-              <span id="history-drawer-count" class="pending-count">0 sessions</span>
-            </summary>
-            <div class="voice-controls">
-              <p id="history-drawer-description" class="summary-detail empty-state">
-                No saved session summaries.
-              </p>
-              <button id="history-refresh-button" type="button" class="voice-button">
-                Refresh
-              </button>
-            </div>
-            <div id="history-drawer-list" class="stack-list"></div>
-          </details>
-        </section>
-      </aside>
-    </main>
-    <script type="module" src="./app.js"></script>
+    <div id="root"></div>
+    <script type="module" src="./src/main.jsx"></script>
   </body>
 </html>

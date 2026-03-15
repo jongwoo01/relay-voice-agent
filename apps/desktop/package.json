@@ -7,19 +7,34 @@
   "type": "module",
   "main": "./main.js",
   "scripts": {
-    "dev": "npm --prefix ../.. run build:runtimes && electron .",
+    "build:renderer": "vite build",
+    "dev": "npm --prefix ../.. run build:runtimes && npm run build:renderer && electron .",
     "clean:dist": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
-    "dist:dir": "npm run clean:dist && npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --mac --universal",
-    "dist:mac": "npm run clean:dist && npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --universal",
-    "dist:mac:x64": "npm run clean:dist && npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --x64",
-    "dist:win": "npm run clean:dist && npm --prefix ../.. run build:runtimes && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis --x64"
+    "dist:dir": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --mac --universal",
+    "dist:mac": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --universal",
+    "dist:mac:x64": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --x64",
+    "dist:win": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis --x64"
   },
   "dependencies": {
+    "@react-three/fiber": "^9.5.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.577.0",
+    "motion": "^12.36.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tailwind-merge": "^3.5.0",
+    "three": "0.182.0",
+    "vanta": "^0.5.24"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.1",
+    "autoprefixer": "^10.4.27",
     "cross-env": "^10.1.0",
     "electron": "^40.8.0",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^3.4.17",
+    "vite": "^8.0.0"
   },
   "build": {
     "appId": "dev.jongwoo.gemini.liveagent",
@@ -32,7 +47,7 @@
     "files": [
       "main.js",
       "preload.cjs",
-      "renderer/**/*",
+      "renderer/dist/**/*",
       "src/main/cloud/**/*",
       "src/main/config/**/*",
       "src/main/debug/**/*",
