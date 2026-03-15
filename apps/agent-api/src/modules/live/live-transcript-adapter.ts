@@ -11,7 +11,7 @@ import {
   type IntentResolver
 } from "../conversation/intent-resolver.js";
 import { RealtimeGatewayService } from "../realtime/realtime-gateway-service.js";
-import { mergeStreamingTranscript } from "./transcript-merge.js";
+import { StreamingTranscriptAccumulator } from "./streaming-transcript-accumulator.js";
 
 export interface LiveTranscriptInput {
   brainSessionId: string;
@@ -33,7 +33,7 @@ export interface LiveTranscriptResult {
 }
 
 export class LiveTranscriptAdapter {
-  private readonly partialBySession = new Map<string, string>();
+  private readonly accumulator = new StreamingTranscriptAccumulator();
 
   constructor(
     private readonly gateway: RealtimeGatewayService = new RealtimeGatewayService(),
@@ -43,29 +43,20 @@ export class LiveTranscriptAdapter {
   async handleTranscript(
     input: LiveTranscriptInput
   ): Promise<LiveTranscriptResult> {
-    const rawText = typeof input.text === "string" ? input.text : "";
-    const normalizedText = rawText.trim();
+    const transcript = this.accumulator.handleChunk({
+      sessionKey: input.brainSessionId,
+      text: input.text,
+      isFinal: input.isFinal
+    });
 
     if (!input.isFinal) {
-      const previousPartial = this.partialBySession.get(input.brainSessionId) ?? "";
-      const mergedPartial =
-        rawText.length > 0
-          ? mergeStreamingTranscript(previousPartial, rawText)
-          : previousPartial;
-
-      if (rawText.length > 0) {
-        this.partialBySession.set(input.brainSessionId, mergedPartial);
-      }
-
       return {
         isFinal: false,
-        partialText: mergedPartial || this.partialBySession.get(input.brainSessionId)
+        partialText: transcript.partialText
       };
     }
 
-    const previousPartial = this.partialBySession.get(input.brainSessionId) ?? "";
-    const finalizedText = mergeStreamingTranscript(previousPartial, normalizedText).trim();
-    this.partialBySession.delete(input.brainSessionId);
+    const finalizedText = transcript.finalizedText ?? "";
 
     if (!finalizedText) {
       return { isFinal: true };
@@ -96,10 +87,14 @@ export class LiveTranscriptAdapter {
   }
 
   getPartialText(brainSessionId: string): string | undefined {
-    return this.partialBySession.get(brainSessionId);
+    return this.accumulator.getPartialText(brainSessionId);
+  }
+
+  clearPartial(brainSessionId: string): void {
+    this.accumulator.clearPartial(brainSessionId);
   }
 
   resetSession(brainSessionId: string): void {
-    this.partialBySession.delete(brainSessionId);
+    this.accumulator.resetSession(brainSessionId);
   }
 }

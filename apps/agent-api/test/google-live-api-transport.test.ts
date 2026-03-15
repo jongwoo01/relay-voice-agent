@@ -180,6 +180,80 @@ describe("google-live-api-transport", () => {
     });
   });
 
+  it("emits normalized final user transcript text instead of the raw final chunk", async () => {
+    const events: unknown[] = [];
+    let onmessage: ((message: LiveServerMessage) => void) | undefined;
+    const connect = vi.fn(async (params) => {
+      onmessage = params.callbacks.onmessage;
+      return {
+        sendClientContent: vi.fn(),
+        sendToolResponse: vi.fn(),
+        sendRealtimeInput: vi.fn(),
+        close: vi.fn()
+      };
+    });
+
+    const transport = new GoogleLiveApiTransport(
+      {
+        handleTranscriptChunk: vi
+          .fn()
+          .mockResolvedValueOnce({ partialText: "check my desktop" })
+          .mockResolvedValueOnce({
+            finalizedUtterance: {
+              text: "check my desktop",
+              intent: "task_request",
+              createdAt: "2026-03-08T00:00:01.000Z"
+            }
+          }),
+        clearPartial: vi.fn(),
+        resetSession: vi.fn()
+      },
+      () => ({
+        live: { connect }
+      })
+    );
+
+    await transport.connect({
+      brainSessionId: "brain-normalized-final",
+      callbacks: {
+        onevent: async (event) => {
+          events.push(event);
+        }
+      }
+    });
+
+    onmessage?.({
+      serverContent: {
+        inputTranscription: {
+          text: "desktop",
+          finished: false
+        }
+      }
+    } as unknown as LiveServerMessage);
+
+    onmessage?.({
+      serverContent: {
+        inputTranscription: {
+          text: "",
+          finished: true
+        }
+      }
+    } as unknown as LiveServerMessage);
+
+    await flushAsyncWork();
+
+    expect(events).toContainEqual({
+      type: "input_transcription_partial",
+      text: "check my desktop"
+    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "input_transcription_final",
+        text: "check my desktop"
+      })
+    );
+  });
+
   it("forwards model text and turn lifecycle events", async () => {
     const events: unknown[] = [];
     let onmessage: ((message: LiveServerMessage) => void) | undefined;
@@ -347,6 +421,7 @@ describe("google-live-api-transport", () => {
     const sendToolResponse = vi.fn();
     const sendRealtimeInput = vi.fn();
     const close = vi.fn();
+    const clearPartial = vi.fn();
     const connect = vi.fn(async () => ({
       sendClientContent,
       sendToolResponse,
@@ -354,7 +429,11 @@ describe("google-live-api-transport", () => {
       close
     }));
 
-    const transport = new GoogleLiveApiTransport(undefined, () => ({
+    const transport = new GoogleLiveApiTransport({
+      handleTranscriptChunk: vi.fn(),
+      clearPartial,
+      resetSession: vi.fn()
+    }, () => ({
       live: { connect }
     }));
 
@@ -380,6 +459,7 @@ describe("google-live-api-transport", () => {
     session.sendActivityStart();
     session.sendActivityEnd();
     session.sendAudioStreamEnd();
+    session.clearInputTranscriptPartial();
     session.close();
 
     expect(sendClientContent).toHaveBeenCalledWith({
@@ -429,6 +509,7 @@ describe("google-live-api-transport", () => {
     expect(sendRealtimeInput).toHaveBeenCalledWith({
       audioStreamEnd: true
     });
+    expect(clearPartial).toHaveBeenCalledWith("brain-1");
     expect(close).toHaveBeenCalled();
   });
 

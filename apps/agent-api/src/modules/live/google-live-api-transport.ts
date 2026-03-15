@@ -26,6 +26,10 @@ export function resolveDefaultLiveModel(): string {
 
 export const DEFAULT_LIVE_MODEL = resolveDefaultLiveModel();
 
+function isLiveTransportDebugEnabled(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
 export type GoogleLiveTransportEvent =
   | { type: "raw_server_message"; summary: string }
   | { type: "live_error"; code?: string; message?: string; raw: unknown }
@@ -83,6 +87,7 @@ export interface GoogleLiveSessionTransport {
   sendActivityStart(): void;
   sendActivityEnd(): void;
   sendAudioStreamEnd(): void;
+  clearInputTranscriptPartial(): void;
   close(): void;
 }
 
@@ -129,6 +134,7 @@ export interface LiveTranscriptControllerLike {
     taskEvents?: LiveSessionTurnResult["taskEvents"];
     executorSession?: LiveSessionTurnResult["executorSession"];
   }>;
+  clearPartial(brainSessionId: string): void;
   resetSession(brainSessionId: string): void;
 }
 
@@ -425,6 +431,9 @@ export class GoogleLiveApiTransport {
           audioStreamEnd: true
         });
       },
+      clearInputTranscriptPartial: () => {
+        this.controller.clearPartial(input.brainSessionId);
+      },
       close() {
         session.close();
       }
@@ -437,13 +446,49 @@ export class GoogleLiveApiTransport {
     callbacks?: GoogleLiveApiTransportCallbacks
   ): Promise<void> {
     const inputText = collectInputTranscriptionText(message);
+    const summary = summarizeServerMessage(message);
+    let summaryData: {
+      inputText: string | null;
+      outputText: string | null;
+      waitingForInput: boolean;
+      turnComplete: boolean;
+      interrupted: boolean;
+    } | null = null;
+
+    if (isLiveTransportDebugEnabled()) {
+      try {
+        summaryData = JSON.parse(summary) as {
+          inputText: string | null;
+          outputText: string | null;
+          waitingForInput: boolean;
+          turnComplete: boolean;
+          interrupted: boolean;
+        };
+      } catch {
+        summaryData = null;
+      }
+    }
+
+    if (isLiveTransportDebugEnabled()) {
+      const hasInterestingPayload =
+        summaryData?.inputText !== null ||
+        summaryData?.outputText !== null ||
+        summaryData?.waitingForInput === true ||
+        summaryData?.turnComplete === true ||
+        summaryData?.interrupted === true;
+      if (hasInterestingPayload) {
+        console.log(
+          `[live-input][transport] server message session=${brainSessionId} ${summary}`
+        );
+      }
+    }
 
     await callbacks?.onevent?.({
       type: "raw_server_message",
-      summary: summarizeServerMessage(message)
+      summary
     });
 
-    if (inputText) {
+    if (inputText !== undefined) {
       const finished = message.serverContent?.inputTranscription?.finished === true;
       const turn = await this.controller.handleTranscriptChunk({
         brainSessionId,
@@ -459,7 +504,7 @@ export class GoogleLiveApiTransport {
         finished
           ? {
               type: "input_transcription_final",
-              text: inputText,
+              text: turn.finalizedUtterance?.text ?? inputText,
               utterance: turn.finalizedUtterance,
               turn
             }
@@ -471,7 +516,7 @@ export class GoogleLiveApiTransport {
     }
 
     const outputText = collectOutputTranscriptionText(message);
-    if (outputText) {
+    if (outputText !== undefined) {
       await callbacks?.onevent?.({
         type: "output_transcription",
         text: outputText,

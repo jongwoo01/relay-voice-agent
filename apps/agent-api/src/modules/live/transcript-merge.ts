@@ -34,7 +34,12 @@ function looksLikeWordContinuation(previous: string, next: string): boolean {
   }
 
   const lastWord = previous.match(/[A-Za-z]+$/)?.[0] ?? "";
-  return lastWord.length > 0 && lastWord.length <= 4;
+  if (lastWord.length === 0 || lastWord.length > 3 || /\s/.test(previous)) {
+    return false;
+  }
+
+  const nextWordPrefix = next.match(/^[a-z]+/)?.[0] ?? "";
+  return nextWordPrefix.length >= 3;
 }
 
 export function mergeStreamingTranscript(previous: string, next: string): string {
@@ -54,13 +59,13 @@ export function mergeStreamingTranscript(previous: string, next: string): string
     return previous;
   }
 
+  if (looksLikeWordContinuation(previous, next)) {
+    return `${previous}${next}`;
+  }
+
   const overlap = findTranscriptOverlap(previous, next);
   if (overlap > 0) {
     return `${previous}${next.slice(overlap)}`;
-  }
-
-  if (looksLikeWordContinuation(previous, next)) {
-    return `${previous}${next}`;
   }
 
   if (shouldInsertTranscriptSpace(previous, next)) {

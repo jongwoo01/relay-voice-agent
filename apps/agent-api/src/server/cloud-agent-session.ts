@@ -5,6 +5,7 @@ import {
   FunctionResponseScheduling,
   Modality,
   StartSensitivity,
+  TurnCoverage,
   Type
 } from "@google/genai";
 import type {
@@ -51,6 +52,14 @@ function supportsExplicitVadSignal(): boolean {
   // Gemini Developer API live currently rejects the setup-level explicitVadSignal flag.
   // Keep this capability gate centralized so the transport can opt in later if backend support changes.
   return false;
+}
+
+function usesManualActivityDetection(): boolean {
+  return true;
+}
+
+function isLiveInputDebugEnabled(): boolean {
+  return process.env.NODE_ENV !== "production";
 }
 
 export interface CloudAgentSessionLoopLike {
@@ -505,6 +514,7 @@ export class CloudAgentSession {
   private sessionResumable = false;
   private closePromise: Promise<void> | null = null;
   private pendingVoiceTurnId: string | null = null;
+  private pendingVoiceFinalTranscript: string | null = null;
   private readonly conversationState: HostedConversationStateSnapshot = {
     connected: false,
     connecting: false,
@@ -523,6 +533,8 @@ export class CloudAgentSession {
     lastUserTranscript: "",
     outputTranscript: ""
   };
+  private incomingAudioChunkCount = 0;
+  private incomingActivitySequence = 0;
   private turnSequence = 0;
 
   constructor(
@@ -644,14 +656,19 @@ export class CloudAgentSession {
         },
         realtimeInputConfig: {
           activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
-          automaticActivityDetection: {
-            disabled: false,
-            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
-            // Increase leading capture and end-of-turn patience to reduce clipped openings on Gemini API live.
-            prefixPaddingMs: 720,
-            silenceDurationMs: 260
-          }
+          turnCoverage: TurnCoverage.TURN_INCLUDES_ONLY_ACTIVITY,
+          automaticActivityDetection: usesManualActivityDetection()
+            ? {
+                disabled: true
+              }
+            : {
+                disabled: false,
+                startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+                endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
+                // Increase leading capture and end-of-turn patience to reduce clipped openings on Gemini API live.
+                prefixPaddingMs: 720,
+                silenceDurationMs: 260
+              }
         },
         speechConfig: {
           voiceConfig: {
@@ -779,15 +796,37 @@ export class CloudAgentSession {
         await this.handleTypedTurn(event.text);
         break;
       case "audio_chunk":
+        this.incomingAudioChunkCount += 1;
+        if (
+          isLiveInputDebugEnabled() &&
+          (this.incomingAudioChunkCount <= 3 || this.incomingAudioChunkCount % 20 === 0)
+        ) {
+          console.log(
+            `[live-input][session] recv audio_chunk session=${this.input.brainSessionId} seq=${this.incomingActivitySequence} chunk=${this.incomingAudioChunkCount} bytes=${event.data.length} mime=${event.mimeType ?? "audio/pcm;rate=16000"}`
+          );
+        }
         this.liveSession?.sendRealtimeAudio(event.data, event.mimeType);
         break;
       case "activity_start":
-        if (supportsExplicitVadSignal()) {
+        if (usesManualActivityDetection()) {
+          this.incomingActivitySequence += 1;
+          this.incomingAudioChunkCount = 0;
+          if (isLiveInputDebugEnabled()) {
+            console.log(
+              `[live-input][session] recv activity_start session=${this.input.brainSessionId} seq=${this.incomingActivitySequence}`
+            );
+          }
+          this.liveSession?.clearInputTranscriptPartial();
           this.liveSession?.sendActivityStart();
         }
         break;
       case "activity_end":
-        if (supportsExplicitVadSignal()) {
+        if (usesManualActivityDetection()) {
+          if (isLiveInputDebugEnabled()) {
+            console.log(
+              `[live-input][session] recv activity_end session=${this.input.brainSessionId} seq=${this.incomingActivitySequence} chunks=${this.incomingAudioChunkCount}`
+            );
+          }
           this.liveSession?.sendActivityEnd();
         }
         break;
@@ -893,6 +932,11 @@ export class CloudAgentSession {
     type: string;
     [key: string]: unknown;
   }): Promise<void> {
+    if (this.shouldCommitPendingVoiceTurnOnEvent(event.type)) {
+      await this.commitPendingVoiceUserTurn();
+      this.liveSession?.clearInputTranscriptPartial();
+    }
+
     switch (event.type) {
       case "output_audio":
         this.input.send({
@@ -902,6 +946,11 @@ export class CloudAgentSession {
         });
         return;
       case "output_transcription":
+        if (isLiveInputDebugEnabled()) {
+          console.log(
+            `[live-input][session] output_transcription session=${this.input.brainSessionId} finished=${Boolean(event.finished)} text=${JSON.stringify(String(event.text ?? ""))}`
+          );
+        }
         this.applyAssistantTranscript(
           String(event.text ?? ""),
           Boolean(event.finished)
@@ -931,6 +980,11 @@ export class CloudAgentSession {
         }
         return;
       case "input_transcription_partial":
+        if (isLiveInputDebugEnabled()) {
+          console.log(
+            `[live-input][session] input_transcription_partial session=${this.input.brainSessionId} text=${JSON.stringify(String(event.text ?? ""))}`
+          );
+        }
         this.applyVoiceTranscriptPartial(String(event.text ?? ""));
         this.conversationState.status = "listening";
         this.input.send({
@@ -939,20 +993,37 @@ export class CloudAgentSession {
         });
         return;
       case "input_transcription_final":
+        if (isLiveInputDebugEnabled()) {
+          console.log(
+            `[live-input][session] input_transcription_final session=${this.input.brainSessionId} text=${JSON.stringify(String(event.text ?? ""))}`
+          );
+        }
         await this.handleVoiceTranscriptFinal(String(event.text ?? ""));
         return;
       case "waiting_for_input":
+        if (isLiveInputDebugEnabled()) {
+          console.log(
+            `[live-input][session] waiting_for_input session=${this.input.brainSessionId}`
+          );
+        }
         this.conversationState.status = "listening";
         await this.flushSessionMemoryContextIfNeeded();
+        this.liveSession?.clearInputTranscriptPartial();
         this.input.send({
           type: "conversation_state",
           state: this.getConversationState()
         });
         return;
       case "turn_complete":
+        if (isLiveInputDebugEnabled()) {
+          console.log(
+            `[live-input][session] turn_complete session=${this.input.brainSessionId}`
+          );
+        }
         this.finalizeActiveTurn("completed");
         this.conversationState.status = "listening";
         await this.flushSessionMemoryContextIfNeeded();
+        this.liveSession?.clearInputTranscriptPartial();
         this.input.send({
           type: "conversation_state",
           state: this.getConversationState()
@@ -961,6 +1032,7 @@ export class CloudAgentSession {
       case "interrupted":
         this.finalizeActiveTurn("completed", true);
         this.conversationState.status = "interrupted";
+        this.liveSession?.clearInputTranscriptPartial();
         this.input.send({
           type: "conversation_state",
           state: this.getConversationState()
@@ -1026,30 +1098,31 @@ export class CloudAgentSession {
   }
 
   private async handleVoiceTranscriptFinal(text: string): Promise<void> {
-    const normalizedText = text.trim();
+    const normalizedText = this.resolveVoiceTranscriptFinalText(text);
+    if (isLiveInputDebugEnabled()) {
+      console.log(
+        `[live-input][session] handleVoiceTranscriptFinal session=${this.input.brainSessionId} raw=${JSON.stringify(text)} normalized=${JSON.stringify(normalizedText)} pendingTurn=${this.pendingVoiceTurnId ?? "none"} activeTurn=${this.conversationState.activeTurnId ?? "none"}`
+      );
+    }
     if (!normalizedText) {
+      this.pendingVoiceFinalTranscript = null;
+      this.discardPendingVoiceTurn();
+      this.conversationState.inputPartial = "";
+      this.conversationState.status = "listening";
+      this.input.send({
+        type: "conversation_state",
+        state: this.getConversationState()
+      });
       return;
     }
 
-    const createdAt = this.now();
-    const turnId = this.finalizeVoiceUserTurn(normalizedText, createdAt);
-    this.conversationState.activeTurnId = turnId;
-    this.pendingVoiceTurnId = null;
-    this.conversationState.inputPartial = "";
-    this.conversationState.lastUserTranscript = normalizedText;
-    this.conversationState.outputTranscript = "";
-    this.conversationState.status = "thinking";
+    if (!this.pendingVoiceTurnId && this.shouldTreatVoiceTranscriptFinalAsLateUpdate()) {
+      await this.applyLateVoiceTranscriptFinal(normalizedText);
+      return;
+    }
 
-    const persistence = await this.persistencePromise;
-    await persistence.conversationRepository.save({
-      brainSessionId: this.input.brainSessionId,
-      speaker: "user",
-      text: normalizedText,
-      createdAt
-    });
-    await this.touchBrainSession(createdAt);
-    this.queueSessionMemoryCapture(normalizedText, createdAt);
-
+    this.pendingVoiceFinalTranscript = normalizedText;
+    this.conversationState.inputPartial = normalizedText;
     this.input.send({
       type: "conversation_state",
       state: this.getConversationState()
@@ -1330,7 +1403,7 @@ export class CloudAgentSession {
       (item: ConversationTimelineItem) => item.id === assistantMessageId
     );
     const mergedText = finished
-      ? text.trim()
+      ? mergeStreamingTranscript(existing?.text ?? "", text).trim()
       : mergeStreamingTranscript(existing?.text ?? "", text);
     const nextItem: ConversationTimelineItem = {
       id: assistantMessageId,
@@ -1398,6 +1471,9 @@ export class CloudAgentSession {
 
   private applyVoiceTranscriptPartial(text: string): void {
     const normalizedText = text.trim();
+    if (!this.pendingVoiceTurnId) {
+      this.pendingVoiceFinalTranscript = null;
+    }
     this.conversationState.inputPartial = normalizedText;
     if (!normalizedText) {
       return;
@@ -1442,8 +1518,225 @@ export class CloudAgentSession {
     });
   }
 
+  private async commitPendingVoiceUserTurn(): Promise<string | null> {
+    const normalizedText = this.resolveVoiceTranscriptFinalText(
+      this.pendingVoiceFinalTranscript ?? ""
+    );
+    if (isLiveInputDebugEnabled()) {
+      console.log(
+        `[live-input][session] commitPendingVoiceUserTurn session=${this.input.brainSessionId} pendingFinal=${JSON.stringify(this.pendingVoiceFinalTranscript ?? "")} inputPartial=${JSON.stringify(this.conversationState.inputPartial)} resolved=${JSON.stringify(normalizedText)}`
+      );
+    }
+    if (!this.shouldPersistVoiceTranscript(normalizedText)) {
+      this.clearUncommittedVoiceTurnState();
+      return null;
+    }
+
+    const createdAt = this.now();
+    const turnId = this.finalizeVoiceUserTurn(normalizedText, createdAt);
+    this.conversationState.activeTurnId ??= turnId;
+    this.pendingVoiceTurnId = null;
+    this.pendingVoiceFinalTranscript = null;
+    this.conversationState.inputPartial = "";
+    this.conversationState.lastUserTranscript = normalizedText;
+    this.conversationState.outputTranscript = "";
+    this.conversationState.status = "thinking";
+
+    const persistence = await this.persistencePromise;
+    await persistence.conversationRepository.save({
+      brainSessionId: this.input.brainSessionId,
+      speaker: "user",
+      text: normalizedText,
+      createdAt
+    });
+    await this.touchBrainSession(createdAt);
+    this.queueSessionMemoryCapture(normalizedText, createdAt);
+    return turnId;
+  }
+
+  private shouldCommitPendingVoiceTurnOnEvent(eventType: string): boolean {
+    if (!this.hasPendingVoiceTranscriptState()) {
+      return false;
+    }
+
+    switch (eventType) {
+      case "output_transcription":
+        return Boolean(this.pendingVoiceFinalTranscript?.trim());
+      case "tool_call":
+      case "waiting_for_input":
+      case "turn_complete":
+      case "interrupted":
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private resolveVoiceTranscriptFinalText(text: string): string {
+    const normalizedText = text.trim();
+    const inputPartial = this.conversationState.inputPartial.trim();
+    const lastUserTranscript = this.conversationState.lastUserTranscript.trim();
+
+    if (normalizedText && inputPartial && lastUserTranscript) {
+      const normalizedLower = normalizedText.toLowerCase();
+      const lastUserLower = lastUserTranscript.toLowerCase();
+      if (
+        normalizedLower.startsWith(lastUserLower) &&
+        normalizedLower !== lastUserLower
+      ) {
+        const strippedCarryOver = normalizedText
+          .slice(lastUserTranscript.length)
+          .trimStart();
+        if (
+          strippedCarryOver &&
+          (strippedCarryOver.toLowerCase().includes(inputPartial.toLowerCase()) ||
+            inputPartial.toLowerCase().includes(strippedCarryOver.toLowerCase()))
+        ) {
+          return inputPartial.length >= strippedCarryOver.length
+            ? inputPartial
+            : strippedCarryOver;
+        }
+      }
+    }
+
+    if (normalizedText) {
+      return normalizedText;
+    }
+
+    if (inputPartial) {
+      return inputPartial;
+    }
+
+    if (!this.pendingVoiceTurnId) {
+      return "";
+    }
+
+    const pendingUserMessage = this.conversationState.conversationTimeline.find(
+      (item: ConversationTimelineItem) => item.id === `${this.pendingVoiceTurnId}:user`
+    );
+    return pendingUserMessage?.text.trim() ?? "";
+  }
+
+  private shouldTreatVoiceTranscriptFinalAsLateUpdate(): boolean {
+    const activeTurnId = this.conversationState.activeTurnId;
+    if (!activeTurnId) {
+      return false;
+    }
+
+    const activeTurn = this.conversationState.conversationTurns.find(
+      (turn: ConversationTurnViewModel) => turn.turnId === activeTurnId
+    );
+    if (activeTurn?.inputMode !== "voice") {
+      return false;
+    }
+
+    const hasUserOrAssistantMessage = this.conversationState.conversationTimeline.some(
+      (item: ConversationTimelineItem) =>
+        item.turnId === activeTurnId &&
+        (item.id === `${activeTurnId}:user` || item.id === `${activeTurnId}:assistant`)
+    );
+
+    return hasUserOrAssistantMessage;
+  }
+
+  private async applyLateVoiceTranscriptFinal(normalizedText: string): Promise<void> {
+    const activeTurnId = this.conversationState.activeTurnId;
+    if (!activeTurnId) {
+      return;
+    }
+
+    if (isLiveInputDebugEnabled()) {
+      console.log(
+        `[live-input][session] applyLateVoiceTranscriptFinal session=${this.input.brainSessionId} turn=${activeTurnId} text=${JSON.stringify(normalizedText)}`
+      );
+    }
+
+    const createdAt = this.now();
+    const userMessageId = `${activeTurnId}:user`;
+    const existingUserItem = this.conversationState.conversationTimeline.find(
+      (item: ConversationTimelineItem) => item.id === userMessageId
+    );
+    const assistantItem = this.conversationState.conversationTimeline.find(
+      (item: ConversationTimelineItem) => item.id === `${activeTurnId}:assistant`
+    );
+    const activeTurn = this.conversationState.conversationTurns.find(
+      (turn: ConversationTurnViewModel) => turn.turnId === activeTurnId
+    );
+    const userCreatedAt =
+      existingUserItem?.createdAt ??
+      this.resolveLateVoiceUserCreatedAt(activeTurn?.startedAt, assistantItem?.createdAt, createdAt);
+
+    this.upsertTimelineItem({
+      id: userMessageId,
+      turnId: activeTurnId,
+      kind: "user_message",
+      inputMode: "voice",
+      speaker: "user",
+      text: normalizedText,
+      partial: false,
+      streaming: false,
+      interrupted: false,
+      responseSource: "live",
+      createdAt: userCreatedAt,
+      updatedAt: createdAt
+    });
+    this.upsertTurn({
+      turnId: activeTurnId,
+      inputMode: "voice",
+      stage: activeTurn?.stage ?? "responding",
+      userMessageId,
+      assistantMessageId: activeTurn?.assistantMessageId,
+      startedAt: activeTurn?.startedAt ?? existingUserItem?.createdAt ?? createdAt,
+      updatedAt: createdAt
+    });
+
+    this.pendingVoiceFinalTranscript = null;
+    this.conversationState.inputPartial = "";
+    this.conversationState.lastUserTranscript = normalizedText;
+
+    const persistence = await this.persistencePromise;
+    const replaced = await persistence.conversationRepository.replaceLatest({
+      brainSessionId: this.input.brainSessionId,
+      speaker: "user",
+      text: normalizedText
+    });
+    if (!replaced) {
+      await persistence.conversationRepository.save({
+        brainSessionId: this.input.brainSessionId,
+        speaker: "user",
+        text: normalizedText,
+        createdAt: userCreatedAt
+      });
+    }
+
+    this.input.send({
+      type: "conversation_state",
+      state: this.getConversationState()
+    });
+  }
+
+  private discardPendingVoiceTurn(): void {
+    if (!this.pendingVoiceTurnId) {
+      return;
+    }
+
+    const pendingTurnId = this.pendingVoiceTurnId;
+    this.conversationState.conversationTimeline = this.conversationState.conversationTimeline.filter(
+      (item: ConversationTimelineItem) => item.turnId !== pendingTurnId
+    );
+    this.conversationState.conversationTurns = this.conversationState.conversationTurns.filter(
+      (turn: ConversationTurnViewModel) => turn.turnId !== pendingTurnId
+    );
+    if (this.conversationState.activeTurnId === pendingTurnId) {
+      this.conversationState.activeTurnId = null;
+    }
+    this.pendingVoiceTurnId = null;
+    this.pendingVoiceFinalTranscript = null;
+  }
+
   private finalizeVoiceUserTurn(text: string, createdAt: string): string {
-    const existingTurnId = this.pendingVoiceTurnId;
+    const existingTurnId =
+      this.pendingVoiceTurnId ?? this.findActiveVoiceTurnIdForCommit();
     if (!existingTurnId) {
       return this.createUserTurn("voice", text, createdAt);
     }
@@ -1475,6 +1768,125 @@ export class CloudAgentSession {
     });
 
     return existingTurnId;
+  }
+
+  private hasPendingVoiceTranscriptState(): boolean {
+    if (this.pendingVoiceTurnId || this.pendingVoiceFinalTranscript) {
+      return true;
+    }
+
+    if (this.conversationState.inputPartial.trim()) {
+      return true;
+    }
+
+    const activeTurnId = this.findActiveVoiceTurnIdForCommit();
+    if (!activeTurnId) {
+      return false;
+    }
+
+    return this.conversationState.conversationTimeline.some(
+      (item: ConversationTimelineItem) =>
+        item.id === `${activeTurnId}:user` && item.speaker === "user"
+    );
+  }
+
+  private shouldPersistVoiceTranscript(text: string): boolean {
+    const normalizedText = text.trim();
+    if (!normalizedText) {
+      return false;
+    }
+
+    if (this.pendingVoiceFinalTranscript?.trim()) {
+      return true;
+    }
+
+    return /[\p{L}\p{N}]/u.test(normalizedText);
+  }
+
+  private clearUncommittedVoiceTurnState(): void {
+    if (this.pendingVoiceTurnId) {
+      this.discardPendingVoiceTurn();
+    } else {
+      this.discardActiveVoiceUserPlaceholder();
+      this.pendingVoiceFinalTranscript = null;
+    }
+
+    this.conversationState.inputPartial = "";
+    this.input.send({
+      type: "conversation_state",
+      state: this.getConversationState()
+    });
+  }
+
+  private findActiveVoiceTurnIdForCommit(): string | null {
+    const activeTurnId = this.conversationState.activeTurnId;
+    if (!activeTurnId) {
+      return null;
+    }
+
+    const activeTurn = this.conversationState.conversationTurns.find(
+      (turn: ConversationTurnViewModel) => turn.turnId === activeTurnId
+    );
+    if (activeTurn?.inputMode !== "voice") {
+      return null;
+    }
+
+    return activeTurnId;
+  }
+
+  private discardActiveVoiceUserPlaceholder(): void {
+    const activeTurnId = this.findActiveVoiceTurnIdForCommit();
+    if (!activeTurnId) {
+      return;
+    }
+
+    const userMessageId = `${activeTurnId}:user`;
+    const hasPartialUserItem = this.conversationState.conversationTimeline.some(
+      (item: ConversationTimelineItem) =>
+        item.id === userMessageId && item.partial === true
+    );
+    if (!hasPartialUserItem) {
+      return;
+    }
+
+    this.conversationState.conversationTimeline = this.conversationState.conversationTimeline.filter(
+      (item: ConversationTimelineItem) => item.id !== userMessageId
+    );
+    const activeTurn = this.conversationState.conversationTurns.find(
+      (turn: ConversationTurnViewModel) => turn.turnId === activeTurnId
+    );
+    this.upsertTurn({
+      turnId: activeTurnId,
+      inputMode: "voice",
+      stage: activeTurn?.stage ?? "responding",
+      userMessageId: undefined,
+      updatedAt: this.now()
+    });
+  }
+
+  private resolveLateVoiceUserCreatedAt(
+    startedAt: string | undefined,
+    assistantCreatedAt: string | undefined,
+    fallback: string
+  ): string {
+    const startedTimestamp = startedAt ? new Date(startedAt).getTime() : Number.NaN;
+    const assistantTimestamp = assistantCreatedAt
+      ? new Date(assistantCreatedAt).getTime()
+      : Number.NaN;
+
+    if (Number.isFinite(startedTimestamp) && Number.isFinite(assistantTimestamp)) {
+      return new Date(Math.min(startedTimestamp, assistantTimestamp - 1)).toISOString();
+    }
+
+    if (Number.isFinite(startedTimestamp)) {
+      return new Date(startedTimestamp).toISOString();
+    }
+
+    if (Number.isFinite(assistantTimestamp)) {
+      return new Date(assistantTimestamp - 1).toISOString();
+    }
+
+    return fallback;
   }
 
   private upsertTimelineItem(nextItem: ConversationTimelineItem): void {

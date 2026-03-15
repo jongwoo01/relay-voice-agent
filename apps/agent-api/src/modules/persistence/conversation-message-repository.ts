@@ -5,6 +5,11 @@ import { normalizePostgresTimestamp } from "./postgres-value-normalizer.js";
 export interface ConversationMessageRepository {
   listByBrainSessionId(brainSessionId: string): Promise<ConversationMessage[]>;
   save(message: ConversationMessage): Promise<void>;
+  replaceLatest(input: {
+    brainSessionId: string;
+    speaker: ConversationMessage["speaker"];
+    text: string;
+  }): Promise<boolean>;
 }
 
 export class InMemoryConversationMessageRepository
@@ -15,12 +20,37 @@ export class InMemoryConversationMessageRepository
   async listByBrainSessionId(
     brainSessionId: string
   ): Promise<ConversationMessage[]> {
-    return this.messages.get(brainSessionId) ?? [];
+    return [...(this.messages.get(brainSessionId) ?? [])].sort(
+      (left, right) =>
+        new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+    );
   }
 
   async save(message: ConversationMessage): Promise<void> {
     const current = this.messages.get(message.brainSessionId) ?? [];
     this.messages.set(message.brainSessionId, [...current, message]);
+  }
+
+  async replaceLatest(input: {
+    brainSessionId: string;
+    speaker: ConversationMessage["speaker"];
+    text: string;
+  }): Promise<boolean> {
+    const current = this.messages.get(input.brainSessionId) ?? [];
+    for (let index = current.length - 1; index >= 0; index -= 1) {
+      if (current[index]?.speaker !== input.speaker) {
+        continue;
+      }
+
+      current[index] = {
+        ...current[index],
+        text: input.text
+      };
+      this.messages.set(input.brainSessionId, [...current]);
+      return true;
+    }
+
+    return false;
   }
 }
 
@@ -91,5 +121,32 @@ export class PostgresConversationMessageRepository
         message.createdAt
       ]
     );
+  }
+
+  async replaceLatest(input: {
+    brainSessionId: string;
+    speaker: ConversationMessage["speaker"];
+    text: string;
+  }): Promise<boolean> {
+    const result = await this.sql.query<{ id: string }>(
+      `
+        with target as (
+          select id
+          from conversation_messages
+          where brain_session_id = $1
+            and speaker = $2
+          order by created_at desc, id desc
+          limit 1
+        )
+        update conversation_messages cm
+        set text = $3
+        from target
+        where cm.id = target.id
+        returning cm.id
+      `,
+      [input.brainSessionId, input.speaker, input.text]
+    );
+
+    return result.rows.length > 0;
   }
 }

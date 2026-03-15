@@ -54,6 +54,10 @@ export class LiveSessionController {
     this.transcriptAdapter.resetSession(brainSessionId);
   }
 
+  clearPartial(brainSessionId: string): void {
+    this.transcriptAdapter.clearPartial(brainSessionId);
+  }
+
   private toTurnResult(result: LiveTranscriptResult): LiveSessionTurnResult {
     if (!result.isFinal) {
       return {

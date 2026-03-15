@@ -65,6 +65,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     const liveTransport = {
@@ -119,7 +120,7 @@ describe("CloudAgentSession", () => {
     );
   });
 
-  it("accepts activity boundary events without breaking Gemini API live sessions", async () => {
+  it("forwards manual activity boundary events to the live session", async () => {
     const liveSession = {
       sendText: vi.fn(),
       sendContext: vi.fn(),
@@ -129,6 +130,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     const liveTransport = {
@@ -160,8 +162,8 @@ describe("CloudAgentSession", () => {
     await session.handleClientEvent({ type: "activity_start" });
     await session.handleClientEvent({ type: "activity_end" });
 
-    expect(liveSession.sendActivityStart).toHaveBeenCalledTimes(0);
-    expect(liveSession.sendActivityEnd).toHaveBeenCalledTimes(0);
+    expect(liveSession.sendActivityStart).toHaveBeenCalledTimes(1);
+    expect(liveSession.sendActivityEnd).toHaveBeenCalledTimes(1);
   });
 
   it("marks the brain session closed when the session ends explicitly", async () => {
@@ -182,6 +184,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     const session = new CloudAgentSession(
@@ -236,6 +239,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     const liveTransport = {
@@ -281,6 +285,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
@@ -349,6 +354,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     const session = new CloudAgentSession(
@@ -394,6 +400,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
@@ -480,6 +487,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
@@ -563,6 +571,474 @@ describe("CloudAgentSession", () => {
     ]);
   });
 
+  it("finalizes the pending voice turn from stored partial text when the final chunk is empty", async () => {
+    const sentEvents: Array<{ type: string; state?: any }> = [];
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
+      close: vi.fn()
+    };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-empty-final",
+        userId: "user-empty-final",
+        send: (event) => {
+          sentEvents.push(event as { type: string; state?: any });
+        }
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-15T02:00:00.000Z"
+      }
+    );
+
+    await session.start();
+
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_partial",
+      text: "check my desktop"
+    });
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_final",
+      text: ""
+    });
+    await liveCallbacks?.onevent?.({
+      type: "output_transcription",
+      text: "Okay, I'll check it now.",
+      finished: true
+    });
+
+    const conversationStates = sentEvents.filter((event) => event.type === "conversation_state");
+    const lastState = conversationStates.at(-1)?.state;
+
+    expect(lastState).toEqual(
+      expect.objectContaining({
+        inputPartial: "",
+        lastUserTranscript: "check my desktop",
+        outputTranscript: "Okay, I'll check it now.",
+        status: "thinking"
+      })
+    );
+    expect(lastState?.conversationTimeline).toEqual([
+      expect.objectContaining({
+        id: "turn-1:user",
+        speaker: "user",
+        text: "check my desktop",
+        partial: false,
+        streaming: false
+      }),
+      expect.objectContaining({
+        id: "turn-1:assistant",
+        speaker: "assistant",
+        text: "Okay, I'll check it now.",
+        partial: false,
+        streaming: false
+      })
+    ]);
+  });
+
+  it("waits for an authoritative boundary before persisting a partial-only voice turn", async () => {
+    const persistence = createInMemorySessionPersistence();
+    const sentEvents: Array<{ type: string; state?: any }> = [];
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
+      close: vi.fn()
+    };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-partial-boundary",
+        userId: "user-partial-boundary",
+        send: (event) => {
+          sentEvents.push(event as { type: string; state?: any });
+        }
+      },
+      {
+        createPersistence: async () => persistence,
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-15T02:30:00.000Z"
+      }
+    );
+
+    await session.start();
+
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_partial",
+      text: "check my desktop"
+    });
+    await liveCallbacks?.onevent?.({
+      type: "output_transcription",
+      text: "Okay, I'll check it now.",
+      finished: true
+    });
+
+    await expect(
+      persistence.conversationRepository.listByBrainSessionId("brain-partial-boundary")
+    ).resolves.toEqual([
+      expect.objectContaining({
+        speaker: "assistant",
+        text: "Okay, I'll check it now."
+      })
+    ]);
+
+    await liveCallbacks?.onevent?.({
+      type: "waiting_for_input"
+    });
+
+    await expect(
+      persistence.conversationRepository.listByBrainSessionId("brain-partial-boundary")
+    ).resolves.toEqual([
+      expect.objectContaining({
+        speaker: "assistant",
+        text: "Okay, I'll check it now."
+      }),
+      expect.objectContaining({
+        speaker: "user",
+        text: "check my desktop"
+      })
+    ]);
+
+    const conversationStates = sentEvents.filter((event) => event.type === "conversation_state");
+    const lastState = conversationStates.at(-1)?.state;
+    expect(lastState?.conversationTimeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "turn-1:user",
+          text: "check my desktop",
+          partial: false,
+          streaming: false
+        }),
+        expect.objectContaining({
+          id: "turn-1:assistant",
+          text: "Okay, I'll check it now."
+        })
+      ])
+    );
+  });
+
+  it("commits each voice turn at the response boundary instead of carrying prior finalized text forward", async () => {
+    const sentEvents: Array<{ type: string; state?: any }> = [];
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
+      close: vi.fn()
+    };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-turn-boundary",
+        userId: "user-turn-boundary",
+        send: (event) => {
+          sentEvents.push(event as { type: string; state?: any });
+        }
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-15T03:00:00.000Z"
+      }
+    );
+
+    await session.start();
+
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_partial",
+      text: "너무 좋아요."
+    });
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_final",
+      text: "너무 좋아요."
+    });
+    await liveCallbacks?.onevent?.({
+      type: "output_transcription",
+      text: "정말 다행이에요!",
+      finished: true
+    });
+    await liveCallbacks?.onevent?.({
+      type: "turn_complete"
+    });
+
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_partial",
+      text: "그리고지금내가당신을사랑한다고얘기해도될까?"
+    });
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_final",
+      text: "너무 좋아요.그리고지금내가당신을사랑한다고얘기해도될까?"
+    });
+    await liveCallbacks?.onevent?.({
+      type: "output_transcription",
+      text: "말씀은 감사히 들을게요.",
+      finished: true
+    });
+
+    const conversationStates = sentEvents.filter((event) => event.type === "conversation_state");
+    const lastState = conversationStates.at(-1)?.state;
+
+    expect(lastState?.conversationTimeline).toEqual([
+      expect.objectContaining({
+        id: "turn-1:user",
+        text: "너무 좋아요."
+      }),
+      expect.objectContaining({
+        id: "turn-1:assistant",
+        text: "정말 다행이에요!"
+      }),
+      expect.objectContaining({
+        id: "turn-2:user",
+        text: "그리고지금내가당신을사랑한다고얘기해도될까?"
+      }),
+      expect.objectContaining({
+        id: "turn-2:assistant",
+        text: "말씀은 감사히 들을게요."
+      })
+    ]);
+  });
+
+  it("applies a late voice final transcript to the existing user turn instead of creating a new one", async () => {
+    const persistence = createInMemorySessionPersistence();
+    const sentEvents: Array<{ type: string; state?: any }> = [];
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
+      close: vi.fn()
+    };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-late-final",
+        userId: "user-late-final",
+        send: (event) => {
+          sentEvents.push(event as { type: string; state?: any });
+        }
+      },
+      {
+        createPersistence: async () => persistence,
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-15T03:30:00.000Z"
+      }
+    );
+
+    await session.start();
+
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_partial",
+      text: "그리고지금"
+    });
+    await liveCallbacks?.onevent?.({
+      type: "output_transcription",
+      text: "네, 말씀하세요.",
+      finished: true
+    });
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_final",
+      text: "그리고지금내가당신을사랑한다고얘기해도될까?"
+    });
+
+    const conversationStates = sentEvents.filter((event) => event.type === "conversation_state");
+    const lastState = conversationStates.at(-1)?.state;
+
+    expect(lastState?.conversationTimeline).toEqual([
+      expect.objectContaining({
+        id: "turn-1:user",
+        text: "그리고지금내가당신을사랑한다고얘기해도될까?",
+        partial: false,
+        streaming: false
+      }),
+      expect.objectContaining({
+        id: "turn-1:assistant",
+        text: "네, 말씀하세요."
+      })
+    ]);
+
+    await expect(
+      persistence.conversationRepository.listByBrainSessionId("brain-late-final")
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          speaker: "user",
+          text: "그리고지금내가당신을사랑한다고얘기해도될까?"
+        }),
+        expect.objectContaining({
+          speaker: "assistant",
+          text: "네, 말씀하세요."
+        })
+      ])
+    );
+  });
+
+  it("drops punctuation-only partial placeholders instead of persisting them as user turns", async () => {
+    const persistence = createInMemorySessionPersistence();
+    const sentEvents: Array<{ type: string; state?: any }> = [];
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
+      close: vi.fn()
+    };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-punctuation-only",
+        userId: "user-punctuation-only",
+        send: (event) => {
+          sentEvents.push(event as { type: string; state?: any });
+        }
+      },
+      {
+        createPersistence: async () => persistence,
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-15T03:40:00.000Z"
+      }
+    );
+
+    await session.start();
+
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_partial",
+      text: "."
+    });
+    await liveCallbacks?.onevent?.({
+      type: "output_transcription",
+      text: "Hello, how can I help you today?",
+      finished: true
+    });
+    await liveCallbacks?.onevent?.({
+      type: "waiting_for_input"
+    });
+
+    await expect(
+      persistence.conversationRepository.listByBrainSessionId("brain-punctuation-only")
+    ).resolves.toEqual([
+      expect.objectContaining({
+        speaker: "assistant",
+        text: "Hello, how can I help you today?"
+      })
+    ]);
+
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_final",
+      text: "really love you know"
+    });
+
+    const conversationStates = sentEvents.filter((event) => event.type === "conversation_state");
+    const lastState = conversationStates.at(-1)?.state;
+    expect(lastState?.conversationTimeline).toEqual([
+      expect.objectContaining({
+        id: "turn-1:user",
+        text: "really love you know",
+        partial: false,
+        streaming: false
+      }),
+      expect.objectContaining({
+        id: "turn-1:assistant",
+        text: "Hello, how can I help you today?"
+      })
+    ]);
+  });
+
   it("ignores late audio events after the live session closes", async () => {
     const liveSession = {
       sendText: vi.fn(),
@@ -573,6 +1049,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
@@ -633,6 +1110,7 @@ describe("CloudAgentSession", () => {
         sendActivityStart: vi.fn(),
         sendActivityEnd: vi.fn(),
         sendAudioStreamEnd: vi.fn(),
+        clearInputTranscriptPartial: vi.fn(),
         close: vi.fn()
       },
       {
@@ -644,6 +1122,7 @@ describe("CloudAgentSession", () => {
         sendActivityStart: vi.fn(),
         sendActivityEnd: vi.fn(),
         sendAudioStreamEnd: vi.fn(),
+        clearInputTranscriptPartial: vi.fn(),
         close: vi.fn()
       }
     ];
@@ -723,6 +1202,7 @@ describe("CloudAgentSession", () => {
         sendActivityStart: vi.fn(),
         sendActivityEnd: vi.fn(),
         sendAudioStreamEnd: vi.fn(),
+        clearInputTranscriptPartial: vi.fn(),
         close: vi.fn()
       },
       {
@@ -734,6 +1214,7 @@ describe("CloudAgentSession", () => {
         sendActivityStart: vi.fn(),
         sendActivityEnd: vi.fn(),
         sendAudioStreamEnd: vi.fn(),
+        clearInputTranscriptPartial: vi.fn(),
         close: vi.fn()
       }
     ];
@@ -818,6 +1299,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     const liveTransport = {
@@ -856,7 +1338,13 @@ describe("CloudAgentSession", () => {
           ),
           contextWindowCompression: {
             slidingWindow: {}
-          }
+          },
+          realtimeInputConfig: expect.objectContaining({
+            turnCoverage: "TURN_INCLUDES_ONLY_ACTIVITY",
+            automaticActivityDetection: {
+              disabled: true
+            }
+          })
         })
       })
     );
@@ -882,6 +1370,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
@@ -1115,6 +1604,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
@@ -1259,6 +1749,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
@@ -1337,6 +1828,7 @@ describe("CloudAgentSession", () => {
       sendActivityStart: vi.fn(),
       sendActivityEnd: vi.fn(),
       sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
       close: vi.fn()
     };
     let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;

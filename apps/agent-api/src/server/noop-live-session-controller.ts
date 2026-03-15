@@ -2,6 +2,7 @@ import type {
   FinalizedUtterance,
   IntentType
 } from "@agent/shared-types";
+import { StreamingTranscriptAccumulator } from "../modules/live/streaming-transcript-accumulator.js";
 
 export interface NoopLiveTranscriptChunk {
   text: string;
@@ -16,27 +17,24 @@ export interface NoopLiveTranscriptResult {
 }
 
 export class NoopLiveSessionController {
-  private readonly partialBySession = new Map<string, string>();
+  private readonly accumulator = new StreamingTranscriptAccumulator();
 
   async handleTranscriptChunk(input: {
     brainSessionId: string;
     chunk: NoopLiveTranscriptChunk;
   }): Promise<NoopLiveTranscriptResult> {
-    const text = input.chunk.text.trim();
+    const transcript = this.accumulator.handleChunk({
+      sessionKey: input.brainSessionId,
+      text: input.chunk.text,
+      isFinal: input.chunk.isFinal
+    });
+    const finalizedText = transcript.finalizedText ?? "";
 
     if (!input.chunk.isFinal) {
-      if (text) {
-        this.partialBySession.set(input.brainSessionId, text);
-      }
-
       return {
-        partialText: this.partialBySession.get(input.brainSessionId) ?? text
+        partialText: transcript.partialText
       };
     }
-
-    const finalizedText =
-      text || this.partialBySession.get(input.brainSessionId)?.trim() || "";
-    this.partialBySession.delete(input.brainSessionId);
 
     if (!finalizedText) {
       return {};
@@ -52,6 +50,10 @@ export class NoopLiveSessionController {
   }
 
   resetSession(brainSessionId: string): void {
-    this.partialBySession.delete(brainSessionId);
+    this.accumulator.resetSession(brainSessionId);
+  }
+
+  clearPartial(brainSessionId: string): void {
+    this.accumulator.clearPartial(brainSessionId);
   }
 }
