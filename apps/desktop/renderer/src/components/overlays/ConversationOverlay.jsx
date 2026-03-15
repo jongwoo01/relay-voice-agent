@@ -42,18 +42,17 @@ export function ConversationOverlay({
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3" ref={feedRef}>
             {timeline.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-8">
-                No conversation yet. Speak or type and everything will continue in the same feed.
+                No assistant replies yet.
               </p>
             ) : (
               timeline.map((item) => {
                 const turn = turnsById.get(item.turnId);
-                const isUser = item.speaker === "user";
 
                 return (
-                  <article className={`flex ${isUser ? "justify-end" : "justify-start"}`} key={item.id ?? `${item.turnId}-${item.createdAt}`}>
-                    <div className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-                      isUser ? "bg-blue-500/10 text-blue-800 rounded-br-md" : "bg-gray-50 text-gray-800 rounded-bl-md"
-                    } ${item.partial ? "opacity-60" : ""} ${item.interrupted ? "opacity-40 line-through" : ""}`}>
+                  <article className="flex justify-start" key={item.id ?? `${item.turnId}-${item.createdAt}`}>
+                    <div className={`max-w-[85%] rounded-2xl rounded-bl-md bg-gray-50 px-4 py-3 text-sm leading-relaxed text-gray-800 ${
+                      item.partial ? "opacity-60" : ""
+                    } ${item.interrupted ? "opacity-40 line-through" : ""}`}>
                       <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
                         <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{buildConversationRoleLabel(item)}</span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">{item.inputMode}</span>

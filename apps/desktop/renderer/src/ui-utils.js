@@ -388,9 +388,8 @@ export function buildHistoryEntries(historySummary) {
     const latestTask = (session.recentTasks ?? [])[0];
     const primaryText =
       session.lastAssistantMessage ??
-      session.lastUserMessage ??
       latestTask?.summary ??
-      "No saved conversation preview.";
+      "No assistant reply saved yet.";
     const taskSummary =
       (session.recentTasks ?? []).length > 0
         ? (session.recentTasks ?? [])
@@ -419,64 +418,16 @@ export function buildHistoryEntries(historySummary) {
 export function buildConversationRoleLabel(item) {
   return item.kind === "task_event"
     ? "task event"
-    : item.speaker === "user"
-      ? "you"
-      : item.responseSource
+    : item.responseSource
         ? `assistant · ${item.responseSource}`
         : "assistant";
 }
 
 export function buildDisplayConversationTimeline(uiState) {
-  const timeline = Array.isArray(uiState?.conversationTimeline)
+  const timeline = (Array.isArray(uiState?.conversationTimeline)
     ? [...uiState.conversationTimeline]
-    : [];
-  const partialText = String(uiState?.inputPartial ?? "").trim();
-  const lastUserTranscript = String(uiState?.lastUserTranscript ?? "").trim();
-  const activeTurnId = uiState?.activeTurnId ?? "live-input";
-  const now = new Date().toISOString();
-  const hasLivePartialUserItem = timeline.some(
-    (item) =>
-      item?.speaker === "user" &&
-      item?.partial === true &&
-      String(item?.text ?? "").trim() === partialText
-  );
-
-  if (partialText && !hasLivePartialUserItem) {
-    timeline.push({
-      id: "__live_input_partial__",
-      turnId: activeTurnId,
-      kind: "user_message",
-      inputMode: "voice",
-      speaker: "user",
-      text: partialText,
-      partial: true,
-      streaming: true,
-      interrupted: false,
-      responseSource: "live",
-      createdAt: now,
-      updatedAt: now
-    });
-  } else if (
-    lastUserTranscript &&
-    !timeline.some(
-      (item) => item?.speaker === "user" && String(item?.text ?? "").trim() === lastUserTranscript
-    )
-  ) {
-    timeline.push({
-      id: "__live_input_fallback__",
-      turnId: activeTurnId,
-      kind: "user_message",
-      inputMode: "voice",
-      speaker: "user",
-      text: lastUserTranscript,
-      partial: false,
-      streaming: false,
-      interrupted: false,
-      responseSource: "live",
-      createdAt: now,
-      updatedAt: now
-    });
-  }
+    : []
+  ).filter((item) => item?.speaker !== "user");
 
   const turnsById = new Map((uiState?.conversationTurns ?? []).map((turn) => [turn.turnId, turn]));
 

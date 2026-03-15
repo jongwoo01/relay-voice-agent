@@ -1,0 +1,106 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  connectHostedSession,
+  normalizeJudgePasscode
+} from "./connect-hosted-session.js";
+
+describe("connectHostedSession", () => {
+  it("rejects an empty judge passcode before any connection work starts", async () => {
+    const hideRuntimeError = vi.fn();
+    const showRuntimeError = vi.fn();
+    const stopPlayback = vi.fn();
+    const connect = vi.fn();
+    const startVoiceCapture = vi.fn();
+    const stopVoiceCapture = vi.fn();
+    const disconnect = vi.fn();
+
+    const connected = await connectHostedSession({
+      passcode: "   ",
+      hideRuntimeError,
+      showRuntimeError,
+      stopPlayback,
+      connect,
+      startVoiceCapture,
+      stopVoiceCapture,
+      disconnect
+    });
+
+    expect(connected).toBe(false);
+    expect(hideRuntimeError).not.toHaveBeenCalled();
+    expect(showRuntimeError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Enter the judge passcode to connect."
+      })
+    );
+    expect(stopPlayback).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+    expect(startVoiceCapture).not.toHaveBeenCalled();
+    expect(stopVoiceCapture).not.toHaveBeenCalled();
+    expect(disconnect).not.toHaveBeenCalled();
+  });
+
+  it("connects with the trimmed judge passcode", async () => {
+    const hideRuntimeError = vi.fn();
+    const showRuntimeError = vi.fn();
+    const stopPlayback = vi.fn(async () => undefined);
+    const connect = vi.fn(async () => undefined);
+    const startVoiceCapture = vi.fn(async () => undefined);
+    const stopVoiceCapture = vi.fn(async () => undefined);
+    const disconnect = vi.fn(async () => undefined);
+
+    const connected = await connectHostedSession({
+      passcode: " judge-passcode ",
+      hideRuntimeError,
+      showRuntimeError,
+      stopPlayback,
+      connect,
+      startVoiceCapture,
+      stopVoiceCapture,
+      disconnect
+    });
+
+    expect(connected).toBe(true);
+    expect(hideRuntimeError).toHaveBeenCalledTimes(1);
+    expect(connect).toHaveBeenCalledWith("judge-passcode");
+    expect(startVoiceCapture).toHaveBeenCalledTimes(1);
+    expect(showRuntimeError).not.toHaveBeenCalled();
+    expect(stopVoiceCapture).not.toHaveBeenCalled();
+    expect(disconnect).not.toHaveBeenCalled();
+  });
+
+  it("cleans up after a failed connection attempt", async () => {
+    const failure = new Error("Invalid passcode");
+    const hideRuntimeError = vi.fn();
+    const showRuntimeError = vi.fn();
+    const stopPlayback = vi.fn(async () => undefined);
+    const connect = vi.fn(async () => {
+      throw failure;
+    });
+    const startVoiceCapture = vi.fn(async () => undefined);
+    const stopVoiceCapture = vi.fn(async () => undefined);
+    const disconnect = vi.fn(async () => undefined);
+
+    const connected = await connectHostedSession({
+      passcode: "judge-passcode",
+      hideRuntimeError,
+      showRuntimeError,
+      stopPlayback,
+      connect,
+      startVoiceCapture,
+      stopVoiceCapture,
+      disconnect
+    });
+
+    expect(connected).toBe(false);
+    expect(showRuntimeError).toHaveBeenCalledWith(failure);
+    expect(stopVoiceCapture).toHaveBeenCalledTimes(1);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(startVoiceCapture).not.toHaveBeenCalled();
+  });
+});
+
+describe("normalizeJudgePasscode", () => {
+  it("trims surrounding whitespace", () => {
+    expect(normalizeJudgePasscode(" judge-passcode ")).toBe("judge-passcode");
+  });
+});

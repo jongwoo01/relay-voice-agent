@@ -151,6 +151,7 @@ describe("CloudSessionClient", () => {
   beforeEach(() => {
     runMock.mockReset();
     MockWebSocket.instances.length = 0;
+    delete process.env.JUDGE_PASSCODE;
     vi.stubGlobal("WebSocket", MockWebSocket);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -170,6 +171,19 @@ describe("CloudSessionClient", () => {
         })
       };
     }));
+  });
+
+  it("requires an explicit judge passcode instead of falling back to env", async () => {
+    process.env.JUDGE_PASSCODE = "env-passcode";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host"
+    });
+
+    await expect(client.connect()).rejects.toThrow("Judge passcode is required to connect.");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("executes remote executor requests through the local worker and sends terminal events back", async () => {

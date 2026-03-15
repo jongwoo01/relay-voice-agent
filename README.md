@@ -199,6 +199,7 @@ npm run dev:desktop
 Desktop environment:
 
 - `AGENT_CLOUD_URL` pointing at the Cloud Run or local agent service
+- judge passcode entered in the desktop lock screen at runtime
 - local `gemini` CLI installed if you want real local task execution
 - microphone permissions enabled
 

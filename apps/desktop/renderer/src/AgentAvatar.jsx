@@ -1,6 +1,19 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import * as THREE from "three";
+import {
+  AdditiveBlending,
+  BoxGeometry,
+  Color,
+  DoubleSide,
+  DynamicDrawUsage,
+  EdgesGeometry,
+  Euler,
+  LineBasicMaterial,
+  MathUtils,
+  Object3D,
+  ShaderMaterial,
+  Vector3
+} from "three";
 
 const PALETTES = {
   idle: {
@@ -222,14 +235,14 @@ function createLayerConfigs(count, seedOffset, minScale, maxScale) {
 
 function createInstanceStates(configs) {
   return configs.map(() => ({
-    position: new THREE.Vector3(),
-    rotation: new THREE.Euler(),
-    scale: new THREE.Vector3(1, 1, 1)
+    position: new Vector3(),
+    rotation: new Euler(),
+    scale: new Vector3(1, 1, 1)
   }));
 }
 
 function createHologramMaterial() {
-  return new THREE.ShaderMaterial({
+  return new ShaderMaterial({
     uniforms: {
       time: { value: 0 },
       fresnelAmount: { value: 0.74 },
@@ -239,15 +252,15 @@ function createHologramMaterial() {
       energy: { value: 0 },
       glitchAmount: { value: 0.035 },
       opacity: { value: 0.74 },
-      hologramColor: { value: new THREE.Color("#67ddff") },
-      accentColor: { value: new THREE.Color("#9b93ff") }
+      hologramColor: { value: new Color("#67ddff") },
+      accentColor: { value: new Color("#9b93ff") }
     },
     vertexShader: HOLOGRAM_VERTEX_SHADER,
     fragmentShader: HOLOGRAM_FRAGMENT_SHADER,
     transparent: true,
     depthWrite: false,
-    side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
+    side: DoubleSide,
+    blending: AdditiveBlending,
     toneMapped: false
   });
 }
@@ -482,11 +495,11 @@ function ClusteredCubeAvatar({
   const shellMaterial = useMemo(() => createHologramMaterial(), []);
   const outerEdgeMaterial = useMemo(
     () =>
-      new THREE.LineBasicMaterial({
-        color: new THREE.Color(palette.hologram),
+      new LineBasicMaterial({
+        color: new Color(palette.hologram),
         transparent: true,
         opacity: 0.84,
-        blending: THREE.AdditiveBlending,
+        blending: AdditiveBlending,
         depthWrite: false,
         toneMapped: false
       }),
@@ -494,11 +507,11 @@ function ClusteredCubeAvatar({
   );
   const innerEdgeMaterial = useMemo(
     () =>
-      new THREE.LineBasicMaterial({
-        color: new THREE.Color(palette.accent),
+      new LineBasicMaterial({
+        color: new Color(palette.accent),
         transparent: true,
         opacity: 0.56,
-        blending: THREE.AdditiveBlending,
+        blending: AdditiveBlending,
         depthWrite: false,
         toneMapped: false
       }),
@@ -506,20 +519,20 @@ function ClusteredCubeAvatar({
   );
   const thinkingFrameMaterial = useMemo(
     () =>
-      new THREE.LineBasicMaterial({
-        color: new THREE.Color(palette.rim),
+      new LineBasicMaterial({
+        color: new Color(palette.rim),
         transparent: true,
         opacity: 0.18,
-        blending: THREE.AdditiveBlending,
+        blending: AdditiveBlending,
         depthWrite: false,
         toneMapped: false
       }),
     [palette.rim]
   );
 
-  const outerEdges = useMemo(() => new THREE.EdgesGeometry(new THREE.BoxGeometry(1.48, 1.48, 1.48)), []);
-  const innerEdges = useMemo(() => new THREE.EdgesGeometry(new THREE.BoxGeometry(0.78, 0.78, 0.78)), []);
-  const thinkingEdges = useMemo(() => new THREE.EdgesGeometry(new THREE.BoxGeometry(2.54, 2.54, 2.54)), []);
+  const outerEdges = useMemo(() => new EdgesGeometry(new BoxGeometry(1.48, 1.48, 1.48)), []);
+  const innerEdges = useMemo(() => new EdgesGeometry(new BoxGeometry(0.78, 0.78, 0.78)), []);
+  const thinkingEdges = useMemo(() => new EdgesGeometry(new BoxGeometry(2.54, 2.54, 2.54)), []);
 
   const frontConfigs = useMemo(() => createLayerConfigs(8, 250, 0.2, 0.3), []);
   const mediumConfigs = useMemo(() => createLayerConfigs(12, 0, 0.28, 0.42), []);
@@ -530,20 +543,20 @@ function ClusteredCubeAvatar({
   const mediumStatesRef = useRef(null);
   const outerStatesRef = useRef(null);
   const distantStatesRef = useRef(null);
-  const tempObject = useMemo(() => new THREE.Object3D(), []);
+  const tempObject = useMemo(() => new Object3D(), []);
   const targetTransform = useMemo(
     () => ({
-      position: new THREE.Vector3(),
-      rotation: new THREE.Euler(),
-      scale: new THREE.Vector3(1, 1, 1)
+      position: new Vector3(),
+      rotation: new Euler(),
+      scale: new Vector3(1, 1, 1)
     }),
     []
   );
-  const tempColor = useMemo(() => new THREE.Color(), []);
-  const baseColor = useMemo(() => new THREE.Color(palette.hologram), [palette.hologram]);
-  const accentColor = useMemo(() => new THREE.Color(palette.accent), [palette.accent]);
-  const tempVectorA = useMemo(() => new THREE.Vector3(), []);
-  const tempVectorB = useMemo(() => new THREE.Vector3(), []);
+  const tempColor = useMemo(() => new Color(), []);
+  const baseColor = useMemo(() => new Color(palette.hologram), [palette.hologram]);
+  const accentColor = useMemo(() => new Color(palette.accent), [palette.accent]);
+  const tempVectorA = useMemo(() => new Vector3(), []);
+  const tempVectorB = useMemo(() => new Vector3(), []);
 
   const smooth = useRef({
     input: 0,
@@ -569,19 +582,19 @@ function ClusteredCubeAvatar({
 
   useEffect(() => {
     if (frontLayerRef.current) {
-      frontLayerRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      frontLayerRef.current.instanceMatrix.setUsage(DynamicDrawUsage);
     }
     if (mediumLayerRef.current) {
-      mediumLayerRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mediumLayerRef.current.instanceMatrix.setUsage(DynamicDrawUsage);
     }
     if (outerLayerRef.current) {
-      outerLayerRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      outerLayerRef.current.instanceMatrix.setUsage(DynamicDrawUsage);
     }
     if (distantLayerRef.current) {
-      distantLayerRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      distantLayerRef.current.instanceMatrix.setUsage(DynamicDrawUsage);
     }
     if (distantLinkLayerRef.current) {
-      distantLinkLayerRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      distantLinkLayerRef.current.instanceMatrix.setUsage(DynamicDrawUsage);
     }
   }, []);
 
@@ -619,20 +632,20 @@ function ClusteredCubeAvatar({
         : Math.max(micLevel * 0.4, speechLevel * 0.6);
 
     const s = smooth.current;
-    s.input = THREE.MathUtils.lerp(s.input, micLevel, 0.16);
-    s.speech = THREE.MathUtils.lerp(s.speech, speechLevel, 0.16);
-    s.activity = THREE.MathUtils.lerp(s.activity, activityLevel, 0.12);
-    s.scale = THREE.MathUtils.lerp(s.scale, target.scale + activityLevel * 0.05, 0.08);
-    s.brightness = THREE.MathUtils.lerp(s.brightness, target.brightness + activityLevel * 0.18, 0.08);
-    s.glitch = THREE.MathUtils.lerp(
+    s.input = MathUtils.lerp(s.input, micLevel, 0.16);
+    s.speech = MathUtils.lerp(s.speech, speechLevel, 0.16);
+    s.activity = MathUtils.lerp(s.activity, activityLevel, 0.12);
+    s.scale = MathUtils.lerp(s.scale, target.scale + activityLevel * 0.05, 0.08);
+    s.brightness = MathUtils.lerp(s.brightness, target.brightness + activityLevel * 0.18, 0.08);
+    s.glitch = MathUtils.lerp(
       s.glitch,
       target.glitch + (state === "thinking" ? Math.sin(time * 2.5) * 0.02 : 0),
       0.08
     );
 
     if (rootRef.current) {
-      rootRef.current.rotation.x = THREE.MathUtils.lerp(rootRef.current.rotation.x, target.tiltX, 0.08);
-      rootRef.current.rotation.y = THREE.MathUtils.lerp(rootRef.current.rotation.y, target.tiltY, 0.08);
+      rootRef.current.rotation.x = MathUtils.lerp(rootRef.current.rotation.x, target.tiltX, 0.08);
+      rootRef.current.rotation.y = MathUtils.lerp(rootRef.current.rotation.y, target.tiltY, 0.08);
       rootRef.current.position.y = Math.sin(time * 1.02) * 0.08 * motionScale;
       rootRef.current.scale.setScalar(s.scale);
     }
@@ -710,9 +723,9 @@ function ClusteredCubeAvatar({
         setFrontTarget(targetTransform, config, index, frontConfigs.length, state, time, s.activity);
 
         current.position.lerp(targetTransform.position, 0.1);
-        current.rotation.x = THREE.MathUtils.lerp(current.rotation.x, targetTransform.rotation.x, 0.12);
-        current.rotation.y = THREE.MathUtils.lerp(current.rotation.y, targetTransform.rotation.y, 0.12);
-        current.rotation.z = THREE.MathUtils.lerp(current.rotation.z, targetTransform.rotation.z, 0.12);
+        current.rotation.x = MathUtils.lerp(current.rotation.x, targetTransform.rotation.x, 0.12);
+        current.rotation.y = MathUtils.lerp(current.rotation.y, targetTransform.rotation.y, 0.12);
+        current.rotation.z = MathUtils.lerp(current.rotation.z, targetTransform.rotation.z, 0.12);
         current.scale.lerp(targetTransform.scale, 0.12);
 
         tempObject.position.copy(current.position);
@@ -739,9 +752,9 @@ function ClusteredCubeAvatar({
         setMediumTarget(targetTransform, config, index, state, time, s.activity, target.mediumRadius);
 
         current.position.lerp(targetTransform.position, 0.09);
-        current.rotation.x = THREE.MathUtils.lerp(current.rotation.x, targetTransform.rotation.x, 0.1);
-        current.rotation.y = THREE.MathUtils.lerp(current.rotation.y, targetTransform.rotation.y, 0.1);
-        current.rotation.z = THREE.MathUtils.lerp(current.rotation.z, targetTransform.rotation.z, 0.1);
+        current.rotation.x = MathUtils.lerp(current.rotation.x, targetTransform.rotation.x, 0.1);
+        current.rotation.y = MathUtils.lerp(current.rotation.y, targetTransform.rotation.y, 0.1);
+        current.rotation.z = MathUtils.lerp(current.rotation.z, targetTransform.rotation.z, 0.1);
         current.scale.lerp(targetTransform.scale, 0.1);
 
         tempObject.position.copy(current.position);
@@ -777,9 +790,9 @@ function ClusteredCubeAvatar({
         );
 
         current.position.lerp(targetTransform.position, 0.08);
-        current.rotation.x = THREE.MathUtils.lerp(current.rotation.x, targetTransform.rotation.x, 0.12);
-        current.rotation.y = THREE.MathUtils.lerp(current.rotation.y, targetTransform.rotation.y, 0.12);
-        current.rotation.z = THREE.MathUtils.lerp(current.rotation.z, targetTransform.rotation.z, 0.12);
+        current.rotation.x = MathUtils.lerp(current.rotation.x, targetTransform.rotation.x, 0.12);
+        current.rotation.y = MathUtils.lerp(current.rotation.y, targetTransform.rotation.y, 0.12);
+        current.rotation.z = MathUtils.lerp(current.rotation.z, targetTransform.rotation.z, 0.12);
         current.scale.lerp(targetTransform.scale, 0.12);
 
         tempObject.position.copy(current.position);
@@ -806,9 +819,9 @@ function ClusteredCubeAvatar({
         setDistantTarget(targetTransform, config, index, distantConfigs.length, state, time, s.activity);
 
         current.position.lerp(targetTransform.position, 0.05);
-        current.rotation.x = THREE.MathUtils.lerp(current.rotation.x, targetTransform.rotation.x, 0.06);
-        current.rotation.y = THREE.MathUtils.lerp(current.rotation.y, targetTransform.rotation.y, 0.06);
-        current.rotation.z = THREE.MathUtils.lerp(current.rotation.z, targetTransform.rotation.z, 0.06);
+        current.rotation.x = MathUtils.lerp(current.rotation.x, targetTransform.rotation.x, 0.06);
+        current.rotation.y = MathUtils.lerp(current.rotation.y, targetTransform.rotation.y, 0.06);
+        current.rotation.z = MathUtils.lerp(current.rotation.z, targetTransform.rotation.z, 0.06);
         current.scale.lerp(targetTransform.scale, 0.08);
 
         tempObject.position.copy(current.position);
@@ -868,7 +881,7 @@ function ClusteredCubeAvatar({
             transparent
             opacity={0.12}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            blending={AdditiveBlending}
             toneMapped={false}
           />
         </mesh>
@@ -880,7 +893,7 @@ function ClusteredCubeAvatar({
             transparent
             opacity={0.08}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            blending={AdditiveBlending}
             toneMapped={false}
           />
         </mesh>
@@ -892,7 +905,7 @@ function ClusteredCubeAvatar({
             transparent
             opacity={0.14}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            blending={AdditiveBlending}
             toneMapped={false}
           />
         </mesh>
@@ -910,7 +923,7 @@ function ClusteredCubeAvatar({
             transparent
             opacity={0.08}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            blending={AdditiveBlending}
             toneMapped={false}
           />
         </instancedMesh>
@@ -928,7 +941,7 @@ function ClusteredCubeAvatar({
             transparent
             opacity={0.04}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            blending={AdditiveBlending}
             toneMapped={false}
           />
         </instancedMesh>
@@ -941,7 +954,7 @@ function ClusteredCubeAvatar({
             transparent
             opacity={0.16}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            blending={AdditiveBlending}
             toneMapped={false}
           />
         </instancedMesh>
@@ -954,7 +967,7 @@ function ClusteredCubeAvatar({
             transparent
             opacity={0.26}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            blending={AdditiveBlending}
             toneMapped={false}
           />
         </instancedMesh>
@@ -968,7 +981,7 @@ function ClusteredCubeAvatar({
             opacity={0.3}
             depthTest={false}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            blending={AdditiveBlending}
             toneMapped={false}
           />
         </instancedMesh>
@@ -1005,7 +1018,7 @@ function ClusteredCubeAvatar({
             transparent
             opacity={0.08}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            blending={AdditiveBlending}
             toneMapped={false}
           />
         </mesh>
@@ -1017,7 +1030,7 @@ function ClusteredCubeAvatar({
             transparent
             opacity={0.02}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            blending={AdditiveBlending}
             toneMapped={false}
           />
         </mesh>
@@ -1038,7 +1051,7 @@ function ClusteredCubeAvatar({
               transparent
               opacity={0.12}
               depthWrite={false}
-              blending={THREE.AdditiveBlending}
+              blending={AdditiveBlending}
               toneMapped={false}
             />
           </mesh>

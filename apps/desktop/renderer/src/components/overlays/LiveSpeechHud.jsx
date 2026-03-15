@@ -6,29 +6,7 @@ function buildHudBubbles({ sessionActive, voiceState, inputPartial, outputTransc
   }
 
   const bubbles = [];
-  const userText = String(inputPartial ?? "").trim();
   const assistantText = String(outputTranscript ?? "").trim();
-
-  if (userText) {
-    bubbles.push({
-      id: "user-live",
-      speaker: "You",
-      tone: "user",
-      state:
-        voiceState.activity?.userSpeaking || voiceState.status === "listening"
-          ? "Listening"
-          : "Voice input",
-      text: userText
-    });
-  } else if (voiceState.activity?.userSpeaking || voiceState.status === "listening") {
-    bubbles.push({
-      id: "user-listening",
-      speaker: "You",
-      tone: "user",
-      state: "Listening",
-      text: "Listening..."
-    });
-  }
 
   if (assistantText) {
     bubbles.push({
@@ -56,7 +34,7 @@ function buildHudBubbles({ sessionActive, voiceState, inputPartial, outputTransc
     });
   }
 
-  return bubbles.slice(-2);
+  return bubbles.slice(-1);
 }
 
 export function LiveSpeechHud({
@@ -73,11 +51,10 @@ export function LiveSpeechHud({
   });
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-32 z-[18] flex justify-center px-6">
+    <div className="pointer-events-none absolute inset-x-0 bottom-10 z-[18] flex justify-center px-6">
       <div className="flex w-full max-w-[760px] flex-col items-center gap-3">
         <AnimatePresence initial={false}>
           {bubbles.map((bubble) => {
-            const isUser = bubble.tone === "user";
             return (
               <motion.div
                 key={bubble.id}
@@ -85,19 +62,15 @@ export function LiveSpeechHud({
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.98 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}
-                className={`w-fit max-w-[min(92vw,680px)] rounded-[28px] border px-5 py-4 shadow-[0_18px_60px_-30px_rgba(15,23,42,0.35)] backdrop-blur-2xl ${
-                  isUser
-                    ? "border-cyan-200/70 bg-[linear-gradient(135deg,rgba(243,253,255,0.88),rgba(208,244,255,0.74))] text-cyan-950"
-                    : "border-violet-200/70 bg-[linear-gradient(135deg,rgba(252,250,255,0.9),rgba(233,226,255,0.76))] text-slate-900"
-                }`}
+                className="w-fit max-w-[min(92vw,680px)] rounded-[32px] border border-indigo-300/30 bg-indigo-50/20 px-6 py-4 text-indigo-950 shadow-[0_8px_32px_-8px_rgba(79,70,229,0.15)] ring-1 ring-inset ring-white/40 backdrop-blur-3xl transition-all"
               >
-                <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  <span>{bubble.speaker}</span>
-                  <span className="rounded-full bg-white/60 px-2 py-1 text-[10px] tracking-[0.12em] text-slate-500">
+                <div className="mb-2 flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.18em]">
+                  <span className="text-indigo-500/90">{bubble.speaker}</span>
+                  <span className="rounded-full bg-white/50 px-2.5 py-1 text-[10px] tracking-[0.16em] text-indigo-500 shadow-sm ring-1 ring-inset ring-indigo-200/50 backdrop-blur-xl">
                     {bubble.state}
                   </span>
                 </div>
-                <p className="m-0 text-[15px] font-medium leading-relaxed">
+                <p className="m-0 text-[15px] font-medium leading-relaxed tracking-wide">
                   {bubble.text}
                 </p>
               </motion.div>

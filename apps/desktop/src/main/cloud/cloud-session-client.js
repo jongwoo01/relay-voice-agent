@@ -42,6 +42,10 @@ function normalizeError(error) {
   return String(error);
 }
 
+function isLiveInputDebugEnabled() {
+  return process.env.NODE_ENV !== "production";
+}
+
 async function waitForSocketClose(socket, timeoutMs = 250) {
   await new Promise((resolve) => {
     let settled = false;
@@ -92,6 +96,8 @@ export class CloudSessionClient {
     });
     this.seenConversationDebugIds = new Set();
     this.lastIntakeDebugKey = null;
+    this.liveAudioChunkCount = 0;
+    this.liveActivitySequence = 0;
   }
 
   async getState() {
@@ -110,8 +116,7 @@ export class CloudSessionClient {
       return this.getState();
     }
 
-    const resolvedPasscode =
-      passcode?.trim() || process.env.JUDGE_PASSCODE?.trim();
+    const resolvedPasscode = passcode?.trim();
     if (!resolvedPasscode) {
       throw new Error("Judge passcode is required to connect.");
     }
@@ -219,8 +224,20 @@ export class CloudSessionClient {
   }
 
   sendAudioChunk(audioData, mimeType = "audio/pcm;rate=16000") {
-    if (this.state.muted || !this.isREADYForLiveInput()) {
+    const ready = this.isREADYForLiveInput();
+    if (this.state.muted || !ready) {
+      if (isLiveInputDebugEnabled()) {
+        console.log(
+          `[live-input][desktop-client] drop audio_chunk muted=${this.state.muted} ready=${ready} status=${this.state.status}`
+        );
+      }
       return;
+    }
+    this.liveAudioChunkCount += 1;
+    if (isLiveInputDebugEnabled() && (this.liveAudioChunkCount <= 3 || this.liveAudioChunkCount % 20 === 0)) {
+      console.log(
+        `[live-input][desktop-client] send audio_chunk seq=${this.liveActivitySequence} chunk=${this.liveAudioChunkCount} bytes=${audioData.length} mime=${mimeType}`
+      );
     }
     this.send({
       type: "audio_chunk",
@@ -230,8 +247,21 @@ export class CloudSessionClient {
   }
 
   startActivity() {
-    if (this.state.muted || !this.isREADYForLiveInput()) {
+    const ready = this.isREADYForLiveInput();
+    if (this.state.muted || !ready) {
+      if (isLiveInputDebugEnabled()) {
+        console.log(
+          `[live-input][desktop-client] drop activity_start muted=${this.state.muted} ready=${ready} status=${this.state.status}`
+        );
+      }
       return;
+    }
+    this.liveActivitySequence += 1;
+    this.liveAudioChunkCount = 0;
+    if (isLiveInputDebugEnabled()) {
+      console.log(
+        `[live-input][desktop-client] send activity_start seq=${this.liveActivitySequence}`
+      );
     }
     this.send({
       type: "activity_start"
@@ -239,8 +269,19 @@ export class CloudSessionClient {
   }
 
   endActivity() {
-    if (!this.isREADYForLiveInput()) {
+    const ready = this.isREADYForLiveInput();
+    if (!ready) {
+      if (isLiveInputDebugEnabled()) {
+        console.log(
+          `[live-input][desktop-client] drop activity_end ready=${ready} status=${this.state.status}`
+        );
+      }
       return;
+    }
+    if (isLiveInputDebugEnabled()) {
+      console.log(
+        `[live-input][desktop-client] send activity_end seq=${this.liveActivitySequence} chunks=${this.liveAudioChunkCount}`
+      );
     }
     this.send({
       type: "activity_end"

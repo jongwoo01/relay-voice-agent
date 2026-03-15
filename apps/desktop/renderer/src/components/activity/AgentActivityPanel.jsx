@@ -13,31 +13,35 @@ function accentTheme(status) {
   switch (getTaskRunnerAccent(status)) {
     case "waiting":
       return {
-        pill: "bg-amber-50 text-amber-700 border border-amber-200",
-        glow: "from-amber-200/60 via-white/70 to-transparent",
-        dot: "bg-amber-400",
+        pill: "bg-amber-50 text-amber-700 border border-amber-200/70",
+        glow: "from-amber-300/30 via-amber-100/20 to-transparent",
+        dot: "bg-amber-500",
+        icon: "text-amber-500",
         ring: "ring-amber-200/80"
       };
     case "failed":
       return {
-        pill: "bg-rose-50 text-rose-700 border border-rose-200",
-        glow: "from-rose-200/60 via-white/70 to-transparent",
-        dot: "bg-rose-400",
+        pill: "bg-rose-50 text-rose-700 border border-rose-200/70",
+        glow: "from-rose-300/30 via-rose-100/20 to-transparent",
+        dot: "bg-rose-500",
+        icon: "text-rose-500",
         ring: "ring-rose-200/80"
       };
     case "completed":
       return {
-        pill: "bg-emerald-50 text-emerald-700 border border-emerald-200",
-        glow: "from-emerald-200/60 via-white/70 to-transparent",
-        dot: "bg-emerald-400",
+        pill: "bg-emerald-50 text-emerald-700 border border-emerald-200/70",
+        glow: "from-emerald-300/30 via-emerald-100/20 to-transparent",
+        dot: "bg-emerald-500",
+        icon: "text-emerald-500",
         ring: "ring-emerald-200/80"
       };
     default:
       return {
-        pill: "bg-sky-50 text-sky-700 border border-sky-200",
-        glow: "from-sky-200/60 via-white/70 to-transparent",
-        dot: "bg-sky-400",
-        ring: "ring-sky-200/80"
+        pill: "bg-blue-50 text-blue-700 border border-blue-200/70",
+        glow: "from-blue-300/30 via-blue-100/20 to-transparent",
+        dot: "bg-blue-500",
+        icon: "text-blue-500",
+        ring: "ring-blue-200/80"
       };
   }
 }
@@ -298,33 +302,47 @@ function TaskRunnerCards({ entries, emptyText, selectedTaskId, onSelect, summary
       <article className="space-y-3" key={runner.taskId}>
         <button
           type="button"
-          className={`w-full rounded-[20px] border border-white/70 bg-white/80 px-4 py-3.5 text-left shadow-[0_8px_24px_-10px_rgba(15,23,42,0.15)] backdrop-blur-xl transition-all duration-200 ${
-            selected ? "ring-2 ring-sky-200 shadow-[0_12px_32px_-10px_rgba(59,130,246,0.25)]" : "hover:-translate-y-0.5 hover:bg-white/90"
+          className={`w-full group relative overflow-hidden rounded-[24px] border px-4 py-4 text-left backdrop-blur-3xl transition-all duration-500 ${
+            selected 
+              ? "border-blue-300/60 bg-white/80 ring-4 ring-blue-500/10 shadow-[0_20px_40px_-10px_rgba(59,130,246,0.15)] scale-[1.02] z-10" 
+              : "border-white/40 bg-white/40 hover:border-white/60 hover:bg-white/60 hover:shadow-[0_12px_32px_rgba(0,0,0,0.06)] hover:-translate-y-0.5"
           }`}
           aria-expanded={selected ? "true" : "false"}
           onClick={() => onSelect(selected ? null : runner.taskId)}
         >
-          <span className="flex items-start gap-3">
-            <span className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-gradient-to-br ${accent.glow} ring-1 ${accent.ring}`} aria-hidden="true">
-              <span className={`h-2 w-2 rounded-full ${accent.dot}`} />
-              <span className={`absolute inset-1.5 rounded-[10px] bg-white/60 ${runner.status === "running" ? "animate-pulse" : ""}`} />
+          <span className="flex items-center gap-4">
+            <span className={`relative flex h-[50px] w-[50px] shrink-0 items-center justify-center rounded-[18px] bg-gradient-to-br ${accent.glow} ring-1 ${accent.ring} shadow-[inset_0_2px_12px_rgba(255,255,255,0.8)] overflow-hidden transition-transform duration-500 ${selected ? "scale-105" : "group-hover:scale-105"}`} aria-hidden="true">
+              {runner.status === 'running' && (
+                <>
+                  <span className="absolute inset-[-100%] bg-[conic-gradient(from_0deg,transparent_0_340deg,rgba(255,255,255,0.9)_360deg)] animate-[spin_2s_linear_infinite]" />
+                  <span className="absolute inset-[2px] rounded-[16px] bg-white/80 backdrop-blur-xl" />
+                </>
+              )}
+              {runner.status !== 'running' && (
+                <span className="absolute inset-[2px] rounded-[16px] bg-white/80 backdrop-blur-xl transition-colors duration-300" />
+              )}
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`relative z-10 ${accent.icon} drop-shadow-[0_2px_8px_rgba(0,0,0,0.1)] transition-transform duration-500 ${runner.status === 'running' ? 'animate-[pulse_2s_ease-in-out_infinite]' : ''}`}>
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-semibold text-gray-800 leading-snug">{runner.headline}</span>
-              <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${accent.pill}`}>
+              <span className={`block text-[15px] font-bold leading-snug truncate transition-colors duration-300 ${selected ? "text-gray-900" : "text-gray-700 group-hover:text-gray-900"}`}>{runner.headline}</span>
+              <span className="mt-1.5 flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide shadow-sm backdrop-blur-md border ${accent.pill}`}>
                   {runner.statusLabel ?? formatTaskRunnerStatus(runner.status)}
                 </span>
-                <span className="text-[11px] text-gray-500 truncate">{runner.latestHumanUpdate}</span>
+                <span className="text-[11px] font-medium text-gray-400 truncate">{runner.latestHumanUpdate}</span>
               </span>
               {!selected && supportingParts.length > 0 ? (
-                <span className="mt-1.5 block text-[11px] leading-relaxed text-gray-400 truncate">{supportingParts.join(" · ")}</span>
+                <span className="mt-2 block text-[11px] leading-relaxed text-gray-500/80 truncate tracking-wide font-medium">{supportingParts.join(" · ")}</span>
               ) : null}
             </span>
           </span>
         </button>
         {selected ? (
-          <TaskRunnerDetail runner={runner} summary={summary} debugEvents={debugEvents} />
+          <div className="animate-[fade-in_0.3s_ease-out]">
+            <TaskRunnerDetail runner={runner} summary={summary} debugEvents={debugEvents} />
+          </div>
         ) : null}
       </article>
     );
@@ -354,31 +372,37 @@ export function AgentActivityPanel({
   const anyTaskSelected = selectedTaskId !== null;
   const anyTasksExist = taskRunners.length > 0 || archivedEntries.length > 0;
   return (
-    <aside className="relative z-10 flex h-full min-h-0 flex-col rounded-[36px] border border-white/70 bg-white/72 p-5 shadow-[0_30px_120px_-50px_rgba(15,23,42,0.28)] backdrop-blur-2xl">
+    <aside className="relative z-10 flex h-full min-h-0 flex-col rounded-[40px] border border-white/60 bg-gradient-to-b from-white/60 to-white/40 p-6 shadow-[0_30px_120px_-50px_rgba(15,23,42,0.15)] backdrop-blur-3xl overflow-hidden">
+      {/* Subtle animated background glow */}
+      <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-blue-400/10 blur-[80px]" />
+      <div className="pointer-events-none absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-indigo-400/10 blur-[100px]" />
+
       {/* ─── Header (fixed) ─── */}
-      <div className="flex items-start justify-between gap-4 border-b border-gray-100/90 pb-4 shrink-0">
+      <div className="relative z-10 flex items-start justify-between gap-4 border-b border-white/40 pb-5 shrink-0">
         <div>
-          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">Agent Activity</p>
-          <h2 className="m-0 mt-1.5 text-lg font-semibold text-gray-800">Tasks &amp; Results</h2>
+          <p className="m-0 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400/90">Agent Activity</p>
+          <h2 className="m-0 mt-2 text-xl font-bold tracking-tight text-gray-800">Tasks &amp; Results</h2>
         </div>
-        <span className="rounded-full bg-gray-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+        <span className="flex items-center gap-2 rounded-full border border-white/60 bg-white/50 px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-500 shadow-sm backdrop-blur-md">
+          <span className="relative flex h-2 w-2">
+            {pendingBriefingCount > 0 && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>}
+            <span className={`relative inline-flex h-2 w-2 rounded-full ${pendingBriefingCount > 0 ? "bg-blue-500" : "bg-gray-300"}`}></span>
+          </span>
           pending {pendingBriefingCount}
         </span>
       </div>
 
       {/* ─── Single scrollable content area ─── */}
-      <div className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+      <div className="relative z-10 mt-5 min-h-0 flex-1 space-y-6 overflow-y-auto pr-2 scrollbar-hide">
         {/* Running tasks */}
         <section>
-          <p className="m-0 mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">
+          <p className="m-0 mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400/90 pl-1">
             {taskRunners.length > 0 ? `Running (${taskRunners.length})` : "Running Now"}
           </p>
-          <div className="space-y-2">
+          <div className="space-y-3">
             <TaskRunnerCards
               entries={taskRunners}
-              emptyText={voiceConnected
-                ? "No tasks are running yet."
-                : "Task runners will appear here once the session starts."}
+              emptyText=""
               selectedTaskId={selectedTaskId}
               onSelect={onSelectTask}
               summary={summary}
@@ -395,11 +419,11 @@ export function AgentActivityPanel({
               onToggle={(e) => setCompletedOpen(e.currentTarget.open)}
               className="group"
             >
-              <summary className="cursor-pointer list-none rounded-xl bg-gray-50/80 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 hover:bg-gray-100/80 transition-colors flex items-center justify-between">
+              <summary className="cursor-pointer list-none rounded-[16px] border border-white/40 bg-white/30 px-4 py-3 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500 hover:bg-white/50 hover:shadow-sm transition-all flex items-center justify-between backdrop-blur-md">
                 <span>Completed ({archivedEntries.length})</span>
-                <span className="text-[10px] opacity-60 group-open:rotate-180 transition-transform">▼</span>
+                <span className="text-[10px] text-gray-400 group-open:rotate-180 transition-transform duration-300">▼</span>
               </summary>
-              <div className="mt-2 space-y-2">
+              <div className="mt-3 space-y-3">
                 <TaskRunnerCards
                   entries={archivedEntries}
                   emptyText="Completed work will be archived here."
@@ -414,18 +438,31 @@ export function AgentActivityPanel({
         )}
 
         {/* Empty state / Session Summary */}
-        {!anyTaskSelected && (
-          <div className="flex flex-col items-center justify-center rounded-[24px] border border-dashed border-gray-200 bg-white/40 px-6 py-10 text-center shadow-inner">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-500">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h.01M7 20h.01M17 20h.01M12 16h.01M7 16h.01M17 16h.01M12 12h.01M7 12h.01M17 12h.01M12 8h.01M7 8h.01M17 8h.01M12 4h.01M7 4h.01M17 4h.01"/></svg>
+        {(!anyTasksExist || (!anyTaskSelected && anyTasksExist)) && (
+          <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
+            <div className="relative mb-6 flex h-[88px] w-[88px] items-center justify-center">
+              <div className="absolute inset-0 animate-[spin_4s_linear_infinite] rounded-full bg-gradient-to-tr from-blue-200/40 to-indigo-200/40 blur-xl" />
+              <div className="relative flex h-16 w-16 items-center justify-center rounded-[20px] border border-white/60 bg-white/40 shadow-xl backdrop-blur-2xl">
+                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="url(#gradient)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <defs>
+                      <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#818cf8" />
+                        <stop offset="100%" stopColor="#3b82f6" />
+                      </linearGradient>
+                    </defs>
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                 </svg>
+              </div>
             </div>
-            <p className="m-0 text-sm font-medium text-gray-600">
-              {anyTasksExist ? "Select a task to review details" : "Awaiting agent activity"}
-            </p>
-            <p className="m-0 mt-2 text-xs text-gray-400 leading-relaxed max-w-[200px]">
-              {voiceConnected
-                ? "Live tasks and grounded results will appear here as the conversation progresses."
-                : "Once the live session starts, the agent's work and thought process will be visible here."}
+            <h3 className="m-0 text-[18px] font-bold tracking-tight text-gray-800">
+              {anyTasksExist ? "Select a Task" : "Awaiting Activity"}
+            </h3>
+            <p className="m-0 mt-3 max-w-[240px] text-[13px] font-medium leading-relaxed text-gray-500 text-balance">
+              {anyTasksExist
+                ? "Click on any task above to view detailed execution traces and results."
+                : voiceConnected
+                  ? "Live tasks and grounded results will appear here organically as the conversation progresses."
+                  : "Once the live session starts, the agent's work and thought process will be visible here."}
             </p>
           </div>
         )}

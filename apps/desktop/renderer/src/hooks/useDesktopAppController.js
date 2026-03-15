@@ -8,6 +8,7 @@ import {
   useState
 } from "react";
 import { useMotionValue } from "motion/react";
+import { connectHostedSession } from "../connect-hosted-session.js";
 import {
   buildDisplayConversationTimeline,
   buildArchivedTaskEntries,
@@ -20,6 +21,8 @@ const LIVE_INPUT_BUFFER_SIZE = 512;
 const LIVE_SPEECH_ACTIVITY_THRESHOLD = 0.03;
 const LIVE_SPEECH_IDLE_MS = 320;
 const LIVE_BARGE_IN_CONFIRM_MS = 140;
+const LIVE_INPUT_PREROLL_CHUNKS = 12;
+const LIVE_INPUT_DEBUG_ENABLED = import.meta.env.DEV;
 export const DEBUG_FILTER_DEFAULTS = {
   transport: true,
   live: true,
@@ -153,6 +156,9 @@ export function useDesktopAppController() {
   const userSpeakingActiveRef = useRef(false);
   const speechCandidateStartAtRef = useRef(0);
   const liveActivityActiveRef = useRef(false);
+  const liveActivitySequenceRef = useRef(0);
+  const liveAudioChunkCountRef = useRef(0);
+  const pendingSpeechChunksRef = useRef([]);
 
   useEffect(() => {
     uiStateRef.current = uiState;
@@ -358,7 +364,20 @@ export function useDesktopAppController() {
     }
 
     liveActivityActiveRef.current = true;
+    liveActivitySequenceRef.current += 1;
+    liveAudioChunkCountRef.current = 0;
+    if (LIVE_INPUT_DEBUG_ENABLED) {
+      console.info("[live-input][renderer] activity_start", {
+        seq: liveActivitySequenceRef.current,
+        preroll: pendingSpeechChunksRef.current.length
+      });
+    }
     window.desktopLive?.startActivity?.();
+    for (const chunk of pendingSpeechChunksRef.current) {
+      window.desktopLive?.sendAudioChunk?.(chunk, "audio/pcm;rate=16000");
+      liveAudioChunkCountRef.current += 1;
+    }
+    pendingSpeechChunksRef.current = [];
   }, []);
 
   const endLiveActivity = useCallback(() => {
@@ -366,6 +385,12 @@ export function useDesktopAppController() {
       return;
     }
 
+    if (LIVE_INPUT_DEBUG_ENABLED) {
+      console.info("[live-input][renderer] activity_end", {
+        seq: liveActivitySequenceRef.current,
+        chunks: liveAudioChunkCountRef.current
+      });
+    }
     liveActivityActiveRef.current = false;
     window.desktopLive?.endActivity?.();
   }, []);
@@ -424,6 +449,7 @@ export function useDesktopAppController() {
     clearTimeout(userSpeakingTimerRef.current);
     userSpeakingActiveRef.current = false;
     speechCandidateStartAtRef.current = 0;
+    pendingSpeechChunksRef.current = [];
     endLiveActivity();
     inputEnergy.set(0);
     recorderFallbackNodeRef.current?.disconnect();
@@ -447,6 +473,8 @@ export function useDesktopAppController() {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error("getUserMedia is not available in this environment.");
     }
+
+    pendingSpeechChunksRef.current = [];
 
     const constraints = {
       audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : true
@@ -483,10 +511,37 @@ export function useDesktopAppController() {
 
       inputEnergy.set(Math.min(1, peak / 0.18));
       handleLiveUserAudioActivity(peak);
-      window.desktopLive.sendAudioChunk(
-        arrayBufferToBase64(pcm16.buffer),
-        "audio/pcm;rate=16000"
-      );
+      const encodedChunk = arrayBufferToBase64(pcm16.buffer);
+
+      if (!liveActivityActiveRef.current) {
+        pendingSpeechChunksRef.current.push(encodedChunk);
+        if (pendingSpeechChunksRef.current.length > LIVE_INPUT_PREROLL_CHUNKS) {
+          pendingSpeechChunksRef.current.shift();
+        }
+        if (LIVE_INPUT_DEBUG_ENABLED && pendingSpeechChunksRef.current.length === 1) {
+          console.info("[live-input][renderer] buffer_preroll", {
+            seq: liveActivitySequenceRef.current + 1,
+            peak: Number(peak.toFixed(4))
+          });
+        }
+        return;
+      }
+
+      liveAudioChunkCountRef.current += 1;
+      if (
+        LIVE_INPUT_DEBUG_ENABLED &&
+        (liveAudioChunkCountRef.current <= 3 ||
+          liveAudioChunkCountRef.current % 20 === 0)
+      ) {
+        console.info("[live-input][renderer] audio_chunk", {
+          seq: liveActivitySequenceRef.current,
+          chunk: liveAudioChunkCountRef.current,
+          samples: inputData.length,
+          peak: Number(peak.toFixed(4)),
+          activityActive: liveActivityActiveRef.current
+        });
+      }
+      window.desktopLive.sendAudioChunk(encodedChunk, "audio/pcm;rate=16000");
     };
 
     recorderGainNodeRef.current = recorderContextRef.current.createGain();
@@ -679,16 +734,16 @@ export function useDesktopAppController() {
   }, [hideRuntimeError, showRuntimeError]);
 
   const handleConnect = useCallback(async () => {
-    try {
-      hideRuntimeError();
-      await stopPlayback();
-      await window.desktopLive.connect(passcode.trim());
-      await startVoiceCapture();
-    } catch (error) {
-      showRuntimeError(error);
-      await stopVoiceCapture().catch(() => undefined);
-      await window.desktopLive.disconnect().catch(() => undefined);
-    }
+    return connectHostedSession({
+      passcode,
+      hideRuntimeError,
+      showRuntimeError,
+      stopPlayback,
+      connect: (judgePasscode) => window.desktopLive.connect(judgePasscode),
+      startVoiceCapture,
+      stopVoiceCapture,
+      disconnect: () => window.desktopLive.disconnect()
+    });
   }, [hideRuntimeError, passcode, showRuntimeError, startVoiceCapture, stopPlayback, stopVoiceCapture]);
 
   const handleMuteToggle = useCallback(async () => {

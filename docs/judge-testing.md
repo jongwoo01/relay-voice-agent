@@ -104,7 +104,7 @@ cp .env.example .env
 Common variables:
 
 - `AGENT_CLOUD_URL`
-- `JUDGE_PASSCODE` or `JUDGE_USERS_JSON`
+- hosted agent service only: `JUDGE_PASSCODE` or `JUDGE_USERS_JSON`
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_CLOUD_LOCATION`
 - `GOOGLE_GENAI_API_VERSION`

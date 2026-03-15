@@ -1,6 +1,6 @@
 import { useMemo, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import * as THREE from "three";
+import { AdditiveBlending } from "three";
 
 const STATE_PALETTES = {
   idle: { core: "#71b7ff", secondary: "#a18bff", accent: "#ff9277" },
@@ -132,7 +132,7 @@ function HologramFieldScene({
           transparent
           opacity={0.14}
           depthWrite={false}
-          blending={THREE.AdditiveBlending}
+          blending={AdditiveBlending}
         />
       </mesh>
       <mesh ref={primaryHaloRef}>
@@ -142,7 +142,7 @@ function HologramFieldScene({
           transparent
           opacity={0.2}
           depthWrite={false}
-          blending={THREE.AdditiveBlending}
+          blending={AdditiveBlending}
         />
       </mesh>
       <mesh ref={mistUpperRef} position={[0, 0.68, -0.2]}>
@@ -152,7 +152,7 @@ function HologramFieldScene({
           transparent
           opacity={0.08}
           depthWrite={false}
-          blending={THREE.AdditiveBlending}
+          blending={AdditiveBlending}
         />
       </mesh>
       <mesh ref={mistLowerRef} position={[0, -0.74, -0.18]}>
@@ -162,7 +162,7 @@ function HologramFieldScene({
           transparent
           opacity={0.06}
           depthWrite={false}
-          blending={THREE.AdditiveBlending}
+          blending={AdditiveBlending}
         />
       </mesh>
       <mesh ref={ringInnerRef} rotation={[0, 0, Math.PI / 4]}>
@@ -172,7 +172,7 @@ function HologramFieldScene({
           transparent
           opacity={0.16}
           depthWrite={false}
-          blending={THREE.AdditiveBlending}
+          blending={AdditiveBlending}
         />
       </mesh>
       <mesh ref={ringOuterRef} rotation={[0.2, 0.1, Math.PI / 8]}>
@@ -182,7 +182,7 @@ function HologramFieldScene({
           transparent
           opacity={0.1}
           depthWrite={false}
-          blending={THREE.AdditiveBlending}
+          blending={AdditiveBlending}
         />
       </mesh>
 
@@ -198,7 +198,7 @@ function HologramFieldScene({
           transparent
           opacity={0.18}
           depthWrite={false}
-          blending={THREE.AdditiveBlending}
+          blending={AdditiveBlending}
         />
       </points>
 
@@ -213,7 +213,7 @@ function HologramFieldScene({
           transparent
           opacity={0.12}
           depthWrite={false}
-          blending={THREE.AdditiveBlending}
+          blending={AdditiveBlending}
         />
       </points>
     </group>
