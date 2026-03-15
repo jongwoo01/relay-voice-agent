@@ -14,7 +14,8 @@ import {
   buildArchivedTaskEntries,
   buildHistoryEntries,
   buildTaskRunnerEntries,
-  filterDebugEvents
+  filterDebugEvents,
+  resolveTaskPanelSelection
 } from "../ui-utils.js";
 
 const LIVE_INPUT_BUFFER_SIZE = 512;
@@ -105,12 +106,27 @@ function avatarStateForUi(summary, voiceState, inputState) {
     return "speaking";
   }
 
-  if (summary.avatar?.mainState === "thinking" || inputState.inFlight) {
+  if (inputState.inFlight) {
     return "thinking";
   }
 
   if (voiceState.activity?.userSpeaking || voiceState.status === "listening") {
     return "listening";
+  }
+
+  if (summary.avatar?.mainState === "waiting_user") {
+    return "waiting_user";
+  }
+
+  if (summary.avatar?.mainState === "briefing") {
+    return "briefing";
+  }
+
+  if (
+    summary.avatar?.mainState === "thinking" ||
+    summary.avatar?.mainState === "reflecting"
+  ) {
+    return "thinking";
   }
 
   return "idle";
@@ -125,6 +141,7 @@ export function useDesktopAppController() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
+  const [completedDrawerAutoOpenTick, setCompletedDrawerAutoOpenTick] = useState(0);
   const [prompt, setPrompt] = useState("");
   const [promptComposing, setPromptComposing] = useState(false);
   const [passcode, setPasscode] = useState("");
@@ -629,49 +646,32 @@ export function useDesktopAppController() {
   const taskRunners = useMemo(() => buildTaskRunnerEntries(summary), [summary]);
   const archivedEntries = useMemo(() => buildArchivedTaskEntries(summary), [summary]);
 
-  const prevEntriesRef = useRef([]);
+  const previousTaskPanelRef = useRef({
+    taskRunners: [],
+    archivedEntries: []
+  });
 
   useEffect(() => {
-    const allEntries = [...taskRunners, ...archivedEntries];
-    const prevEntries = prevEntriesRef.current;
-    prevEntriesRef.current = allEntries;
-
-    if (allEntries.length === 0) {
-      if (selectedTaskId !== null) {
-        setSelectedTaskId(null);
-      }
-      return;
-    }
-
-    // 1. Proactively select tasks that entered a state needing attention
-    const criticalTask = allEntries.find((runner) => {
-      const prev = prevEntries.find((p) => p.taskId === runner.taskId);
-      const isNewCritical =
-        (runner.status === "waiting_input" ||
-          runner.status === "approval_required" ||
-          runner.status === "failed") &&
-        (!prev || prev.status !== runner.status);
-      return isNewCritical;
+    const previousTaskPanel = previousTaskPanelRef.current;
+    const resolution = resolveTaskPanelSelection({
+      selectedTaskId,
+      taskRunners,
+      archivedEntries,
+      previousTaskRunners: previousTaskPanel.taskRunners,
+      previousArchivedEntries: previousTaskPanel.archivedEntries
     });
 
-    if (criticalTask) {
-      setSelectedTaskId(criticalTask.taskId);
-      return;
+    previousTaskPanelRef.current = {
+      taskRunners,
+      archivedEntries
+    };
+
+    if (resolution.nextSelectedTaskId !== selectedTaskId) {
+      setSelectedTaskId(resolution.nextSelectedTaskId);
     }
 
-    // 2. If the current selection disappeared (e.g. deleted or moved but lost ID), reset to the first one available
-    const currentStillExists =
-      selectedTaskId && allEntries.some((r) => r.taskId === selectedTaskId);
-
-    if (selectedTaskId !== null && !currentStillExists) {
-      setSelectedTaskId(allEntries[0]?.taskId ?? null);
-      return;
-    }
-
-    // 3. Initial auto-selection: if we have tasks, nothing is selected, AND we haven't ever selected anything yet
-    // This allows the user to explicitly close (null) while still having a good first-run experience.
-    if (selectedTaskId === null && prevEntries.length === 0 && allEntries.length > 0) {
-      setSelectedTaskId(allEntries[0].taskId);
+    if (resolution.shouldAutoOpenCompleted) {
+      setCompletedDrawerAutoOpenTick((current) => current + 1);
     }
   }, [archivedEntries, selectedTaskId, taskRunners]);
 
@@ -796,6 +796,7 @@ export function useDesktopAppController() {
     audioEnergy,
     avatarState,
     chatOpen,
+    completedDrawerAutoOpenTick,
     debugFilters,
     debugOpen,
     debugTaskFilter,

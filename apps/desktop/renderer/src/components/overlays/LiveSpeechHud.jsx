@@ -52,7 +52,7 @@ export function LiveSpeechHud({
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-10 z-[18] flex justify-center px-6">
-      <div className="flex w-full max-w-[760px] flex-col items-center gap-3">
+      <div className="flex max-h-[25vh] w-full max-w-[760px] flex-col-reverse items-center gap-3 overflow-y-auto scrollbar-hide [mask-image:linear-gradient(to_bottom,transparent,black_20%,black_100%)]">
         <AnimatePresence initial={false}>
           {bubbles.map((bubble) => {
             return (
@@ -62,7 +62,7 @@ export function LiveSpeechHud({
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.98 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}
-                className="w-fit max-w-[min(92vw,680px)] rounded-[32px] border border-indigo-300/30 bg-indigo-50/20 px-6 py-4 text-indigo-950 shadow-[0_8px_32px_-8px_rgba(79,70,229,0.15)] ring-1 ring-inset ring-white/40 backdrop-blur-3xl transition-all"
+                className="w-fit max-w-[min(92vw,680px)] shrink-0 rounded-[32px] border border-indigo-300/30 bg-indigo-50/20 px-6 py-4 text-indigo-950 shadow-[0_8px_32px_-8px_rgba(79,70,229,0.15)] ring-1 ring-inset ring-white/40 backdrop-blur-3xl transition-all"
               >
                 <div className="mb-2 flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.18em]">
                   <span className="text-indigo-500/90">{bubble.speaker}</span>

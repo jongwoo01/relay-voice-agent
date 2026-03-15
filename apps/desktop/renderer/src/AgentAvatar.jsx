@@ -17,39 +17,53 @@ import {
 
 const PALETTES = {
   idle: {
-    core: "#f7fbff",
-    hologram: "#67ddff",
-    accent: "#9b93ff",
+    core: "#e0f2fe",
+    hologram: "#e0f2fe",
+    accent: "#bae6fd",
     rim: "#ffffff",
-    glow: "#d9f2ff"
+    glow: "#e0f2fe"
   },
   listening: {
-    core: "#f4fdff",
-    hologram: "#5de4ff",
-    accent: "#8dbbff",
+    core: "#f0f9ff",
+    hologram: "#f0f9ff",
+    accent: "#a5f3fc",
     rim: "#ffffff",
-    glow: "#ddf8ff"
+    glow: "#f0f9ff"
   },
   thinking: {
-    core: "#fbf9ff",
-    hologram: "#a193ff",
-    accent: "#f19bd8",
-    rim: "#fffaff",
-    glow: "#ece5ff"
+    core: "#e0e7ff",
+    hologram: "#e0e7ff",
+    accent: "#bfdbfe",
+    rim: "#ffffff",
+    glow: "#e0e7ff"
+  },
+  waiting_user: {
+    core: "#eff6ff",
+    hologram: "#eff6ff",
+    accent: "#bfdbfe",
+    rim: "#ffffff",
+    glow: "#eff6ff"
+  },
+  briefing: {
+    core: "#ecfeff",
+    hologram: "#ecfeff",
+    accent: "#99f6e4",
+    rim: "#ffffff",
+    glow: "#ecfeff"
   },
   speaking: {
-    core: "#f6fbff",
-    hologram: "#72dfff",
-    accent: "#b18fff",
+    core: "#ffffff",
+    hologram: "#ffffff",
+    accent: "#cffafe",
     rim: "#ffffff",
-    glow: "#dcf5ff"
+    glow: "#ffffff"
   },
   interrupted: {
-    core: "#fff8f5",
-    hologram: "#ffb08d",
-    accent: "#ffd0bc",
-    rim: "#fffdfa",
-    glow: "#fff0e8"
+    core: "#fef2f2",
+    hologram: "#fca5a5",
+    accent: "#f87171",
+    rim: "#ffffff",
+    glow: "#fee2e2"
   }
 };
 
@@ -58,20 +72,20 @@ const TARGETS = {
     tiltX: -0.06,
     tiltY: 0.22,
     scale: 1,
-    signalSpeed: 0.62,
+    signalSpeed: 0.4,
     scanlineSize: 10.5,
     brightness: 1.02,
-    glitch: 0.03,
+    glitch: 0.02,
     mediumRadius: 1.24,
     outerRadius: 1.78
   },
   listening: {
     tiltX: -0.1,
     tiltY: 0.28,
-    scale: 1.03,
-    signalSpeed: 0.74,
+    scale: 1.05,
+    signalSpeed: 1.2,
     scanlineSize: 11.2,
-    brightness: 1.1,
+    brightness: 1.15,
     glitch: 0.04,
     mediumRadius: 1.02,
     outerRadius: 1.5
@@ -80,32 +94,54 @@ const TARGETS = {
     tiltX: -0.18,
     tiltY: -0.14,
     scale: 0.99,
-    signalSpeed: 0.48,
+    signalSpeed: 2.2,
     scanlineSize: 9.2,
     brightness: 1.08,
-    glitch: 0.12,
+    glitch: 0.15,
     mediumRadius: 1.18,
     outerRadius: 1.68
+  },
+  waiting_user: {
+    tiltX: -0.08,
+    tiltY: 0.08,
+    scale: 1.01,
+    signalSpeed: 0.82,
+    scanlineSize: 11.6,
+    brightness: 1.14,
+    glitch: 0.05,
+    mediumRadius: 1.16,
+    outerRadius: 1.72
+  },
+  briefing: {
+    tiltX: -0.02,
+    tiltY: 0.2,
+    scale: 1.05,
+    signalSpeed: 1.1,
+    scanlineSize: 12.4,
+    brightness: 1.22,
+    glitch: 0.06,
+    mediumRadius: 1.36,
+    outerRadius: 2.04
   },
   speaking: {
     tiltX: -0.04,
     tiltY: 0.16,
-    scale: 1.05,
-    signalSpeed: 0.94,
+    scale: 1.08,
+    signalSpeed: 1.6,
     scanlineSize: 13.2,
-    brightness: 1.24,
-    glitch: 0.075,
-    mediumRadius: 1.28,
-    outerRadius: 1.92
+    brightness: 1.28,
+    glitch: 0.08,
+    mediumRadius: 1.48,
+    outerRadius: 2.32
   },
   interrupted: {
     tiltX: 0.12,
     tiltY: -0.12,
     scale: 0.97,
-    signalSpeed: 0.38,
+    signalSpeed: 0.8,
     scanlineSize: 8.4,
     brightness: 0.98,
-    glitch: 0.18,
+    glitch: 0.22,
     mediumRadius: 1.28,
     outerRadius: 1.88
   }
@@ -290,6 +326,28 @@ function setMediumTarget(target, config, index, state, time, activityLevel, radi
       target.scale.setScalar(config.scale * (0.98 + Math.sin(time * 1.8 + config.phase) * 0.04));
       return;
     }
+    case "waiting_user": {
+      const promptAngle = (index / 11 - 0.5) * Math.PI * 0.92;
+      target.position.set(
+        Math.sin(promptAngle) * (radius - 0.16),
+        Math.cos(promptAngle * 1.8 + time * 0.7) * 0.14 - 0.04,
+        0.88 + frontHemisphereWave(promptAngle + config.phase) * 0.18
+      );
+      target.rotation.set(config.tilt * 0.18, promptAngle + time * 0.18, -promptAngle * 0.26);
+      target.scale.setScalar(config.scale * (1.01 + activityLevel * 0.1));
+      return;
+    }
+    case "briefing": {
+      const spread = (index / 11 - 0.5) * Math.PI * 1.12;
+      target.position.set(
+        Math.sin(spread) * (radius - 0.04),
+        Math.cos(spread * 1.7 + time * 1.1) * 0.16 + 0.04,
+        1.08 + frontHemisphereWave(spread * 1.1 + config.phase) * 0.2 + activityLevel * 0.16
+      );
+      target.rotation.set(config.tilt * 0.24, time * 0.86 + config.phase, spread * 0.42);
+      target.scale.setScalar(config.scale * (1.04 + activityLevel * 0.18));
+      return;
+    }
     case "speaking": {
       const spread = (index / 11 - 0.5) * Math.PI * 0.95;
       target.position.set(
@@ -353,6 +411,28 @@ function setOuterTarget(target, config, index, count, state, time, activityLevel
       target.scale.setScalar(config.scale * (0.96 + Math.sin(time * 2 + config.phase) * 0.05));
       return;
     }
+    case "waiting_user": {
+      const ringAngle = angle * 0.7 + ratio * Math.PI * 1.7;
+      target.position.set(
+        Math.cos(ringAngle) * radius * 0.88,
+        Math.sin(ringAngle * 1.5 + config.phase) * 0.22,
+        0.58 + frontHemisphereWave(ringAngle + config.tilt) * 0.22
+      );
+      target.rotation.set(config.tilt * 0.7, ringAngle, config.tilt * 0.42);
+      target.scale.setScalar(config.scale * (1.02 + activityLevel * 0.16));
+      return;
+    }
+    case "briefing": {
+      const spread = (ratio - 0.5) * Math.PI * 1.48;
+      target.position.set(
+        Math.sin(spread) * radius * 0.86,
+        Math.cos(spread * 1.6 + time * 1.12) * 0.24 + 0.06,
+        1.02 + frontHemisphereWave(spread + config.phase) * 0.18 + activityLevel * 0.16
+      );
+      target.rotation.set(config.tilt * 0.24, time * 1.08 + config.phase, spread * 0.82);
+      target.scale.setScalar(config.scale * (1.06 + activityLevel * 0.2));
+      return;
+    }
     case "speaking": {
       const spread = (ratio - 0.5) * Math.PI * 1.65;
       target.position.set(
@@ -394,8 +474,12 @@ function setDistantTarget(target, config, index, count, state, time, activityLev
   const depthLift =
     state === "speaking"
       ? 0.28 + activityLevel * 0.2
+      : state === "briefing"
+      ? 0.26 + activityLevel * 0.16
       : state === "listening"
       ? 0.22 + activityLevel * 0.12
+      : state === "waiting_user"
+      ? 0.2 + activityLevel * 0.08
       : 0.16;
 
   target.position.set(
@@ -431,6 +515,26 @@ function setFrontTarget(target, config, index, count, state, time, activityLevel
       );
       target.rotation.set(drift * 0.8, drift * 1.1, config.tilt);
       target.scale.setScalar(config.scale * 0.98);
+      return;
+    }
+    case "waiting_user": {
+      target.position.set(
+        Math.sin(spread) * 0.78,
+        Math.cos(drift * 1.16) * 0.1 + config.vertical * 0.14,
+        1.22 + frontHemisphereWave(drift + config.tilt) * 0.16 + activityLevel * 0.08
+      );
+      target.rotation.set(config.tilt * 0.14, drift * 0.78, spread * 0.24);
+      target.scale.setScalar(config.scale * (1.02 + activityLevel * 0.12));
+      return;
+    }
+    case "briefing": {
+      target.position.set(
+        Math.sin(spread * 1.06) * 0.92,
+        Math.cos(drift * 1.36) * 0.14 + config.vertical * 0.16,
+        1.38 + frontHemisphereWave(spread * 1.2 + config.phase) * 0.2 + activityLevel * 0.16
+      );
+      target.rotation.set(config.tilt * 0.18, drift, spread * 0.34);
+      target.scale.setScalar(config.scale * (1.08 + activityLevel * 0.18));
       return;
     }
     case "speaking": {
@@ -479,10 +583,8 @@ function ClusteredCubeAvatar({
   const rootRef = useRef(null);
   const shellRef = useRef(null);
   const coreRef = useRef(null);
-  const auraRef = useRef(null);
   const orbitInnerRef = useRef(null);
   const orbitOuterRef = useRef(null);
-  const inputRingRef = useRef(null);
   const signalBeamRef = useRef(null);
   const signalBarsRef = useRef([]);
   const thinkingFrameRef = useRef(null);
@@ -530,14 +632,14 @@ function ClusteredCubeAvatar({
     [palette.rim]
   );
 
-  const outerEdges = useMemo(() => new EdgesGeometry(new BoxGeometry(1.48, 1.48, 1.48)), []);
-  const innerEdges = useMemo(() => new EdgesGeometry(new BoxGeometry(0.78, 0.78, 0.78)), []);
-  const thinkingEdges = useMemo(() => new EdgesGeometry(new BoxGeometry(2.54, 2.54, 2.54)), []);
+  const outerEdges = useMemo(() => new EdgesGeometry(new BoxGeometry(0.8, 0.8, 0.8)), []);
+  const innerEdges = useMemo(() => new EdgesGeometry(new BoxGeometry(0.4, 0.4, 0.4)), []);
+  const thinkingEdges = useMemo(() => new EdgesGeometry(new BoxGeometry(1.6, 1.6, 1.6)), []);
 
-  const frontConfigs = useMemo(() => createLayerConfigs(8, 250, 0.2, 0.3), []);
-  const mediumConfigs = useMemo(() => createLayerConfigs(12, 0, 0.28, 0.42), []);
-  const outerConfigs = useMemo(() => createLayerConfigs(32, 100, 0.1, 0.18), []);
-  const distantConfigs = useMemo(() => createLayerConfigs(28, 400, 0.04, 0.09), []);
+  const frontConfigs = useMemo(() => createLayerConfigs(20, 250, 0.08, 0.15), []);
+  const mediumConfigs = useMemo(() => createLayerConfigs(30, 0, 0.1, 0.18), []);
+  const outerConfigs = useMemo(() => createLayerConfigs(60, 100, 0.05, 0.1), []);
+  const distantConfigs = useMemo(() => createLayerConfigs(50, 400, 0.02, 0.06), []);
   const distantLinkCount = 8;
   const frontStatesRef = useRef(null);
   const mediumStatesRef = useRef(null);
@@ -618,7 +720,7 @@ function ClusteredCubeAvatar({
     thinkingFrameMaterial
   ]);
 
-  useFrame(({ clock }, delta) => {
+  useFrame(({ clock, pointer }, delta) => {
     const time = clock.getElapsedTime();
     const motionScale = reducedMotion ? 0.4 : 1;
 
@@ -627,6 +729,10 @@ function ClusteredCubeAvatar({
     const activityLevel =
       state === "listening"
         ? micLevel
+        : state === "waiting_user"
+        ? Math.max(micLevel * 0.18, 0.16)
+        : state === "briefing"
+        ? Math.max(speechLevel * 0.5, 0.24)
         : state === "speaking"
         ? speechLevel
         : Math.max(micLevel * 0.4, speechLevel * 0.6);
@@ -639,13 +745,15 @@ function ClusteredCubeAvatar({
     s.brightness = MathUtils.lerp(s.brightness, target.brightness + activityLevel * 0.18, 0.08);
     s.glitch = MathUtils.lerp(
       s.glitch,
-      target.glitch + (state === "thinking" ? Math.sin(time * 2.5) * 0.02 : 0),
+      target.glitch + (state === "thinking" ? Math.sin(time * 2.5) * 0.02 : 0) + (s.activity * 0.08),
       0.08
     );
 
     if (rootRef.current) {
-      rootRef.current.rotation.x = MathUtils.lerp(rootRef.current.rotation.x, target.tiltX, 0.08);
-      rootRef.current.rotation.y = MathUtils.lerp(rootRef.current.rotation.y, target.tiltY, 0.08);
+      const pX = pointer.x * 0.4;
+      const pY = -pointer.y * 0.4;
+      rootRef.current.rotation.x = MathUtils.lerp(rootRef.current.rotation.x, target.tiltX + pY, 0.08);
+      rootRef.current.rotation.y = MathUtils.lerp(rootRef.current.rotation.y, target.tiltY + pX, 0.08);
       rootRef.current.position.y = Math.sin(time * 1.02) * 0.08 * motionScale;
       rootRef.current.scale.setScalar(s.scale);
     }
@@ -657,11 +765,6 @@ function ClusteredCubeAvatar({
     if (coreRef.current) {
       coreRef.current.rotation.y = time * 0.1 * motionScale;
       coreRef.current.rotation.x = Math.sin(time * 0.48) * 0.06 * motionScale;
-    }
-
-    if (auraRef.current) {
-      auraRef.current.material.opacity = 0.12 + s.activity * 0.12;
-      auraRef.current.scale.setScalar(1.04 + s.activity * 0.08);
     }
 
     if (orbitInnerRef.current) {
@@ -676,22 +779,33 @@ function ClusteredCubeAvatar({
       orbitOuterRef.current.scale.setScalar(1 + s.activity * 0.06);
     }
 
-    if (inputRingRef.current) {
-      const visible = state === "listening" ? 1 : 0.18;
-      inputRingRef.current.material.opacity = 0.04 + visible * (0.08 + s.input * 0.24);
-      inputRingRef.current.scale.setScalar(1 + s.input * 0.16);
-      inputRingRef.current.rotation.z = time * 0.42 * motionScale;
-    }
-
     if (signalBeamRef.current) {
-      const beamLevel = state === "speaking" ? s.speech : state === "listening" ? s.input * 0.35 : 0;
+      const beamLevel =
+        state === "speaking"
+          ? s.speech
+          : state === "briefing"
+          ? 0.16 + s.activity * 0.24
+          : state === "listening"
+          ? s.input * 0.35
+          : state === "waiting_user"
+          ? 0.08 + s.input * 0.14
+          : 0;
       signalBeamRef.current.material.opacity = 0.02 + beamLevel * 0.24;
       signalBeamRef.current.scale.x = 1 + beamLevel * 0.34;
     }
 
     for (const [index, bar] of signalBarsRef.current.entries()) {
       if (!bar) continue;
-      const beamLevel = state === "speaking" ? s.speech : state === "listening" ? s.input * 0.42 : 0.08;
+      const beamLevel =
+        state === "speaking"
+          ? s.speech
+          : state === "briefing"
+          ? 0.18 + s.activity * 0.24
+          : state === "listening"
+          ? s.input * 0.42
+          : state === "waiting_user"
+          ? 0.12 + s.input * 0.16
+          : 0.08;
       const phase = time * 5.4 + index * 0.6;
       bar.scale.y = 0.6 + beamLevel * 2 + Math.sin(phase) * 0.18;
       bar.material.opacity = 0.08 + beamLevel * 0.26;
@@ -700,8 +814,19 @@ function ClusteredCubeAvatar({
     if (thinkingFrameRef.current) {
       thinkingFrameRef.current.rotation.z = time * 0.16 * motionScale;
       thinkingFrameRef.current.material.opacity =
-        state === "thinking" ? 0.16 + s.activity * 0.14 : 0.04 + s.activity * 0.04;
-      const frameScale = state === "thinking" ? 1.02 + Math.sin(time * 1.8) * 0.03 : 0.98;
+        state === "thinking"
+          ? 0.16 + s.activity * 0.14
+          : state === "briefing"
+          ? 0.12 + s.activity * 0.1
+          : state === "waiting_user"
+          ? 0.1 + s.activity * 0.08
+          : 0.04 + s.activity * 0.04;
+      const frameScale =
+        state === "thinking"
+          ? 1.02 + Math.sin(time * 1.8) * 0.03
+          : state === "briefing"
+          ? 1.04 + Math.sin(time * 1.5) * 0.02
+          : 0.98;
       thinkingFrameRef.current.scale.setScalar(frameScale);
     }
 
@@ -874,18 +999,6 @@ function ClusteredCubeAvatar({
       <pointLight position={[2.8, -1.6, 3.1]} intensity={1.42} color={palette.accent} />
 
       <group ref={rootRef}>
-        <mesh ref={auraRef} position={[0, 0, -1.08]} renderOrder={0}>
-          <planeGeometry args={[5.2, 5.2]} />
-          <meshBasicMaterial
-            color={palette.glow}
-            transparent
-            opacity={0.12}
-            depthWrite={false}
-            blending={AdditiveBlending}
-            toneMapped={false}
-          />
-        </mesh>
-
         <mesh ref={orbitOuterRef} rotation={[0.34, 0.42, Math.PI / 6]} renderOrder={1}>
           <torusGeometry args={[1.82, 0.016, 12, 128]} />
           <meshBasicMaterial
@@ -989,37 +1102,25 @@ function ClusteredCubeAvatar({
         <lineSegments geometry={outerEdges} material={outerEdgeMaterial} renderOrder={6} />
 
         <mesh ref={shellRef} renderOrder={5}>
-          <boxGeometry args={[1.48, 1.48, 1.48]} />
+          <boxGeometry args={[0.8, 0.8, 0.8]} />
           <primitive attach="material" object={shellMaterial} />
         </mesh>
 
         <mesh ref={coreRef} renderOrder={5}>
-          <boxGeometry args={[0.78, 0.78, 0.78]} />
+          <boxGeometry args={[0.4, 0.4, 0.4]} />
           <meshPhysicalMaterial
             color={palette.core}
             transparent
-            opacity={0.24}
-            roughness={0.08}
-            metalness={0.02}
+            opacity={0.34}
+            roughness={0.05}
+            metalness={0.1}
             clearcoat={1}
-            clearcoatRoughness={0.12}
-            transmission={0.12}
+            clearcoatRoughness={0.1}
+            transmission={0.8}
             thickness={0.8}
             emissive={palette.hologram}
-            emissiveIntensity={0.12}
+            emissiveIntensity={0.25}
             depthWrite={false}
-          />
-        </mesh>
-
-        <mesh ref={inputRingRef} rotation={[Math.PI / 2, 0, 0]} renderOrder={7}>
-          <torusGeometry args={[0.9, 0.024, 16, 120]} />
-          <meshBasicMaterial
-            color={palette.hologram}
-            transparent
-            opacity={0.08}
-            depthWrite={false}
-            blending={AdditiveBlending}
-            toneMapped={false}
           />
         </mesh>
 
@@ -1078,7 +1179,7 @@ export function AgentAvatar({
       className="relative flex items-center justify-center pointer-events-none"
       style={{ width: "min(700px, 76vh)", height: "min(700px, 76vh)" }}
     >
-      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_center,rgba(103,221,255,0.18)_0%,rgba(155,147,255,0.12)_34%,rgba(255,255,255,0)_76%)] blur-3xl" />
+      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.15)_0%,rgba(56,189,248,0.08)_34%,rgba(255,255,255,0)_76%)] blur-3xl" />
       <Canvas
         dpr={[1, 1.5]}
         gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}

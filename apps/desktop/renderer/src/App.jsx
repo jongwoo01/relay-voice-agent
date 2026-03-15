@@ -45,6 +45,7 @@ export default function App() {
     audioEnergy,
     avatarState,
     chatOpen,
+    completedDrawerAutoOpenTick,
     debugFilters,
     debugOpen,
     debugTaskFilter,
@@ -247,6 +248,7 @@ export default function App() {
           <AgentActivityPanel
             taskRunners={taskRunners}
             archivedEntries={archivedEntries}
+            completedDrawerAutoOpenTick={completedDrawerAutoOpenTick}
             selectedTaskId={selectedTaskId}
             onSelectTask={setSelectedTaskId}
             summary={summary}
@@ -287,8 +289,8 @@ export default function App() {
       ) : null}
 
       {!isUnlocked && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-transparent backdrop-blur-[2px] transition-all duration-500">
-          <div className="flex w-full max-w-[340px] flex-col items-center gap-6 rounded-[32px] border border-white/30 bg-white/20 p-10 shadow-[0_30px_100px_-20px_rgba(15,23,42,0.1)] backdrop-blur-3xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-transparent backdrop-blur-[4px] transition-all duration-500">
+          <div className="flex w-full max-w-[340px] flex-col items-center gap-6 rounded-[32px] border border-gray-300/40 bg-white/60 p-10 shadow-[0_30px_100px_-20px_rgba(15,23,42,0.15)] ring-1 ring-inset ring-white/80 backdrop-blur-3xl">
             <div className="flex flex-col items-center gap-3 text-center">
               <div className="flex h-[52px] w-[52px] items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-[0_8px_24px_-6px_rgba(79,70,229,0.3)]">
                  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -322,10 +324,10 @@ export default function App() {
                     setPasscode(event.target.value);
                     if (passcodeError) setPasscodeError(false);
                   }}
-                  className={`w-full rounded-2xl border bg-white/60 px-5 py-3.5 pr-12 text-[14px] font-medium tracking-wide text-gray-800 outline-none backdrop-blur-sm transition-all placeholder:text-gray-400 focus:bg-white/90 focus:ring-4 ${
+                  className={`w-full rounded-2xl border bg-white/70 px-5 py-3.5 pr-12 text-[14px] font-medium tracking-wide text-gray-900 outline-none shadow-inner backdrop-blur-sm transition-all placeholder:text-gray-400 focus:bg-white focus:ring-4 ${
                     passcodeError
                       ? "border-red-400/80 focus:border-red-500/80 focus:ring-red-100/70 animate-[shake_0.5s_ease-in-out]"
-                      : "border-white/80 focus:border-blue-400/60 focus:ring-blue-100/50"
+                      : "border-gray-300/80 hover:border-gray-400/80 focus:border-blue-500/80 focus:ring-blue-100/60"
                   }`}
                   autoFocus
                 />

@@ -16,10 +16,18 @@
     color: #1a1a2e;
     -webkit-font-smoothing: antialiased;
   }
-
   #root {
     height: 100%;
     width: 100%;
+  }
+
+  /* Utility to hide scrollbars but maintain functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none; /* IE & Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none; /* Chrome, Safari & Opera */
   }
 
   body {

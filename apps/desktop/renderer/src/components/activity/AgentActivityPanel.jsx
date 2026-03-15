@@ -5,7 +5,8 @@ import {
   formatTaskRunnerStatus,
   formatTime,
   formatVerificationStatus,
-  getTaskRunnerAccent
+  getTaskRunnerAccent,
+  pickDefaultTaskSelection
 } from "../../ui-utils.js";
 import { useStickToBottom } from "../../hooks/useStickToBottom.js";
 
@@ -14,36 +15,52 @@ function accentTheme(status) {
     case "waiting":
       return {
         pill: "bg-amber-50 text-amber-700 border border-amber-200/70",
+        surface: "from-amber-50/90 via-white/88 to-amber-100/75",
         glow: "from-amber-300/30 via-amber-100/20 to-transparent",
         dot: "bg-amber-500",
         icon: "text-amber-500",
-        ring: "ring-amber-200/80"
+        ring: "ring-amber-200/80",
+        liveLine: "from-amber-400 via-amber-300 to-orange-300"
       };
     case "failed":
       return {
         pill: "bg-rose-50 text-rose-700 border border-rose-200/70",
+        surface: "from-rose-50/90 via-white/88 to-rose-100/75",
         glow: "from-rose-300/30 via-rose-100/20 to-transparent",
         dot: "bg-rose-500",
         icon: "text-rose-500",
-        ring: "ring-rose-200/80"
+        ring: "ring-rose-200/80",
+        liveLine: "from-rose-400 via-rose-300 to-orange-300"
       };
     case "completed":
       return {
         pill: "bg-emerald-50 text-emerald-700 border border-emerald-200/70",
+        surface: "from-emerald-50/90 via-white/90 to-emerald-100/70",
         glow: "from-emerald-300/30 via-emerald-100/20 to-transparent",
         dot: "bg-emerald-500",
         icon: "text-emerald-500",
-        ring: "ring-emerald-200/80"
+        ring: "ring-emerald-200/80",
+        liveLine: "from-emerald-400 via-emerald-300 to-teal-300"
       };
     default:
       return {
         pill: "bg-blue-50 text-blue-700 border border-blue-200/70",
+        surface: "from-sky-50/95 via-white/92 to-cyan-100/80",
         glow: "from-blue-300/30 via-blue-100/20 to-transparent",
         dot: "bg-blue-500",
         icon: "text-blue-500",
-        ring: "ring-blue-200/80"
+        ring: "ring-blue-200/80",
+        liveLine: "from-cyan-400 via-sky-400 to-blue-400"
       };
   }
+}
+
+function isAttentionStatus(status) {
+  return (
+    status === "waiting_input" ||
+    status === "approval_required" ||
+    status === "failed"
+  );
 }
 
 function TraceList({ entries, emptyText, className = "max-h-[220px] space-y-3 overflow-y-auto" }) {
@@ -169,8 +186,15 @@ function TaskRunnerDetail({ runner, summary, debugEvents }) {
       <section className="rounded-[28px] border border-white/70 bg-white/80 px-4 py-4 shadow-[0_18px_45px_-30px_rgba(15,23,42,0.28)] backdrop-blur-xl">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">Selected Task</p>
-            <p className="m-0 mt-1 text-sm text-gray-500">{updatedAtText || "Live progress updates appear here."}</p>
+            <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">
+              {runner.status === "completed" ? "Completed Task" : "Live Task"}
+            </p>
+            <p className="m-0 mt-1 text-sm text-gray-500">
+              {updatedAtText ||
+                (runner.status === "completed"
+                  ? "Completion details remain available here."
+                  : "Live progress updates appear here.")}
+            </p>
           </div>
           <div className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-white/80 shadow-inner ring-1 ${accent.ring}`}>
             <span className={`h-2.5 w-2.5 rounded-full ${accent.dot}`} />
@@ -288,6 +312,10 @@ function TaskRunnerCards({ entries, emptyText, selectedTaskId, onSelect, summary
   return entries.map((runner) => {
     const selected = runner.taskId === selectedTaskId;
     const accent = accentTheme(runner.status);
+    const isRunning = runner.status === "running";
+    const isCompleted = runner.status === "completed";
+    const needsAttention = isAttentionStatus(runner.status);
+    const heroUpdate = runner.latestHumanUpdate ?? runner.heroSummary;
     const supportingParts = [
       runner.latestExecutionTraceTitle
         ? `${runner.latestExecutionTraceTitle}${runner.latestExecutionTraceBody ? ` · ${runner.latestExecutionTraceBody}` : ""}`
@@ -303,38 +331,98 @@ function TaskRunnerCards({ entries, emptyText, selectedTaskId, onSelect, summary
         <button
           type="button"
           className={`w-full group relative overflow-hidden rounded-[24px] border px-4 py-4 text-left backdrop-blur-3xl transition-all duration-500 ${
-            selected 
-              ? "border-blue-300/60 bg-white/80 ring-4 ring-blue-500/10 shadow-[0_20px_40px_-10px_rgba(59,130,246,0.15)] scale-[1.02] z-10" 
-              : "border-white/40 bg-white/40 hover:border-white/60 hover:bg-white/60 hover:shadow-[0_12px_32px_rgba(0,0,0,0.06)] hover:-translate-y-0.5"
+            selected
+              ? "border-blue-300/60 bg-white/85 ring-4 ring-blue-500/10 shadow-[0_22px_45px_-12px_rgba(59,130,246,0.2)] scale-[1.01] z-10"
+              : isRunning
+                ? "border-sky-200/80 bg-white/78 shadow-[0_18px_36px_-16px_rgba(14,165,233,0.24)] hover:-translate-y-0.5 hover:border-sky-300/90 hover:bg-white/88"
+                : needsAttention
+                  ? "border-amber-200/80 bg-white/76 shadow-[0_18px_36px_-18px_rgba(245,158,11,0.18)] hover:-translate-y-0.5 hover:bg-white/86"
+                  : isCompleted
+                    ? "border-white/30 bg-white/34 hover:border-emerald-200/70 hover:bg-white/58 hover:shadow-[0_12px_32px_rgba(16,185,129,0.08)]"
+                    : "border-white/40 bg-white/40 hover:border-white/60 hover:bg-white/60 hover:shadow-[0_12px_32px_rgba(0,0,0,0.06)] hover:-translate-y-0.5"
           }`}
           aria-expanded={selected ? "true" : "false"}
-          onClick={() => onSelect(selected ? null : runner.taskId)}
+          onClick={() => onSelect(runner.taskId)}
         >
+          {isRunning ? (
+            <span
+              aria-hidden="true"
+              className={`pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r ${accent.liveLine}`}
+            />
+          ) : null}
           <span className="flex items-center gap-4">
-            <span className={`relative flex h-[50px] w-[50px] shrink-0 items-center justify-center rounded-[18px] bg-gradient-to-br ${accent.glow} ring-1 ${accent.ring} shadow-[inset_0_2px_12px_rgba(255,255,255,0.8)] overflow-hidden transition-transform duration-500 ${selected ? "scale-105" : "group-hover:scale-105"}`} aria-hidden="true">
-              {runner.status === 'running' && (
+            <span
+              className={`relative flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[18px] bg-gradient-to-br ${accent.glow} ring-1 ${accent.ring} shadow-[inset_0_2px_12px_rgba(255,255,255,0.8)] overflow-hidden transition-transform duration-500 ${
+                selected ? "scale-105" : "group-hover:scale-105"
+              }`}
+              aria-hidden="true"
+            >
+              {isRunning && (
                 <>
-                  <span className="absolute inset-[-100%] bg-[conic-gradient(from_0deg,transparent_0_340deg,rgba(255,255,255,0.9)_360deg)] animate-[spin_2s_linear_infinite]" />
+                  <span className="absolute inset-[-100%] bg-[conic-gradient(from_0deg,transparent_0_300deg,rgba(56,189,248,0.95)_330deg,rgba(255,255,255,0.96)_360deg)] animate-[spin_1.5s_linear_infinite]" />
+                  <span className="absolute inset-[5px] rounded-full border border-sky-300/60 animate-ping opacity-70" />
                   <span className="absolute inset-[2px] rounded-[16px] bg-white/80 backdrop-blur-xl" />
+                  <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-sky-400 shadow-[0_0_0_4px_rgba(125,211,252,0.28)]" />
                 </>
               )}
-              {runner.status !== 'running' && (
+              {!isRunning && (
                 <span className="absolute inset-[2px] rounded-[16px] bg-white/80 backdrop-blur-xl transition-colors duration-300" />
               )}
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`relative z-10 ${accent.icon} drop-shadow-[0_2px_8px_rgba(0,0,0,0.1)] transition-transform duration-500 ${runner.status === 'running' ? 'animate-[pulse_2s_ease-in-out_infinite]' : ''}`}>
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`relative z-10 ${accent.icon} drop-shadow-[0_2px_8px_rgba(0,0,0,0.1)] transition-transform duration-500 ${
+                  isRunning ? "animate-[pulse_1.4s_ease-in-out_infinite]" : ""
+                }`}
+              >
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
               </svg>
             </span>
             <span className="min-w-0 flex-1">
-              <span className={`block text-[15px] font-bold leading-snug truncate transition-colors duration-300 ${selected ? "text-gray-900" : "text-gray-700 group-hover:text-gray-900"}`}>{runner.headline}</span>
+              <span className="flex flex-wrap items-center gap-2">
+                {isRunning ? (
+                  <span className="rounded-full border border-sky-200/80 bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-sky-700">
+                    Live Runner
+                  </span>
+                ) : null}
+                {needsAttention ? (
+                  <span className="rounded-full border border-amber-200/80 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">
+                    Needs Review
+                  </span>
+                ) : null}
+              </span>
+              <span className={`mt-2 block text-[15px] font-bold leading-snug transition-colors duration-300 ${selected ? "text-gray-900" : "text-gray-700 group-hover:text-gray-900"}`}>{runner.headline}</span>
               <span className="mt-1.5 flex flex-wrap items-center gap-2">
-                <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide shadow-sm backdrop-blur-md border ${accent.pill}`}>
+                <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide shadow-sm backdrop-blur-md border shrink-0 ${accent.pill}`}>
                   {runner.statusLabel ?? formatTaskRunnerStatus(runner.status)}
                 </span>
-                <span className="text-[11px] font-medium text-gray-400 truncate">{runner.latestHumanUpdate}</span>
+                {runner.lastUpdatedAt ? (
+                  <span className="text-[11px] font-medium text-gray-400">
+                    Updated {formatTime(runner.lastUpdatedAt)}
+                  </span>
+                ) : null}
+              </span>
+              <span
+                className={`mt-2 block rounded-[18px] bg-gradient-to-r px-3 py-2 text-[12px] leading-relaxed ${
+                  isRunning
+                    ? "from-sky-50 to-cyan-50 text-sky-800 ring-1 ring-inset ring-sky-100"
+                    : needsAttention
+                      ? "from-amber-50 to-orange-50 text-amber-900 ring-1 ring-inset ring-amber-100"
+                      : isCompleted
+                        ? "from-emerald-50/85 to-white text-emerald-900 ring-1 ring-inset ring-emerald-100/80"
+                        : "from-gray-50 to-white text-gray-700 ring-1 ring-inset ring-gray-100"
+                }`}
+              >
+                {heroUpdate}
               </span>
               {!selected && supportingParts.length > 0 ? (
-                <span className="mt-2 block text-[11px] leading-relaxed text-gray-500/80 truncate tracking-wide font-medium">{supportingParts.join(" · ")}</span>
+                <span className="mt-2 block text-[11px] leading-relaxed text-gray-500/80 tracking-wide font-medium break-words">{supportingParts.join(" · ")}</span>
               ) : null}
             </span>
           </span>
@@ -352,6 +440,7 @@ function TaskRunnerCards({ entries, emptyText, selectedTaskId, onSelect, summary
 export function AgentActivityPanel({
   taskRunners,
   archivedEntries,
+  completedDrawerAutoOpenTick,
   selectedTaskId,
   onSelectTask,
   summary,
@@ -359,18 +448,36 @@ export function AgentActivityPanel({
   voiceConnected,
   pendingBriefingCount
 }) {
-  const [completedOpen, setCompletedOpen] = useState(false);
+  const [completedOpen, setCompletedOpen] = useState(
+    archivedEntries.length > 0 && taskRunners.length === 0
+  );
+  const effectiveSelectedTaskId =
+    selectedTaskId ?? pickDefaultTaskSelection(taskRunners, archivedEntries);
+  const anyTasksExist = taskRunners.length > 0 || archivedEntries.length > 0;
+  const showRunningSection = taskRunners.length > 0;
+  const completedIsPrimary = taskRunners.length === 0 && archivedEntries.length > 0;
 
-  // Auto-open completed drawer if a task inside it is selected
   useEffect(() => {
-    const isSelectedArchived = archivedEntries.some((e) => e.taskId === selectedTaskId);
+    const isSelectedArchived = archivedEntries.some(
+      (entry) => entry.taskId === effectiveSelectedTaskId
+    );
     if (isSelectedArchived) {
       setCompletedOpen(true);
     }
-  }, [selectedTaskId, archivedEntries]);
+  }, [archivedEntries, effectiveSelectedTaskId]);
 
-  const anyTaskSelected = selectedTaskId !== null;
-  const anyTasksExist = taskRunners.length > 0 || archivedEntries.length > 0;
+  useEffect(() => {
+    if (archivedEntries.length > 0 && taskRunners.length === 0) {
+      setCompletedOpen(true);
+    }
+  }, [archivedEntries.length, taskRunners.length]);
+
+  useEffect(() => {
+    if (completedDrawerAutoOpenTick > 0) {
+      setCompletedOpen(true);
+    }
+  }, [completedDrawerAutoOpenTick]);
+
   return (
     <aside className="relative z-10 flex h-full min-h-0 flex-col rounded-[40px] border border-white/60 bg-gradient-to-b from-white/60 to-white/40 p-6 shadow-[0_30px_120px_-50px_rgba(15,23,42,0.15)] backdrop-blur-3xl overflow-hidden">
       {/* Subtle animated background glow */}
@@ -393,33 +500,57 @@ export function AgentActivityPanel({
       </div>
 
       {/* ─── Single scrollable content area ─── */}
-      <div className="relative z-10 mt-5 min-h-0 flex-1 space-y-6 overflow-y-auto pr-2 scrollbar-hide">
-        {/* Running tasks */}
-        <section>
-          <p className="m-0 mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400/90 pl-1">
-            {taskRunners.length > 0 ? `Running (${taskRunners.length})` : "Running Now"}
-          </p>
-          <div className="space-y-3">
-            <TaskRunnerCards
-              entries={taskRunners}
-              emptyText=""
-              selectedTaskId={selectedTaskId}
-              onSelect={onSelectTask}
-              summary={summary}
-              debugEvents={debugEvents}
-            />
-          </div>
-        </section>
+      <div className="relative z-10 min-h-0 flex-1 space-y-6 overflow-y-auto -mx-4 px-4 pt-5 pb-6 scrollbar-hide">
+        {showRunningSection ? (
+          <section className="space-y-3">
+            <div className="flex items-end justify-between gap-3 px-1">
+              <div>
+                <p className="m-0 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400/90">
+                  Running ({taskRunners.length})
+                </p>
+                <p className="m-0 mt-1 text-sm text-gray-500">
+                  Active runners stay pinned here while their progress keeps updating.
+                </p>
+              </div>
+              <div className="rounded-full border border-sky-200/70 bg-sky-50/80 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-sky-700 shadow-sm">
+                Live now
+              </div>
+            </div>
+            <div className="space-y-3">
+              <TaskRunnerCards
+                entries={taskRunners}
+                emptyText=""
+                selectedTaskId={effectiveSelectedTaskId}
+                onSelect={onSelectTask}
+                summary={summary}
+                debugEvents={debugEvents}
+              />
+            </div>
+          </section>
+        ) : null}
 
-        {/* Completed drawer */}
         {archivedEntries.length > 0 && (
-          <section>
+          <section className="space-y-3">
+            {completedIsPrimary ? (
+              <div className="px-1">
+                <p className="m-0 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400/90">
+                  Completed ({archivedEntries.length})
+                </p>
+                <p className="m-0 mt-1 text-sm text-gray-500">
+                  Finished tasks stay openable here with their full result and execution history.
+                </p>
+              </div>
+            ) : null}
             <details
               open={completedOpen}
               onToggle={(e) => setCompletedOpen(e.currentTarget.open)}
               className="group"
             >
-              <summary className="cursor-pointer list-none rounded-[16px] border border-white/40 bg-white/30 px-4 py-3 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500 hover:bg-white/50 hover:shadow-sm transition-all flex items-center justify-between backdrop-blur-md">
+              <summary className={`cursor-pointer list-none rounded-[16px] border px-4 py-3 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500 transition-all flex items-center justify-between backdrop-blur-md ${
+                completedIsPrimary
+                  ? "border-emerald-200/60 bg-white/62 shadow-[0_14px_35px_-24px_rgba(16,185,129,0.28)]"
+                  : "border-white/40 bg-white/30 hover:bg-white/50 hover:shadow-sm"
+              }`}>
                 <span>Completed ({archivedEntries.length})</span>
                 <span className="text-[10px] text-gray-400 group-open:rotate-180 transition-transform duration-300">▼</span>
               </summary>
@@ -427,7 +558,7 @@ export function AgentActivityPanel({
                 <TaskRunnerCards
                   entries={archivedEntries}
                   emptyText="Completed work will be archived here."
-                  selectedTaskId={selectedTaskId}
+                  selectedTaskId={effectiveSelectedTaskId}
                   onSelect={onSelectTask}
                   summary={summary}
                   debugEvents={debugEvents}
@@ -437,8 +568,7 @@ export function AgentActivityPanel({
           </section>
         )}
 
-        {/* Empty state / Session Summary */}
-        {(!anyTasksExist || (!anyTaskSelected && anyTasksExist)) && (
+        {!anyTasksExist ? (
           <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
             <div className="relative mb-6 flex h-[88px] w-[88px] items-center justify-center">
               <div className="absolute inset-0 animate-[spin_4s_linear_infinite] rounded-full bg-gradient-to-tr from-blue-200/40 to-indigo-200/40 blur-xl" />
@@ -454,18 +584,14 @@ export function AgentActivityPanel({
                  </svg>
               </div>
             </div>
-            <h3 className="m-0 text-[18px] font-bold tracking-tight text-gray-800">
-              {anyTasksExist ? "Select a Task" : "Awaiting Activity"}
-            </h3>
+            <h3 className="m-0 text-[18px] font-bold tracking-tight text-gray-800">Awaiting Activity</h3>
             <p className="m-0 mt-3 max-w-[240px] text-[13px] font-medium leading-relaxed text-gray-500 text-balance">
-              {anyTasksExist
-                ? "Click on any task above to view detailed execution traces and results."
-                : voiceConnected
-                  ? "Live tasks and grounded results will appear here organically as the conversation progresses."
-                  : "Once the live session starts, the agent's work and thought process will be visible here."}
+              {voiceConnected
+                ? "Live tasks and grounded results will appear here organically as the conversation progresses."
+                : "Once the live session starts, the agent's work and thought process will be visible here."}
             </p>
           </div>
-        )}
+        ) : null}
       </div>
     </aside>
   );

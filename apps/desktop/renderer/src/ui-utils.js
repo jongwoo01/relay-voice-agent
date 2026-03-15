@@ -95,6 +95,106 @@ function getTaskRunnerPriority(status) {
   return 4;
 }
 
+function isUrgentTaskRunnerStatus(status) {
+  return (
+    status === "waiting_input" ||
+    status === "approval_required" ||
+    status === "failed"
+  );
+}
+
+function isPreparingTaskRunnerStatus(status) {
+  return status === "created" || status === "queued";
+}
+
+export function pickDefaultTaskSelection(taskRunners, archivedEntries) {
+  const urgentRunner = taskRunners.find((runner) =>
+    isUrgentTaskRunnerStatus(runner.status)
+  );
+  if (urgentRunner) {
+    return urgentRunner.taskId;
+  }
+
+  const runningRunner = taskRunners.find((runner) => runner.status === "running");
+  if (runningRunner) {
+    return runningRunner.taskId;
+  }
+
+  const preparingRunner = taskRunners.find((runner) =>
+    isPreparingTaskRunnerStatus(runner.status)
+  );
+  if (preparingRunner) {
+    return preparingRunner.taskId;
+  }
+
+  return archivedEntries[0]?.taskId ?? taskRunners[0]?.taskId ?? null;
+}
+
+export function resolveTaskPanelSelection({
+  selectedTaskId,
+  taskRunners,
+  archivedEntries,
+  previousTaskRunners = [],
+  previousArchivedEntries = []
+}) {
+  const allEntries = [...taskRunners, ...archivedEntries];
+  if (allEntries.length === 0) {
+    return {
+      nextSelectedTaskId: null,
+      shouldAutoOpenCompleted: false
+    };
+  }
+
+  const selectedMovedToCompleted =
+    selectedTaskId !== null &&
+    previousTaskRunners.some((runner) => runner.taskId === selectedTaskId) &&
+    archivedEntries.some((runner) => runner.taskId === selectedTaskId);
+
+  if (selectedMovedToCompleted) {
+    return {
+      nextSelectedTaskId: selectedTaskId,
+      shouldAutoOpenCompleted: true
+    };
+  }
+
+  const previousByTaskId = new Map(
+    [...previousTaskRunners, ...previousArchivedEntries].map((runner) => [
+      runner.taskId,
+      runner
+    ])
+  );
+
+  const urgentTask = taskRunners.find((runner) => {
+    if (!isUrgentTaskRunnerStatus(runner.status)) {
+      return false;
+    }
+    const previous = previousByTaskId.get(runner.taskId);
+    return !previous || previous.status !== runner.status;
+  });
+
+  if (urgentTask) {
+    return {
+      nextSelectedTaskId: urgentTask.taskId,
+      shouldAutoOpenCompleted: false
+    };
+  }
+
+  if (selectedTaskId !== null && allEntries.some((runner) => runner.taskId === selectedTaskId)) {
+    return {
+      nextSelectedTaskId: selectedTaskId,
+      shouldAutoOpenCompleted: false
+    };
+  }
+
+  const fallbackTaskId = pickDefaultTaskSelection(taskRunners, archivedEntries);
+  return {
+    nextSelectedTaskId: fallbackTaskId,
+    shouldAutoOpenCompleted:
+      fallbackTaskId !== null &&
+      archivedEntries.some((runner) => runner.taskId === fallbackTaskId)
+  };
+}
+
 export function getTaskRunnerAccent(status) {
   if (status === "waiting_input" || status === "approval_required") {
     return "waiting";
