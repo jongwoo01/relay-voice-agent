@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, shell, systemPreferences } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadDotEnvFromRoot } from "./src/main/config/env-loader.js";
@@ -14,6 +14,7 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const relayIconPath = path.join(__dirname, "build", "icon.png");
 
 let mainWindow;
 let runtime;
@@ -129,6 +130,19 @@ function registerIpcHandle(channel, handler) {
   });
 }
 
+async function requestMacMicrophoneAccess() {
+  if (process.platform !== "darwin") {
+    return true;
+  }
+
+  const status = systemPreferences.getMediaAccessStatus("microphone");
+  if (status === "granted") {
+    return true;
+  }
+
+  return systemPreferences.askForMediaAccess("microphone");
+}
+
 function buildRawExecutorEventSummary(event) {
   const summary = {
     type: event?.type ?? null
@@ -189,7 +203,8 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false
-    }
+    },
+    icon: relayIconPath
   });
 
   mainWindow.webContents.on("console-message", (details) => {
@@ -289,6 +304,11 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  app.setName("Relay");
+  if (process.platform === "darwin" && app.dock) {
+    app.dock.setIcon(relayIconPath);
+  }
+
   process.on("uncaughtException", (error) => {
     logDesktopError("uncaught exception", {
       error: serializeUnknownError(error)
@@ -329,6 +349,19 @@ app.whenReady().then(() => {
     }
   });
 
+  registerIpcHandle("relay:send-typed-turn", async (event, text) => {
+    assertTrustedSender(event);
+    await runtime.startInput(text);
+    try {
+      const state = await cloudSession.sendText(text);
+      await runtime.finishInput();
+      return state;
+    } catch (error) {
+      await runtime.setError(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  });
+
   registerIpcHandle("companion:send-typed-turn", async (event, text) => {
     assertTrustedSender(event);
     await runtime.startInput(text);
@@ -357,6 +390,11 @@ app.whenReady().then(() => {
     return runtime.setAssistantSpeaking(speaking);
   });
 
+  registerIpcHandle("system:request-microphone-access", async (event) => {
+    assertTrustedSender(event);
+    return requestMacMicrophoneAccess();
+  });
+
   registerIpcHandle("live:init", async (event) => {
     assertTrustedSender(event);
     const state = await cloudSession.getState();
@@ -382,6 +420,18 @@ app.whenReady().then(() => {
     assertTrustedSender(event);
     await refreshHistoryNow();
     return desktopUiState.compose();
+  });
+
+  registerIpcHandle("system:open-mac-privacy-settings", async (event) => {
+    assertTrustedSender(event);
+    if (process.platform !== "darwin") {
+      return false;
+    }
+
+    await shell.openExternal(
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+    );
+    return true;
   });
 
   registerIpcHandle("live:connect", async (event, passcode) => {

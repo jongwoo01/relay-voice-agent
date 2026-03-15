@@ -1,13 +1,13 @@
 # Architecture Overview
 
-This document reflects the current submission architecture in the repository.
+This document reflects the current submission architecture for Relay in the repository.
 
 ## Submission Topology
 
 ```mermaid
 flowchart LR
     user["User"]
-    desktop["Electron Desktop Companion\napps/desktop"]
+    desktop["Relay Desktop App\napps/desktop"]
     cloud["Cloud Run Agent Core\napps/agent-api"]
     live["Gemini Live Session\nserver-owned"]
     db["Cloud SQL / Postgres"]
@@ -22,7 +22,7 @@ flowchart LR
 
 ## Responsibility Split
 
-### Electron desktop companion
+### Relay desktop app
 
 - Captures microphone input and plays assistant audio
 - Renders the hosted conversation, task state, history, and debug surface
@@ -75,4 +75,4 @@ The important boundary is:
 - cloud-hosted: live session, task orchestration, persistence, judge auth
 - local desktop: audio surface and grounded machine execution
 
-That is the architecture you should show in the Devpost diagram and in the demo narration.
+That is the Relay architecture you should show in the Devpost diagram and in the demo narration.

@@ -28,7 +28,7 @@ Suggested commands inside the harness:
 
 ### Option 2: Hosted judge path
 
-Use this when you want to verify the main submission-facing desktop flow.
+Use this when you want to verify the main submission-facing Relay desktop flow.
 
 Requirements:
 
@@ -53,14 +53,14 @@ Hosted flow expectations:
 - judges receive the hosted service URL and a judge-specific passcode privately through Devpost Additional Info
 - the public repository and public README do not contain private passcodes
 - when `JUDGE_USERS_JSON` is used, each passcode maps to a distinct hosted user identity so task history and profile memory remain isolated per judge
-- the desktop app prompts for the judge passcode before opening the live session
+- the Relay desktop app prompts for the judge passcode before opening the live session
 - the connected machine still needs the `gemini` CLI if you want real local task execution instead of a mock run
 - unsigned desktop builds may show standard macOS or Windows trust warnings on first launch
 - intent, task intake, and task routing are model-backed on the hosted service; if those upstream calls fail, the app surfaces an explicit error instead of guessing
 
 ### Option 2B: Packaged desktop build for judges
 
-Use this when you want to hand judges a desktop build instead of asking them to run Electron from source.
+Use this when you want to hand judges a Relay desktop build instead of asking them to run Electron from source.
 
 Commands:
 
@@ -119,7 +119,7 @@ Common variables:
 - Recommended Devpost wording:
   - `Hosted demo URL: <url>`
   - `Judge passcode: <passcode>`
-  - `Testing note: install the desktop app, enter the passcode, and ensure the local machine has gemini CLI configured if you want real local task execution.`
+  - `Testing note: install the Relay desktop app, enter the passcode, and ensure the local machine has gemini CLI configured if you want real local task execution.`
 - If you provide a packaged desktop build, give judges the hosted URL and passcode in Devpost Additional Info rather than in public docs
 
 ## Known Limitations
@@ -128,6 +128,6 @@ Common variables:
 - Persistent state requires Postgres on the hosted service
 - Real local task execution still requires the desktop machine to have `gemini` CLI installed and authenticated
 - The hosted core refuses to start without Cloud-hosted runtime configuration; it does not fall back to in-memory judge mode
-- The packaged desktop app is a thin client; it does not embed the hosted agent core
-- The main submission story is the desktop companion plus cloud-hosted core, not the standalone live-text harness
+- The packaged Relay desktop app is a thin client; it does not embed the hosted agent core
+- The main submission story is the Relay desktop app plus cloud-hosted core, not the standalone live-text harness
 - Cloud deployment proof is documented separately in [cloud-deployment.md](cloud-deployment.md)

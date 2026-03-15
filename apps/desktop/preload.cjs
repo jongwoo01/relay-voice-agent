@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld("desktopCompanion", {
   sendTypedTurn: (text) => ipcRenderer.invoke("companion:send-typed-turn", text)
 });
 
+contextBridge.exposeInMainWorld("relayApp", {
+  sendTypedTurn: (text) => ipcRenderer.invoke("relay:send-typed-turn", text)
+});
+
 contextBridge.exposeInMainWorld("desktopUi", {
   init: () => ipcRenderer.invoke("desktop-ui:init"),
   refreshHistory: () => ipcRenderer.invoke("desktop-ui:refresh-history"),
@@ -44,6 +48,14 @@ contextBridge.exposeInMainWorld("desktopDebug", {
       ipcRenderer.removeListener("desktop:log", wrapped);
     };
   }
+});
+
+contextBridge.exposeInMainWorld("desktopSystem", {
+  platform: process.platform,
+  requestMicrophoneAccess: () =>
+    ipcRenderer.invoke("system:request-microphone-access"),
+  openMacPrivacySettings: () =>
+    ipcRenderer.invoke("system:open-mac-privacy-settings")
 });
 
 contextBridge.exposeInMainWorld("desktopLive", {

@@ -3,6 +3,8 @@ import type {
   ChildProcessWithoutNullStreams,
   SpawnOptionsWithoutStdio
 } from "node:child_process";
+import { delimiter } from "node:path";
+import { homedir } from "node:os";
 import type {
   ExecutorRunRequest,
   ExecutorRunResult,
@@ -152,11 +154,25 @@ export const defaultExecFile = createSpawnRunner();
 function buildGeminiCliEnvironment(
   env: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
+  const homeDirectory = homedir();
+  const additionalPathEntries =
+    process.platform === "darwin"
+      ? ["/opt/homebrew/bin", "/usr/local/bin", `${homeDirectory}/.local/bin`]
+      : process.platform === "win32"
+        ? [
+            `${env.APPDATA ?? ""}\\npm`,
+            `${env.USERPROFILE ?? ""}\\AppData\\Roaming\\npm`
+          ]
+        : ["/usr/local/bin", `${homeDirectory}/.local/bin`];
+  const currentPath = env.PATH?.split(delimiter).filter(Boolean) ?? [];
+  const mergedPath = [...additionalPathEntries, ...currentPath].filter(Boolean);
+  const dedupedPath = [...new Set(mergedPath)];
   const nextEnv: NodeJS.ProcessEnv = {
     ...env,
     // Force the CLI toward cached Google OAuth auth instead of inheriting
     // live-session API key / Vertex configuration from the desktop process.
-    GOOGLE_GENAI_USE_GCA: "true"
+    GOOGLE_GENAI_USE_GCA: "true",
+    PATH: dedupedPath.join(delimiter)
   };
 
   delete nextEnv.GEMINI_API_KEY;

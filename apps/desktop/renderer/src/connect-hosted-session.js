@@ -8,6 +8,7 @@ export async function connectHostedSession({
   showRuntimeError,
   stopPlayback,
   connect,
+  requestMicrophoneAccess,
   startVoiceCapture,
   stopVoiceCapture,
   disconnect
@@ -21,6 +22,12 @@ export async function connectHostedSession({
   try {
     hideRuntimeError();
     await stopPlayback();
+    if (typeof requestMicrophoneAccess === "function") {
+      const microphoneAllowed = await requestMicrophoneAccess();
+      if (!microphoneAllowed) {
+        throw new Error("Microphone access is required to start the hosted session.");
+      }
+    }
     await connect(normalizedPasscode);
     await startVoiceCapture();
     return true;

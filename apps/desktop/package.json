@@ -2,7 +2,7 @@
   "name": "@agent/desktop",
   "private": true,
   "version": "0.0.0",
-  "description": "Electron companion for the Gemini Live desktop agent.",
+  "description": "Electron app for the Relay voice agent.",
   "author": "jongwoo",
   "type": "module",
   "main": "./main.js",
@@ -11,11 +11,12 @@
     "dev": "npm --prefix ../.. run build:runtimes && npm run build:renderer && electron .",
     "clean:dist": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "dist:dir": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --mac --universal",
-    "dist:mac": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --universal",
-    "dist:mac:x64": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --x64",
+    "dist:mac": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --universal",
+    "dist:mac:x64": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --x64",
     "dist:win": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis --x64"
   },
   "dependencies": {
+    "@agent/gemini-cli-runner": "file:../../packages/gemini-cli-runner",
     "@react-three/fiber": "^9.5.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.577.0",
@@ -37,14 +38,16 @@
     "vite": "^8.0.0"
   },
   "build": {
-    "appId": "dev.jongwoo.gemini.liveagent",
-    "productName": "Desktop Companion",
+    "appId": "dev.jongwoo.relay",
+    "productName": "Relay",
     "electronVersion": "40.8.0",
     "asar": true,
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
+      "build/**/*",
       "main.js",
       "preload.cjs",
       "renderer/dist/**/*",
@@ -59,9 +62,10 @@
     ],
     "mac": {
       "identity": null,
+      "icon": "build/icon.icns",
       "target": [
         {
-          "target": "zip",
+          "target": "dmg",
           "arch": [
             "universal"
           ]
@@ -70,6 +74,7 @@
       "category": "public.app-category.productivity"
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",

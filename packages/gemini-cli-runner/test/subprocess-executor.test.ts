@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { GeminiCliExecutor } from "../src/subprocess-executor.js";
+import { resolveGeminiCliCommand } from "../src/command-builder.js";
+import {
+  GeminiCliExecutor,
+  type RunCommandOptions
+} from "../src/subprocess-executor.js";
 
 describe("GeminiCliExecutor", () => {
   it("executes a new task request and maps stream-json output to the executor contract", async () => {
@@ -74,27 +78,30 @@ describe("GeminiCliExecutor", () => {
       onProgress
     );
 
-    expect(exec).toHaveBeenCalledWith(
-      "gemini",
-      [
-        "-p",
-        expect.stringContaining("User task:\nOrganize my browser tabs"),
-        "--approval-mode",
-        "yolo",
-        "--output-format",
-        "stream-json"
-      ],
+    const call = exec.mock.calls[0] as unknown as
+      | [string, string[], RunCommandOptions?]
+      | undefined;
+    expect(call).toBeDefined();
+    const [command, args, options] = call!;
+    expect(command).toBe(resolveGeminiCliCommand());
+    expect(args).toEqual([
+      "-p",
+      expect.stringContaining("User task:\nOrganize my browser tabs"),
+      "--approval-mode",
+      "yolo",
+      "--output-format",
+      "stream-json"
+    ]);
+    expect(options?.cwd).toBeUndefined();
+    expect(options?.env).toEqual(
       expect.objectContaining({
-        cwd: undefined,
-        env: expect.objectContaining({
-          GOOGLE_GENAI_USE_GCA: "true"
-        }),
-        onStdoutLine: expect.any(Function)
+        GOOGLE_GENAI_USE_GCA: "true"
       })
     );
-    expect(exec.mock.calls[0]?.[2]?.env?.GEMINI_API_KEY).toBeUndefined();
-    expect(exec.mock.calls[0]?.[2]?.env?.GOOGLE_API_KEY).toBeUndefined();
-    expect(exec.mock.calls[0]?.[2]?.env?.GOOGLE_GENAI_USE_VERTEXAI).toBeUndefined();
+    expect(options?.onStdoutLine).toEqual(expect.any(Function));
+    expect(options?.env?.GEMINI_API_KEY).toBeUndefined();
+    expect(options?.env?.GOOGLE_API_KEY).toBeUndefined();
+    expect(options?.env?.GOOGLE_GENAI_USE_VERTEXAI).toBeUndefined();
     expect(result).toEqual(
       expect.objectContaining({
         progressEvents: [
@@ -165,26 +172,29 @@ describe("GeminiCliExecutor", () => {
       workingDirectory: "/tmp/work"
     });
 
-    expect(exec).toHaveBeenCalledWith(
-      "gemini",
-      [
-        "-r",
-        "session-999",
-        "-p",
-        expect.stringContaining("User task:\nContinue cleanup"),
-        "--approval-mode",
-        "yolo",
-        "--output-format",
-        "stream-json"
-      ],
+    const call = exec.mock.calls[0] as unknown as
+      | [string, string[], RunCommandOptions?]
+      | undefined;
+    expect(call).toBeDefined();
+    const [command, args, options] = call!;
+    expect(command).toBe(resolveGeminiCliCommand());
+    expect(args).toEqual([
+      "-r",
+      "session-999",
+      "-p",
+      expect.stringContaining("User task:\nContinue cleanup"),
+      "--approval-mode",
+      "yolo",
+      "--output-format",
+      "stream-json"
+    ]);
+    expect(options?.cwd).toBe("/tmp/work");
+    expect(options?.env).toEqual(
       expect.objectContaining({
-        cwd: "/tmp/work",
-        env: expect.objectContaining({
-          GOOGLE_GENAI_USE_GCA: "true"
-        }),
-        onStdoutLine: expect.any(Function)
+        GOOGLE_GENAI_USE_GCA: "true"
       })
     );
+    expect(options?.onStdoutLine).toEqual(expect.any(Function));
   });
 
   it("strips live api key auth env before spawning Gemini CLI", async () => {

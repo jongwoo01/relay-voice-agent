@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildGeminiCliCommand } from "../src/command-builder.js";
+import {
+  buildGeminiCliCommand,
+  resolveGeminiCliCommand
+} from "../src/command-builder.js";
 
 describe("buildGeminiCliCommand", () => {
   it("builds a new task command with explicit headless prompt mode", () => {
@@ -17,18 +20,16 @@ describe("buildGeminiCliCommand", () => {
       workingDirectory: "/tmp"
     });
 
-    expect(command).toEqual({
-      command: "gemini",
-      args: [
-        "-p",
-        expect.stringContaining("User task:\nOrganize my browser tabs"),
-        "--approval-mode",
-        "yolo",
-        "--output-format",
-        "stream-json"
-      ],
-      cwd: "/tmp"
-    });
+    expect(command.command).toBe(resolveGeminiCliCommand());
+    expect(command.args).toEqual([
+      "-p",
+      expect.stringContaining("User task:\nOrganize my browser tabs"),
+      "--approval-mode",
+      "yolo",
+      "--output-format",
+      "stream-json"
+    ]);
+    expect(command.cwd).toBe("/tmp");
     expect(command.args[1]).toContain("Working directory: /tmp");
     expect(command.args[1]).toContain('"summary":"string"');
     expect(command.args[1]).toContain(
@@ -98,5 +99,13 @@ describe("buildGeminiCliCommand", () => {
     expect(command.args[1]).toContain(
       'If the user asked for exact names, IDs, paths, or other concrete items, include those facts in the natural-language answer and in "keyFindings".'
     );
+  });
+
+  it("prefers an explicit GEMINI_CLI_PATH override when provided", () => {
+    expect(
+      resolveGeminiCliCommand({
+        GEMINI_CLI_PATH: "/tmp/custom-gemini"
+      })
+    ).toBe("/tmp/custom-gemini");
   });
 });

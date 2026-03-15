@@ -44,6 +44,7 @@ describe("connectHostedSession", () => {
     const showRuntimeError = vi.fn();
     const stopPlayback = vi.fn(async () => undefined);
     const connect = vi.fn(async () => undefined);
+    const requestMicrophoneAccess = vi.fn(async () => true);
     const startVoiceCapture = vi.fn(async () => undefined);
     const stopVoiceCapture = vi.fn(async () => undefined);
     const disconnect = vi.fn(async () => undefined);
@@ -54,6 +55,7 @@ describe("connectHostedSession", () => {
       showRuntimeError,
       stopPlayback,
       connect,
+      requestMicrophoneAccess,
       startVoiceCapture,
       stopVoiceCapture,
       disconnect
@@ -61,11 +63,46 @@ describe("connectHostedSession", () => {
 
     expect(connected).toBe(true);
     expect(hideRuntimeError).toHaveBeenCalledTimes(1);
+    expect(requestMicrophoneAccess).toHaveBeenCalledTimes(1);
     expect(connect).toHaveBeenCalledWith("judge-passcode");
     expect(startVoiceCapture).toHaveBeenCalledTimes(1);
     expect(showRuntimeError).not.toHaveBeenCalled();
     expect(stopVoiceCapture).not.toHaveBeenCalled();
     expect(disconnect).not.toHaveBeenCalled();
+  });
+
+  it("stops before connect when microphone access is denied", async () => {
+    const hideRuntimeError = vi.fn();
+    const showRuntimeError = vi.fn();
+    const stopPlayback = vi.fn(async () => undefined);
+    const connect = vi.fn(async () => undefined);
+    const requestMicrophoneAccess = vi.fn(async () => false);
+    const startVoiceCapture = vi.fn(async () => undefined);
+    const stopVoiceCapture = vi.fn(async () => undefined);
+    const disconnect = vi.fn(async () => undefined);
+
+    const connected = await connectHostedSession({
+      passcode: "judge-passcode",
+      hideRuntimeError,
+      showRuntimeError,
+      stopPlayback,
+      connect,
+      requestMicrophoneAccess,
+      startVoiceCapture,
+      stopVoiceCapture,
+      disconnect
+    });
+
+    expect(connected).toBe(false);
+    expect(showRuntimeError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Microphone access is required to start the hosted session."
+      })
+    );
+    expect(connect).not.toHaveBeenCalled();
+    expect(startVoiceCapture).not.toHaveBeenCalled();
+    expect(stopVoiceCapture).toHaveBeenCalledTimes(1);
+    expect(disconnect).toHaveBeenCalledTimes(1);
   });
 
   it("cleans up after a failed connection attempt", async () => {

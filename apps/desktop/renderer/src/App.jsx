@@ -20,6 +20,7 @@ const DebugConsole = lazy(() =>
     default: module.DebugConsole
   }))
 );
+const relayLogoUrl = new URL("../../build/icon.png", import.meta.url).href;
 
 function runtimeMetaText(uiState, voiceState) {
   if (uiState.runtimeError) {
@@ -27,16 +28,54 @@ function runtimeMetaText(uiState, voiceState) {
   }
 
   if (voiceState.connecting) {
-    return "Connecting to Gemini…";
+    return "Connecting to Relay…";
   }
 
   if (voiceState.connected) {
     return uiState.brainSessionId
       ? `Session ${uiState.brainSessionId.slice(0, 8)} is live`
-      : "Live session is ready";
+      : "Relay is ready";
   }
 
-  return "Connect to start a live desktop session";
+  return "Connect to start a Relay session";
+}
+
+function classifyRuntimeIssue(errorText, platform) {
+  if (!errorText) {
+    return null;
+  }
+
+  const normalized = errorText.toLowerCase();
+
+  if (
+    normalized.includes("permission denied") ||
+    normalized.includes("operation not permitted") ||
+    normalized.includes("eacces")
+  ) {
+      return {
+      kind: "permission",
+      title: "Local access needs macOS permission",
+      guidance:
+        platform === "darwin"
+          ? "Open macOS Privacy settings and allow Relay to access your files. If needed, grant Full Disk Access and Files & Folders for Desktop, Documents, and Downloads."
+          : "Allow the app to access the folders it needs, then retry the task."
+    };
+  }
+
+  if (
+    normalized.includes("spawn gemini") ||
+    normalized.includes("gemini") && normalized.includes("not found") ||
+    normalized.includes("enoent")
+  ) {
+    return {
+      kind: "gemini_cli",
+      title: "Gemini CLI needs to be available locally",
+      guidance:
+        "Install the Gemini CLI on this machine and make sure the app can find it from /usr/local/bin, /opt/homebrew/bin, or GEMINI_CLI_PATH."
+    };
+  }
+
+  return null;
 }
 
 export default function App() {
@@ -93,6 +132,11 @@ export default function App() {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [showPasscode, setShowPasscode] = useState(false);
   const [passcodeError, setPasscodeError] = useState(false);
+  const resolvedRuntimeError = runtimeError ?? deferredUiState.runtimeError;
+  const runtimeIssue = classifyRuntimeIssue(
+    resolvedRuntimeError,
+    window.desktopSystem?.platform ?? "unknown"
+  );
 
   useEffect(() => {
     if (voiceState.connected) {
@@ -125,13 +169,20 @@ export default function App() {
 
             <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between px-8 py-8">
               <div className="pointer-events-auto flex items-center gap-6">
-                <div>
-                  <h1 className="m-0 text-[18px] font-bold tracking-tight text-gray-800">
-                    Gemini Live
-                  </h1>
-                  <p className="mt-1 text-[11px] font-medium tracking-[0.08em] text-gray-500 uppercase">
-                    {runtimeMetaText(deferredUiState, voiceState)}
-                  </p>
+                <div className="flex items-center gap-3.5">
+                  <img
+                    src={relayLogoUrl}
+                    alt="Relay logo"
+                    className="h-11 w-11 rounded-2xl border border-white/80 bg-white/85 p-1.5 shadow-[0_12px_30px_-18px_rgba(37,99,235,0.65)] backdrop-blur-xl"
+                  />
+                  <div>
+                    <h1 className="m-0 text-[18px] font-bold tracking-tight text-gray-800">
+                      Relay
+                    </h1>
+                    <p className="mt-1 text-[11px] font-medium tracking-[0.08em] text-gray-500 uppercase">
+                      {runtimeMetaText(deferredUiState, voiceState)}
+                    </p>
+                  </div>
                 </div>
                 
                 <div className="h-10 w-px bg-gray-200/60" />
@@ -214,11 +265,36 @@ export default function App() {
               </div>
             </header>
 
-            {(runtimeError || deferredUiState.runtimeError) && (
-              <div className="absolute left-1/2 top-28 z-50 -translate-x-1/2 rounded-full border border-red-200 bg-red-50/90 px-6 py-2.5 text-[13px] font-medium text-red-600 shadow-lg backdrop-blur-xl">
-                {runtimeError ?? deferredUiState.runtimeError}
-              </div>
-            )}
+            {resolvedRuntimeError &&
+              (runtimeIssue ? (
+                <div className="absolute left-1/2 top-28 z-50 w-[min(92vw,680px)] -translate-x-1/2 rounded-[26px] border border-red-200 bg-red-50/95 px-5 py-4 text-red-700 shadow-[0_20px_60px_-20px_rgba(220,38,38,0.28)] backdrop-blur-xl">
+                  <div className="text-[13px] font-semibold tracking-wide text-red-800">
+                    {runtimeIssue.title}
+                  </div>
+                  <p className="mt-1 text-[13px] leading-relaxed text-red-700">
+                    {resolvedRuntimeError}
+                  </p>
+                  <p className="mt-2 text-[12px] leading-relaxed text-red-600">
+                    {runtimeIssue.guidance}
+                  </p>
+                  {runtimeIssue.kind === "permission" &&
+                  window.desktopSystem?.platform === "darwin" ? (
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => void window.desktopSystem.openMacPrivacySettings()}
+                        className="rounded-full border border-red-300 bg-white/80 px-4 py-2 text-[12px] font-semibold text-red-700 transition-colors hover:bg-white"
+                      >
+                        Open Privacy Settings
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="absolute left-1/2 top-28 z-50 -translate-x-1/2 rounded-full border border-red-200 bg-red-50/90 px-6 py-2.5 text-[13px] font-medium text-red-600 shadow-lg backdrop-blur-xl">
+                  {resolvedRuntimeError}
+                </div>
+              ))}
 
             <LiveSpeechHud
               sessionActive={sessionActive}
@@ -292,12 +368,12 @@ export default function App() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-transparent backdrop-blur-[4px] transition-all duration-500">
           <div className="flex w-full max-w-[340px] flex-col items-center gap-6 rounded-[32px] border border-gray-300/40 bg-white/60 p-10 shadow-[0_30px_100px_-20px_rgba(15,23,42,0.15)] ring-1 ring-inset ring-white/80 backdrop-blur-3xl">
             <div className="flex flex-col items-center gap-3 text-center">
-              <div className="flex h-[52px] w-[52px] items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-[0_8px_24px_-6px_rgba(79,70,229,0.3)]">
-                 <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <div className="flex h-[64px] w-[64px] items-center justify-center rounded-[22px] border border-white/80 bg-white/85 p-2 shadow-[0_18px_40px_-18px_rgba(37,99,235,0.45)] backdrop-blur-xl">
+                <img src={relayLogoUrl} alt="Relay logo" className="h-full w-full object-contain" />
               </div>
               <h2 className="mt-1 text-xl font-bold tracking-tight text-gray-800">Passcode</h2>
               <p className="text-[13px] leading-relaxed text-gray-500">
-                Enter the judge passcode to open the hosted Gemini live session.
+                Enter the judge passcode to open Relay, the hosted voice agent for the Google ecosystem.
               </p>
             </div>
             

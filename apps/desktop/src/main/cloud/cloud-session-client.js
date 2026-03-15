@@ -79,7 +79,7 @@ export class CloudSessionClient {
     this.baseUrl =
       options.baseUrl ??
       process.env.AGENT_CLOUD_URL?.trim() ??
-      "http://127.0.0.1:8080";
+      "https://gemini-live-agent-uctmsffp5q-uc.a.run.app";
     this.onConversationState = options.onConversationState;
     this.onTaskState = options.onTaskState;
     this.onAudioChunk = options.onAudioChunk;

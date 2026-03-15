@@ -168,7 +168,7 @@ function buildExtractorPrompt(input: SessionMemoryExtractorInput): string {
   }));
 
   return [
-    "You decide what session memory to save for an English-speaking Gemini Live desktop assistant.",
+    "You decide what session memory to save for Relay, an English-speaking voice agent for the Google ecosystem.",
     "Return JSON only.",
     "This memory is session-scoped only. Never assume it should persist beyond the current brainSessionId.",
     "Store only information that is likely to improve later turns in the same session.",

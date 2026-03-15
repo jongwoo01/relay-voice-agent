@@ -1,9 +1,52 @@
+import { accessSync, constants } from "node:fs";
+import { homedir } from "node:os";
 import type { ExecutorRunRequest } from "@agent/local-executor-protocol";
 
 export interface GeminiCliCommand {
   command: string;
   args: string[];
   cwd?: string;
+}
+
+function isExecutableFile(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveGeminiCliCommand(
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const override = env.GEMINI_CLI_PATH?.trim();
+  if (override) {
+    return override;
+  }
+
+  const homeDirectory = homedir();
+  const candidatePaths =
+    process.platform === "darwin"
+      ? [
+          "/opt/homebrew/bin/gemini",
+          "/usr/local/bin/gemini",
+          `${homeDirectory}/.local/bin/gemini`
+        ]
+      : process.platform === "win32"
+        ? [
+            `${env.APPDATA ?? ""}\\npm\\gemini.cmd`,
+            `${env.USERPROFILE ?? ""}\\AppData\\Roaming\\npm\\gemini.cmd`
+          ]
+        : ["/usr/local/bin/gemini", `${homeDirectory}/.local/bin/gemini`];
+
+  for (const candidate of candidatePaths) {
+    if (candidate && isExecutableFile(candidate)) {
+      return candidate;
+    }
+  }
+
+  return process.platform === "win32" ? "gemini.cmd" : "gemini";
 }
 
 const COMPLETION_REPORT_INSTRUCTIONS = [
@@ -60,7 +103,7 @@ export function buildGeminiCliCommand(
       ];
 
   return {
-    command: "gemini",
+    command: resolveGeminiCliCommand(),
     args,
     cwd: request.workingDirectory
   };
