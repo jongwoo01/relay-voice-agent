@@ -113,4 +113,34 @@ describe("live-transcript-adapter", () => {
     expect(result.assistant?.tone).toBe("task_ack");
     expect(result.task?.status).toBe("running");
   });
+
+  it("merges partial transcript suffix chunks before finalizing", async () => {
+    const adapter = createAdapter();
+
+    const firstPartial = await adapter.handleTranscript({
+      brainSessionId: "brain-merge",
+      text: "in",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      now: "2026-03-08T00:00:00.000Z",
+      isFinal: false
+    });
+    const secondPartial = await adapter.handleTranscript({
+      brainSessionId: "brain-merge",
+      text: "troduce yourself",
+      createdAt: "2026-03-08T00:00:00.500Z",
+      now: "2026-03-08T00:00:00.500Z",
+      isFinal: false
+    });
+    const result = await adapter.handleTranscript({
+      brainSessionId: "brain-merge",
+      text: " to me",
+      createdAt: "2026-03-08T00:00:01.000Z",
+      now: "2026-03-08T00:00:01.000Z",
+      isFinal: true
+    });
+
+    expect(firstPartial.partialText).toBe("in");
+    expect(secondPartial.partialText).toBe("introduce yourself");
+    expect(result.finalizedUtterance?.text).toBe("introduce yourself to me");
+  });
 });

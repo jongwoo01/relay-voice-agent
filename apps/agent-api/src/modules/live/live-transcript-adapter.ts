@@ -11,6 +11,7 @@ import {
   type IntentResolver
 } from "../conversation/intent-resolver.js";
 import { RealtimeGatewayService } from "../realtime/realtime-gateway-service.js";
+import { mergeStreamingTranscript } from "./transcript-merge.js";
 
 export interface LiveTranscriptInput {
   brainSessionId: string;
@@ -46,18 +47,24 @@ export class LiveTranscriptAdapter {
     const normalizedText = rawText.trim();
 
     if (!input.isFinal) {
+      const previousPartial = this.partialBySession.get(input.brainSessionId) ?? "";
+      const mergedPartial =
+        rawText.length > 0
+          ? mergeStreamingTranscript(previousPartial, rawText)
+          : previousPartial;
+
       if (rawText.length > 0) {
-        this.partialBySession.set(input.brainSessionId, rawText);
+        this.partialBySession.set(input.brainSessionId, mergedPartial);
       }
 
       return {
         isFinal: false,
-        partialText: this.partialBySession.get(input.brainSessionId)
+        partialText: mergedPartial || this.partialBySession.get(input.brainSessionId)
       };
     }
 
-    const finalizedText =
-      normalizedText || this.partialBySession.get(input.brainSessionId)?.trim() || "";
+    const previousPartial = this.partialBySession.get(input.brainSessionId) ?? "";
+    const finalizedText = mergeStreamingTranscript(previousPartial, normalizedText).trim();
     this.partialBySession.delete(input.brainSessionId);
 
     if (!finalizedText) {

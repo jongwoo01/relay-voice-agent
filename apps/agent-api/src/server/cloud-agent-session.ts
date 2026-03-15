@@ -27,6 +27,7 @@ import {
   type GoogleLiveSessionTransport,
   type SessionPersistence
 } from "../index.js";
+import { mergeStreamingTranscript } from "../modules/live/transcript-merge.js";
 import {
   createSessionMemoryService,
   type SessionMemoryServiceLike
@@ -46,56 +47,10 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function findTranscriptOverlap(previous: string, next: string): number {
-  const maxLength = Math.min(previous.length, next.length);
-
-  for (let length = maxLength; length > 0; length -= 1) {
-    if (previous.slice(-length) === next.slice(0, length)) {
-      return length;
-    }
-  }
-
-  return 0;
-}
-
-function shouldInsertTranscriptSpace(previous: string, next: string): boolean {
-  const previousChar = previous.at(-1);
-  const nextChar = next[0];
-
-  if (!previousChar || !nextChar) {
-    return false;
-  }
-
-  return /[A-Za-z0-9]$/.test(previousChar) && /^[A-Za-z0-9]/.test(nextChar);
-}
-
-function mergeStreamingTranscript(previous: string, next: string): string {
-  if (!previous) {
-    return next;
-  }
-
-  if (!next || next === previous) {
-    return previous;
-  }
-
-  if (next.startsWith(previous)) {
-    return next;
-  }
-
-  if (previous.startsWith(next)) {
-    return previous;
-  }
-
-  const overlap = findTranscriptOverlap(previous, next);
-  if (overlap > 0) {
-    return `${previous}${next.slice(overlap)}`;
-  }
-
-  if (shouldInsertTranscriptSpace(previous, next)) {
-    return `${previous} ${next}`;
-  }
-
-  return `${previous}${next}`;
+function supportsExplicitVadSignal(): boolean {
+  // Gemini Developer API live currently rejects the setup-level explicitVadSignal flag.
+  // Keep this capability gate centralized so the transport can opt in later if backend support changes.
+  return false;
 }
 
 export interface CloudAgentSessionLoopLike {
@@ -546,6 +501,7 @@ export class CloudAgentSession {
   private sessionResumptionHandle: string | null = null;
   private sessionResumable = false;
   private closePromise: Promise<void> | null = null;
+  private pendingVoiceTurnId: string | null = null;
   private readonly conversationState: HostedConversationStateSnapshot = {
     connected: false,
     connecting: false,
@@ -676,6 +632,7 @@ export class CloudAgentSession {
       model: process.env.LIVE_MODEL?.trim() || undefined,
       config: {
         responseModalities: [Modality.AUDIO],
+        ...(supportsExplicitVadSignal() ? { explicitVadSignal: true } : {}),
         inputAudioTranscription: {},
         outputAudioTranscription: {},
         contextWindowCompression: createContextWindowCompressionConfig(),
@@ -688,8 +645,9 @@ export class CloudAgentSession {
             disabled: false,
             startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
             endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
-            prefixPaddingMs: 240,
-            silenceDurationMs: 100
+            // Increase leading capture and end-of-turn patience to reduce clipped openings on Gemini API live.
+            prefixPaddingMs: 720,
+            silenceDurationMs: 260
           }
         },
         speechConfig: {
@@ -819,6 +777,16 @@ export class CloudAgentSession {
         break;
       case "audio_chunk":
         this.liveSession?.sendRealtimeAudio(event.data, event.mimeType);
+        break;
+      case "activity_start":
+        if (supportsExplicitVadSignal()) {
+          this.liveSession?.sendActivityStart();
+        }
+        break;
+      case "activity_end":
+        if (supportsExplicitVadSignal()) {
+          this.liveSession?.sendActivityEnd();
+        }
         break;
       case "audio_stream_end":
         this.liveSession?.sendAudioStreamEnd();
@@ -960,7 +928,7 @@ export class CloudAgentSession {
         }
         return;
       case "input_transcription_partial":
-        this.conversationState.inputPartial = String(event.text ?? "");
+        this.applyVoiceTranscriptPartial(String(event.text ?? ""));
         this.conversationState.status = "listening";
         this.input.send({
           type: "conversation_state",
@@ -1061,10 +1029,12 @@ export class CloudAgentSession {
     }
 
     const createdAt = this.now();
-    const turnId = this.createUserTurn("voice", normalizedText, createdAt);
+    const turnId = this.finalizeVoiceUserTurn(normalizedText, createdAt);
     this.conversationState.activeTurnId = turnId;
+    this.pendingVoiceTurnId = null;
     this.conversationState.inputPartial = "";
     this.conversationState.lastUserTranscript = normalizedText;
+    this.conversationState.outputTranscript = "";
     this.conversationState.status = "thinking";
 
     const persistence = await this.persistencePromise;
@@ -1297,27 +1267,32 @@ export class CloudAgentSession {
   private createUserTurn(
     inputMode: "typed" | "voice",
     text: string,
-    createdAt: string
+    createdAt: string,
+    options: {
+      turnId?: string;
+      partial?: boolean;
+      streaming?: boolean;
+    } = {}
   ): string {
-    const turnId = `turn-${++this.turnSequence}`;
+    const turnId = options.turnId ?? `turn-${++this.turnSequence}`;
     const userMessageId = `${turnId}:user`;
-    this.conversationState.conversationTurns.push({
+    this.upsertTurn({
       turnId,
       inputMode,
-      stage: "thinking",
+      stage: options.partial ? "capturing" : "thinking",
       userMessageId,
       startedAt: createdAt,
       updatedAt: createdAt
     });
-    this.conversationState.conversationTimeline.push({
+    this.upsertTimelineItem({
       id: userMessageId,
       turnId,
       kind: "user_message",
       inputMode,
       speaker: "user",
       text,
-      partial: false,
-      streaming: false,
+      partial: options.partial === true,
+      streaming: options.streaming === true,
       interrupted: false,
       responseSource: "live",
       createdAt,
@@ -1327,16 +1302,23 @@ export class CloudAgentSession {
   }
 
   private applyAssistantTranscript(text: string, finished: boolean): void {
-    const activeTurnId = this.conversationState.activeTurnId ?? `turn-${++this.turnSequence}`;
+    const activeTurnId =
+      this.conversationState.activeTurnId ??
+      this.pendingVoiceTurnId ??
+      `turn-${++this.turnSequence}`;
     if (!this.conversationState.activeTurnId) {
-      this.conversationState.conversationTurns.push({
+      const existingTurn = this.conversationState.conversationTurns.find(
+        (turn: ConversationTurnViewModel) => turn.turnId === activeTurnId
+      );
+      this.upsertTurn({
         turnId: activeTurnId,
-        inputMode: "voice",
+        inputMode: existingTurn?.inputMode ?? "voice",
         stage: "responding",
-        startedAt: this.now(),
+        startedAt: existingTurn?.startedAt ?? this.now(),
         updatedAt: this.now()
       });
       this.conversationState.activeTurnId = activeTurnId;
+      this.pendingVoiceTurnId = null;
     }
 
     const assistantMessageId = `${activeTurnId}:assistant`;
@@ -1409,6 +1391,87 @@ export class CloudAgentSession {
       }
     }
     this.conversationState.activeTurnId = null;
+  }
+
+  private applyVoiceTranscriptPartial(text: string): void {
+    const normalizedText = text.trim();
+    this.conversationState.inputPartial = normalizedText;
+    if (!normalizedText) {
+      return;
+    }
+
+    const createdAt = this.now();
+    const turnId =
+      this.pendingVoiceTurnId ??
+      this.createUserTurn("voice", normalizedText, createdAt, {
+        partial: true,
+        streaming: true
+      });
+
+    if (!this.pendingVoiceTurnId) {
+      this.pendingVoiceTurnId = turnId;
+    }
+
+    this.upsertTimelineItem({
+      id: `${turnId}:user`,
+      turnId,
+      kind: "user_message",
+      inputMode: "voice",
+      speaker: "user",
+      text: normalizedText,
+      partial: true,
+      streaming: true,
+      interrupted: false,
+      responseSource: "live",
+      createdAt:
+        this.conversationState.conversationTimeline.find(
+          (item: ConversationTimelineItem) => item.id === `${turnId}:user`
+        )?.createdAt ?? createdAt,
+      updatedAt: createdAt
+    });
+
+    this.upsertTurn({
+      turnId,
+      inputMode: "voice",
+      stage: "capturing",
+      userMessageId: `${turnId}:user`,
+      updatedAt: createdAt
+    });
+  }
+
+  private finalizeVoiceUserTurn(text: string, createdAt: string): string {
+    const existingTurnId = this.pendingVoiceTurnId;
+    if (!existingTurnId) {
+      return this.createUserTurn("voice", text, createdAt);
+    }
+
+    this.upsertTimelineItem({
+      id: `${existingTurnId}:user`,
+      turnId: existingTurnId,
+      kind: "user_message",
+      inputMode: "voice",
+      speaker: "user",
+      text,
+      partial: false,
+      streaming: false,
+      interrupted: false,
+      responseSource: "live",
+      createdAt:
+        this.conversationState.conversationTimeline.find(
+          (item: ConversationTimelineItem) => item.id === `${existingTurnId}:user`
+        )?.createdAt ?? createdAt,
+      updatedAt: createdAt
+    });
+
+    this.upsertTurn({
+      turnId: existingTurnId,
+      inputMode: "voice",
+      stage: "thinking",
+      userMessageId: `${existingTurnId}:user`,
+      updatedAt: createdAt
+    });
+
+    return existingTurnId;
   }
 
   private upsertTimelineItem(nextItem: ConversationTimelineItem): void {

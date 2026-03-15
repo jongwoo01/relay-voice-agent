@@ -119,6 +119,51 @@ describe("CloudAgentSession", () => {
     );
   });
 
+  it("accepts activity boundary events without breaking Gemini API live sessions", async () => {
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      close: vi.fn()
+    };
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-vad",
+        userId: "user-vad",
+        send: () => undefined
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-14T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+    await session.handleClientEvent({ type: "activity_start" });
+    await session.handleClientEvent({ type: "activity_end" });
+
+    expect(liveSession.sendActivityStart).toHaveBeenCalledTimes(0);
+    expect(liveSession.sendActivityEnd).toHaveBeenCalledTimes(0);
+  });
+
   it("marks the brain session closed when the session ends explicitly", async () => {
     const persistence = createInMemorySessionPersistence({
       ensureBrainSession: {
@@ -422,6 +467,100 @@ describe("CloudAgentSession", () => {
         streaming: false
       })
     );
+  });
+
+  it("keeps voice user turns and assistant replies paired in the conversation timeline", async () => {
+    const sentEvents: Array<{ type: string; state?: any }> = [];
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      close: vi.fn()
+    };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-voice-pairs",
+        userId: "user-voice-pairs",
+        send: (event) => {
+          sentEvents.push(event as { type: string; state?: any });
+        }
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-15T01:00:00.000Z"
+      }
+    );
+
+    await session.start();
+
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_partial",
+      text: "check my"
+    });
+
+    let conversationStates = sentEvents.filter((event) => event.type === "conversation_state");
+    let lastState = conversationStates.at(-1)?.state;
+    expect(lastState?.conversationTimeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "turn-1:user",
+          speaker: "user",
+          text: "check my",
+          partial: true,
+          streaming: true
+        })
+      ])
+    );
+
+    await liveCallbacks?.onevent?.({
+      type: "input_transcription_final",
+      text: "Check my desktop"
+    });
+    await liveCallbacks?.onevent?.({
+      type: "output_transcription",
+      text: "Okay, I'll check right away.",
+      finished: true
+    });
+
+    conversationStates = sentEvents.filter((event) => event.type === "conversation_state");
+    lastState = conversationStates.at(-1)?.state;
+
+    expect(lastState?.conversationTimeline).toEqual([
+      expect.objectContaining({
+        id: "turn-1:user",
+        speaker: "user",
+        text: "Check my desktop",
+        partial: false,
+        streaming: false
+      }),
+      expect.objectContaining({
+        id: "turn-1:assistant",
+        speaker: "assistant",
+        text: "Okay, I'll check right away.",
+        partial: false,
+        streaming: false
+      })
+    ]);
   });
 
   it("ignores late audio events after the live session closes", async () => {
