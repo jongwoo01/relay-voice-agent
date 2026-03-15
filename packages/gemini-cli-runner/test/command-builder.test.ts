@@ -35,6 +35,12 @@ describe("buildGeminiCliCommand", () => {
       "Prefer built-in directory and file tools over shell commands"
     );
     expect(command.args[1]).toContain(
+      "If the user asks to read, quote, print, or transcribe a local text file, return the requested file contents directly"
+    );
+    expect(command.args[1]).toContain(
+      "Do not replace a direct file-content request with a summary, paraphrase, or invented privacy-policy refusal"
+    );
+    expect(command.args[1]).toContain(
       "Do not recurse into subdirectories, use ls -R, find, or other deep scans unless the user explicitly asked"
     );
   });

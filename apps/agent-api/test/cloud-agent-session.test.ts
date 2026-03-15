@@ -851,11 +851,22 @@ describe("CloudAgentSession", () => {
       expect.objectContaining({
         config: expect.objectContaining({
           sessionResumption: {},
+          systemInstruction: expect.stringContaining(
+            "If the user asks about local files, file contents, browser state, desktop state, or the result of prior local work, call delegate_to_gemini_cli instead of answering from memory alone."
+          ),
           contextWindowCompression: {
             slidingWindow: {}
           }
         })
       })
+    );
+    const systemInstruction =
+      liveTransport.connect.mock.calls[0]?.[0]?.config?.systemInstruction;
+    expect(systemInstruction).toContain(
+      "If delegate_to_gemini_cli returns output.presentation.speechText, treat that text as the authoritative grounded answer or completion brief from the server."
+    );
+    expect(systemInstruction).toContain(
+      "Do not add privacy-policy claims, safety-policy claims, or other refusal reasons unless they were explicitly provided by the tool result or the user asked for such a restriction."
     );
   });
 

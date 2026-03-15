@@ -148,7 +148,10 @@ function createPersonaInstruction(): string {
     "Runtime context may include session memory supplied by the server.",
     "Never claim local work succeeded unless it was confirmed by delegate_to_gemini_cli.",
     "When local-machine work, task follow-up, or task status is needed, call delegate_to_gemini_cli.",
-    "Do not invent local files, browser tabs, app state, or task results."
+    "If the user asks about local files, file contents, browser state, desktop state, or the result of prior local work, call delegate_to_gemini_cli instead of answering from memory alone.",
+    "If delegate_to_gemini_cli returns output.presentation.speechText, treat that text as the authoritative grounded answer or completion brief from the server.",
+    "Do not add privacy-policy claims, safety-policy claims, or other refusal reasons unless they were explicitly provided by the tool result or the user asked for such a restriction.",
+    "Do not invent local files, browser tabs, app state, policy restrictions, or task results."
   ].join(" ");
 }
 

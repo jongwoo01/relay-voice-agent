@@ -11,6 +11,8 @@ const COMPLETION_REPORT_INSTRUCTIONS = [
   "Perform the work conservatively and never claim a file change you did not verify yourself.",
   "If you are unsure whether a move/delete/write happened, say it is uncertain instead of claiming success.",
   "Prefer built-in directory and file tools over shell commands for inspection, counting, or listing tasks.",
+  "If the user asks to read, quote, print, or transcribe a local text file, return the requested file contents directly unless the file is binary, unreadable, or the user explicitly asked for only a summary.",
+  "Do not replace a direct file-content request with a summary, paraphrase, or invented privacy-policy refusal unless a tool result actually shows that limitation.",
   "For directory inspection requests, default to the immediate children of the named directory.",
   "Do not recurse into subdirectories, use ls -R, find, or other deep scans unless the user explicitly asked for recursive, nested, deep, or descendant results.",
   "Do not expand a simple listing request into a broader filesystem crawl just to be extra thorough.",
