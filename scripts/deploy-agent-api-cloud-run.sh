@@ -20,11 +20,26 @@ Required for live auth:
   Or GEMINI_API_KEY_SECRET / GOOGLE_API_KEY_SECRET
 
 Required for persistence and judge auth:
-  DATABASE_URL or DATABASE_URL_SECRET
   JUDGE_PASSCODE or JUDGE_PASSCODE_SECRET
   JUDGE_TOKEN_SECRET or JUDGE_TOKEN_SECRET_SECRET
 
+Supported database modes:
+  1. Legacy direct URL mode
+     DATABASE_URL or DATABASE_URL_SECRET
+
+  2. Cloud SQL socket mode for Cloud Run runtime
+     CLOUD_SQL_CONNECTION_NAME
+     CLOUD_SQL_DATABASE_NAME
+     CLOUD_SQL_DATABASE_USER
+     CLOUD_SQL_DATABASE_PASSWORD or CLOUD_SQL_DATABASE_PASSWORD_SECRET
+     plus one of:
+       MIGRATION_DATABASE_URL / MIGRATION_DATABASE_URL_SECRET
+       or DATABASE_URL / DATABASE_URL_SECRET as the migration fallback
+
 Optional:
+  MIGRATION_DATABASE_URL
+  MIGRATION_DATABASE_URL_SECRET
+  CLOUD_SQL_DATABASE_PORT
   GOOGLE_GENAI_API_VERSION
   LIVE_MODEL
   GEMINI_TASK_ROUTING_MODEL
@@ -43,9 +58,9 @@ fi
 : "${ARTIFACT_REGISTRY_REPO:?Set ARTIFACT_REGISTRY_REPO}"
 : "${GOOGLE_CLOUD_LOCATION:?Set GOOGLE_CLOUD_LOCATION}"
 
-if [[ -z "${DATABASE_URL:-}" && -z "${DATABASE_URL_SECRET:-}" ]]; then
-  echo "Set DATABASE_URL or DATABASE_URL_SECRET." >&2
-  exit 1
+SOCKET_MODE=0
+if [[ -n "${CLOUD_SQL_CONNECTION_NAME:-}" ]]; then
+  SOCKET_MODE=1
 fi
 
 if [[ -z "${JUDGE_PASSCODE:-}" && -z "${JUDGE_PASSCODE_SECRET:-}" ]]; then
@@ -60,6 +75,24 @@ fi
 
 if [[ -z "${GEMINI_API_KEY:-}" && -z "${GOOGLE_API_KEY:-}" && -z "${GEMINI_API_KEY_SECRET:-}" && -z "${GOOGLE_API_KEY_SECRET:-}" ]]; then
   echo "Set GEMINI_API_KEY / GOOGLE_API_KEY or their secret names." >&2
+  exit 1
+fi
+
+if [[ ${SOCKET_MODE} -eq 1 ]]; then
+  : "${CLOUD_SQL_DATABASE_NAME:?Set CLOUD_SQL_DATABASE_NAME when CLOUD_SQL_CONNECTION_NAME is used}"
+  : "${CLOUD_SQL_DATABASE_USER:?Set CLOUD_SQL_DATABASE_USER when CLOUD_SQL_CONNECTION_NAME is used}"
+
+  if [[ -z "${CLOUD_SQL_DATABASE_PASSWORD:-}" && -z "${CLOUD_SQL_DATABASE_PASSWORD_SECRET:-}" ]]; then
+    echo "Set CLOUD_SQL_DATABASE_PASSWORD or CLOUD_SQL_DATABASE_PASSWORD_SECRET when CLOUD_SQL_CONNECTION_NAME is used." >&2
+    exit 1
+  fi
+
+  if [[ -z "${MIGRATION_DATABASE_URL:-}" && -z "${MIGRATION_DATABASE_URL_SECRET:-}" && -z "${DATABASE_URL:-}" && -z "${DATABASE_URL_SECRET:-}" ]]; then
+    echo "Set MIGRATION_DATABASE_URL / MIGRATION_DATABASE_URL_SECRET or DATABASE_URL / DATABASE_URL_SECRET for the migration step." >&2
+    exit 1
+  fi
+elif [[ -z "${DATABASE_URL:-}" && -z "${DATABASE_URL_SECRET:-}" ]]; then
+  echo "Set DATABASE_URL or DATABASE_URL_SECRET." >&2
   exit 1
 fi
 
@@ -97,11 +130,22 @@ append_secret_or_env() {
   fi
 }
 
-append_secret_or_env "DATABASE_URL" "DATABASE_URL" "DATABASE_URL_SECRET"
 append_secret_or_env "JUDGE_PASSCODE" "JUDGE_PASSCODE" "JUDGE_PASSCODE_SECRET"
 append_secret_or_env "JUDGE_TOKEN_SECRET" "JUDGE_TOKEN_SECRET" "JUDGE_TOKEN_SECRET_SECRET"
 append_secret_or_env "GEMINI_API_KEY" "GEMINI_API_KEY" "GEMINI_API_KEY_SECRET"
 append_secret_or_env "GOOGLE_API_KEY" "GOOGLE_API_KEY" "GOOGLE_API_KEY_SECRET"
+
+if [[ ${SOCKET_MODE} -eq 1 ]]; then
+  ENV_VARS+=(
+    "PGHOST=/cloudsql/${CLOUD_SQL_CONNECTION_NAME}"
+    "PGPORT=${CLOUD_SQL_DATABASE_PORT:-5432}"
+    "PGDATABASE=${CLOUD_SQL_DATABASE_NAME}"
+    "PGUSER=${CLOUD_SQL_DATABASE_USER}"
+  )
+  append_secret_or_env "PGPASSWORD" "CLOUD_SQL_DATABASE_PASSWORD" "CLOUD_SQL_DATABASE_PASSWORD_SECRET"
+else
+  append_secret_or_env "DATABASE_URL" "DATABASE_URL" "DATABASE_URL_SECRET"
+fi
 
 resolve_secret_or_env_value() {
   local value_name="$1"
@@ -129,14 +173,40 @@ echo "Image: ${IMAGE_URI}"
 
 gcloud config set project "${GCP_PROJECT_ID}" >/dev/null
 
-MIGRATION_DATABASE_URL="$(resolve_secret_or_env_value DATABASE_URL DATABASE_URL_SECRET)"
+MIGRATION_DATABASE_URL="$(
+  resolve_secret_or_env_value MIGRATION_DATABASE_URL MIGRATION_DATABASE_URL_SECRET || true
+)"
+
+if [[ -z "${MIGRATION_DATABASE_URL}" ]]; then
+  MIGRATION_DATABASE_URL="$(resolve_secret_or_env_value DATABASE_URL DATABASE_URL_SECRET)"
+fi
+
 echo "Applying database migrations..."
 DATABASE_URL="${MIGRATION_DATABASE_URL}" npm run db:migrate --workspace @agent/agent-api
 
+TEMP_CLOUDBUILD_CONFIG="$(mktemp)"
+cleanup() {
+  rm -f "${TEMP_CLOUDBUILD_CONFIG}"
+}
+trap cleanup EXIT
+
+cat >"${TEMP_CLOUDBUILD_CONFIG}" <<EOF
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - apps/agent-api/Dockerfile
+      - -t
+      - ${IMAGE_URI}
+      - .
+images:
+  - ${IMAGE_URI}
+EOF
+
 gcloud builds submit \
   --project "${GCP_PROJECT_ID}" \
-  --tag "${IMAGE_URI}" \
-  --file "apps/agent-api/Dockerfile" \
+  --config "${TEMP_CLOUDBUILD_CONFIG}" \
   .
 
 DEPLOY_ARGS=(
@@ -156,6 +226,10 @@ DEPLOY_ARGS=(
 
 if [[ ${#SECRETS[@]} -gt 0 ]]; then
   DEPLOY_ARGS+=(--set-secrets "$(IFS=,; echo "${SECRETS[*]}")")
+fi
+
+if [[ ${SOCKET_MODE} -eq 1 ]]; then
+  DEPLOY_ARGS+=(--add-cloudsql-instances "${CLOUD_SQL_CONNECTION_NAME}")
 fi
 
 gcloud "${DEPLOY_ARGS[@]}"

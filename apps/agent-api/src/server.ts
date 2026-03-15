@@ -1,13 +1,15 @@
 import { loadDotEnvFromRoot } from "./modules/config/env-loader.js";
 import { assertPostgresSchemaUpToDate } from "./modules/persistence/postgres-migrator.js";
-import { createPostgresPool } from "./modules/persistence/postgres-client.js";
+import {
+  createPostgresPool,
+  hasPostgresConnectionConfig
+} from "./modules/persistence/postgres-client.js";
 import { PostgresUserRepository } from "./modules/persistence/user-repository.js";
 import { createAgentServer } from "./server/create-agent-server.js";
 
 loadDotEnvFromRoot();
 
 const port = Number(process.env.PORT || "8080");
-const databaseUrl = process.env.DATABASE_URL?.trim();
 const googleCloudProject = process.env.GOOGLE_CLOUD_PROJECT?.trim();
 const googleCloudLocation = process.env.GOOGLE_CLOUD_LOCATION?.trim();
 const liveApiKey =
@@ -70,9 +72,9 @@ if (!judgeTokenSecret) {
   throw new Error("JUDGE_TOKEN_SECRET or JUDGE_PASSCODE is required");
 }
 
-if (!databaseUrl) {
+if (!hasPostgresConnectionConfig(process.env)) {
   throw new Error(
-    "DATABASE_URL is required for the hosted Cloud Run path. In-memory persistence is not allowed here."
+    "DATABASE_URL or PGHOST/PGUSER/PGDATABASE is required for the hosted Cloud Run path. In-memory persistence is not allowed here."
   );
 }
 

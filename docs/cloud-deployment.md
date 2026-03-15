@@ -1,6 +1,6 @@
 # Cloud Deployment And Proof Checklist
 
-This repository now includes a Cloud Run service entrypoint, Dockerfile, and deployment helper script for the hosted agent path, but it still does not include Terraform/IaC.
+This repository now includes a Cloud Run service entrypoint, Dockerfile, and deployment helper script for Relay's hosted agent path, but it still does not include Terraform/IaC.
 
 Use this document to keep the public submission claims accurate and to collect the evidence judges will expect.
 
@@ -15,7 +15,7 @@ Use this document to keep the public submission claims accurate and to collect t
 - `db/migrations`
   - ordered schema for sessions, tasks, task events, intake sessions, completion reports, and session memory
 - `apps/desktop`
-  - thin Electron demo client
+  - thin Electron Relay client
   - local audio shell and local `gemini` CLI worker
 - `scripts/deploy-agent-api-cloud-run.sh`
   - one-command migration, image build, and Cloud Run deploy flow for the hosted service
@@ -33,7 +33,7 @@ Use this document to keep the public submission claims accurate and to collect t
 
 ### Local or client-side pieces
 
-- Electron remains the companion demo surface
+- Relay remains the thin demo surface on the desktop
 - The live session and task truth are hosted
 - The local runtime is reduced to the desktop executor worker that runs `gemini` CLI on the user's machine
 - Hosted proof should focus on the cloud-hosted live session, task orchestration, and persistence layer
@@ -44,7 +44,7 @@ Use this document to keep the public submission claims accurate and to collect t
 
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_CLOUD_LOCATION`
-- `DATABASE_URL`
+- `DATABASE_URL` or `PGHOST` + `PGUSER` + `PGDATABASE`
 - `JUDGE_PASSCODE` or `JUDGE_USERS_JSON`
 - `JUDGE_TOKEN_SECRET`
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY`
@@ -67,6 +67,25 @@ CLOUD_RUN_SERVICE=gemini-live-agent \
 ARTIFACT_REGISTRY_REPO=<repo> \
 GOOGLE_CLOUD_LOCATION=<region> \
 DATABASE_URL_SECRET=<secret-name> \
+JUDGE_PASSCODE_SECRET=<secret-name> \
+JUDGE_TOKEN_SECRET_SECRET=<secret-name> \
+GEMINI_API_KEY_SECRET=<secret-name> \
+npm run deploy:agent-api:cloud-run
+```
+
+For Cloud Run + Cloud SQL socket mode, separate the runtime DB connection from the migration DB connection:
+
+```bash
+GCP_PROJECT_ID=<project-id> \
+GCP_REGION=<region> \
+CLOUD_RUN_SERVICE=gemini-live-agent \
+ARTIFACT_REGISTRY_REPO=<repo> \
+GOOGLE_CLOUD_LOCATION=<region> \
+CLOUD_SQL_CONNECTION_NAME=<project:region:instance> \
+CLOUD_SQL_DATABASE_NAME=gemini_live_agent \
+CLOUD_SQL_DATABASE_USER=agent_user \
+CLOUD_SQL_DATABASE_PASSWORD_SECRET=<secret-name> \
+MIGRATION_DATABASE_URL_SECRET=<direct-db-url-secret-name> \
 JUDGE_PASSCODE_SECRET=<secret-name> \
 JUDGE_TOKEN_SECRET_SECRET=<secret-name> \
 GEMINI_API_KEY_SECRET=<secret-name> \
@@ -119,4 +138,4 @@ The main remaining cloud-packaging gap is not agent behavior. It is operational 
 
 - judge-safe access details
 - screenshots or logs from the deployed environment
-- optional IaC or Cloud Build automation if you want bonus-point packaging depth
+- optional Terraform or broader infrastructure-as-code if you want bonus-point packaging depth
