@@ -1,0 +1,43 @@
+flowchart LR
+    U["User"]
+    D["Relay Desktop App<br/>Electron / React"]
+    AUTH["Judge Auth API<br/>/judge/session<br/>/judge/history"]
+    WS["Hosted Session WS<br/>/ws"]
+
+    ORCH["CloudAgentSession<br/>Orchestrator"]
+
+    LIVE["Gemini Live Session<br/>(server-owned)"]
+    VERTEX["Vertex AI Model Services"]
+    LOGIC["Task Intake / Intent / Routing<br/>/ Session Memory"]
+    DB["Cloud SQL / Postgres"]
+
+    BRIDGE["Connected Desktop<br/>Executor Bridge"]
+    CLI["Local Gemini CLI"]
+
+    U --> D
+
+    D -->|"auth"| AUTH
+    AUTH -->|"session token + wsUrl"| D
+
+    D -->|"connect"| WS
+    WS --> ORCH
+    ORCH --> WS
+    WS -->|"audio / text streaming<br/>conversation state / task state"| D
+
+    ORCH -->|"server-owned live session"| LIVE
+    LIVE -->|"tool call"| ORCH
+
+    ORCH --> LOGIC
+    LOGIC -->|"Vertex AI calls"| VERTEX
+    VERTEX --> LOGIC
+    LOGIC --> ORCH
+
+    ORCH -->|"DB persistence"| DB
+    DB --> ORCH
+
+    ORCH -->|"context injection"| LIVE
+
+    ORCH -->|"executor request"| BRIDGE
+    BRIDGE --> CLI
+    CLI -->|"result / progress"| BRIDGE
+    BRIDGE -->|"executor result"| ORCH

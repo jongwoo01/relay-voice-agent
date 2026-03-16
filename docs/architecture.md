@@ -1,24 +1,29 @@
 # Architecture Overview
 
-This document reflects the current submission architecture for Relay in the repository.
+This document reflects the current public submission architecture for Relay.
 
 ## Submission Topology
 
-```mermaid
-flowchart LR
-    user["User"]
-    desktop["Relay Desktop App\napps/desktop"]
-    cloud["Cloud Run Agent Core\napps/agent-api"]
-    live["Gemini Live Session\nserver-owned"]
-    db["Cloud SQL / Postgres"]
-    cli["Gemini CLI Executor\nconnected desktop"]
+![Relay submission architecture](devpost-simple-architecture.png)
 
-    user --> desktop
-    desktop <-->|HTTP + WebSocket| cloud
-    cloud <-->|Live API| live
-    cloud <-->|sessions, tasks, memory| db
-    cloud <-->|executor requests + results| cli
-```
+Relay keeps the live conversation, task orchestration, and canonical state in a hosted Cloud Run agent core. The desktop app is the user-facing surface, while grounded local-machine work runs only through the connected Gemini CLI executor on the user's device.
+
+Judges use the packaged flow at [relay.leejongwoo.com](https://relay.leejongwoo.com) and receive the passcode privately through Devpost Additional Info. The public repository does not store hosted-demo credentials.
+
+## Main Boundaries
+
+- user device
+  - `apps/desktop`
+  - captures voice input, sends typed turns, plays assistant audio, and renders transcript plus task state
+- hosted cloud core
+  - `apps/agent-api`
+  - owns the live Gemini session, task orchestration, judge auth, and canonical state
+- Google AI services
+  - Gemini Live for realtime voice interaction
+  - Vertex AI model calls for intent, intake, routing, and session memory
+- grounded local runtime
+  - connected desktop executor bridge plus local `gemini` CLI worker
+  - runs local file/app/browser work on the user's machine only when delegated by the hosted core
 
 ## Responsibility Split
 
@@ -35,6 +40,7 @@ flowchart LR
 - Owns canonical task state, follow-up policy, routing, and persistence
 - Authenticates judges and issues short-lived session tokens
 - Requests local execution from the connected desktop only when grounded machine work is needed
+- Injects session memory and task runtime context back into the live session
 
 ### Gemini Live session
 
@@ -52,6 +58,28 @@ flowchart LR
 - Runs on the judge or user machine through the local `gemini` CLI
 - Performs local file/app/browser work that cannot be done purely in the cloud
 - Returns structured completion reports instead of free-form success claims
+
+## Main Flows
+
+### Session bootstrap
+
+- The desktop app sends the judge passcode to `/judge/session`
+- The hosted core returns a short-lived session token and hosted WebSocket URL
+- The desktop app connects to `/ws` and starts the hosted live session
+
+### Realtime conversation
+
+- The desktop app streams audio chunks and typed turns to the hosted core
+- The hosted core owns the Gemini Live session and returns audio output plus transcript updates
+- The hosted core persists conversation and task state in Postgres
+
+### Grounded local execution
+
+- Gemini Live uses the single tool path `delegate_to_gemini_cli`
+- The hosted core turns that tool call into an executor request for the connected desktop
+- The desktop bridge runs the local `gemini` CLI worker
+- Progress events and terminal results flow back to the hosted core
+- The hosted core stores those results and presents grounded summaries back through the live session
 
 ## Current Repo Mapping
 

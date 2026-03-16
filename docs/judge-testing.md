@@ -1,133 +1,100 @@
 # Judge Testing Guide
 
-This guide gives judges and testers a clear path through the repository without requiring them to guess which command matters.
+This is the expanded testing companion to the README. It keeps the same three validation paths, but adds the detail a judge, tester, or reviewer may want after the first pass.
 
-## Fastest Paths
+## 1. No-cost smoke test
 
-### Option 1: No-cost smoke path
-
-Use this when you want to verify the runtime shape without live cloud credentials or local-machine side effects.
+Use this when you want a deterministic local sanity check from the public repo without the hosted judge environment or packaged desktop build.
 
 ```bash
 npm install
+cp .env.example .env
 npm run dev:text-session
 ```
 
-What this shows:
+What this validates:
 
-- text-driven orchestration without the Electron shell
-- assistant/task state transitions
-- summary output without requiring the `gemini` CLI when you stay on the default mock executor
-- a local developer harness only; it is not the hosted judging path
+- the local text harness starts correctly
+- task and chat message flow are wired up
+- the repo can demonstrate orchestration behavior without the Electron shell
 
-Suggested commands inside the harness:
+What this does not validate:
+
+- the packaged desktop app
+- the Cloud Run hosted service
+- judge auth and judge passcode flow
+- real Gemini CLI execution on the local machine
+
+Useful sample commands inside the harness:
 
 - `/task Clean up the downloads folder`
 - `/chat Hello`
 - `/messages`
 
-### Option 2: Hosted judge path
+## 2. Repository test suite
 
-Use this when you want to verify the main submission-facing Relay desktop flow.
-
-Requirements:
-
-- running hosted agent service on Cloud Run or locally with `npm run dev:agent-api`
-- judge passcode
-  - recommended: one unique passcode per judge
-- the `gemini` CLI installed on the connected desktop if you want real local task execution
-- desktop `AGENT_CLOUD_URL` set to that hosted service
-
-Commands:
+Use this when you want reproducible code-level verification directly from the repository.
 
 ```bash
+npm run typecheck
+npm test
+```
+
+At a high level this covers:
+
+- judge auth behavior
+- hosted session and WebSocket control paths
+- Postgres-backed persistence contracts
+- intent, intake, routing, and task runtime logic
+- desktop-side client and local execution layer behavior
+
+This is the best repo-only signal for reviewers who want more than a smoke test but do not need the full judge experience.
+
+## 3. Judge path
+
+Use this when you want the intended submission-facing Relay flow.
+
+1. Open [relay.leejongwoo.com](https://relay.leejongwoo.com).
+2. Install Gemini CLI.
+3. Install the Workspace extension.
+4. Download Relay for macOS or Windows.
+5. Launch Relay.
+6. Enter the passcode from Devpost Additional Info.
+
+Judge-path expectations:
+
+- the public repository does not store passcodes or hosted-demo credentials
+- the passcode is provided privately through Devpost Additional Info
+- the desktop app prompts for the passcode before opening the hosted session
+- Gemini CLI must be installed on the connected machine for real grounded local execution
+- unsigned builds may show standard macOS Gatekeeper or Windows SmartScreen warnings
+
+## Optional source-based local judge path
+
+Use this only if you want to run the desktop app from source instead of using the packaged download flow.
+
+```bash
+npm run dev:postgres
 npm run dev:agent-api
 npm run dev:desktop:prepare
 npm run dev:desktop
 ```
 
-For local-only development, run `npm run dev:postgres` first to start or reuse the Docker Postgres container, then launch `npm run dev:agent-api`.
+This is a developer path, not the main judge recommendation. The public judge path should use the packaged app from [relay.leejongwoo.com](https://relay.leejongwoo.com).
 
-Hosted flow expectations:
+## Access model
 
-- judges receive the hosted service URL and a judge-specific passcode privately through Devpost Additional Info
-- the public repository and public README do not contain private passcodes
-- when `JUDGE_USERS_JSON` is used, each passcode maps to a distinct hosted user identity so task history and profile memory remain isolated per judge
-- the Relay desktop app prompts for the judge passcode before opening the live session
-- the connected machine still needs the `gemini` CLI if you want real local task execution instead of a mock run
-- unsigned desktop builds may show standard macOS or Windows trust warnings on first launch
-- intent, task intake, and task routing are model-backed on the hosted service; if those upstream calls fail, the app surfaces an explicit error instead of guessing
+- public landing page: [relay.leejongwoo.com](https://relay.leejongwoo.com)
+- public code repo: [github.com/jongwoo01/relay-voice-agent](https://github.com/jongwoo01/relay-voice-agent)
+- private passcode delivery: Devpost Additional Info only
+- no passcodes or hosted-demo secrets are committed to this repository
 
-### Option 2B: Packaged desktop build for judges
+## Known limitations
 
-Use this when you want to hand judges a Relay desktop build instead of asking them to run Electron from source.
+- voice mode needs microphone and audio permissions on the local machine
+- real local execution still requires Gemini CLI to be installed and authenticated
+- persistent hosted state requires Postgres
+- the packaged Relay desktop app is a thin client; it does not embed the hosted agent core
+- the main submission story is the packaged desktop app plus the hosted cloud core, not the standalone harnesses
 
-Commands:
-
-```bash
-npm run dist:desktop:mac
-npm run dist:desktop:win
-```
-
-Notes:
-
-- these are unsigned judge builds
-- the macOS artifact is a universal build for Apple Silicon and Intel Macs
-- the Windows installer targets x64 instead of ARM64
-- macOS may show a Gatekeeper warning for an unidentified developer build
-- Windows may show a SmartScreen warning before first launch
-- the packaged app still expects a hosted `AGENT_CLOUD_URL` and a judge passcode
-- real local task execution still requires the connected machine to have `gemini` CLI installed
-
-### Option 3: Standalone live text harness
-
-Use this when you want to inspect the Gemini Live transport without the Electron shell.
-
-Requirements:
-
-- `GOOGLE_API_KEY` or `GEMINI_API_KEY`
-
-Command:
-
-```bash
-npm run dev:live-text-session
-```
-
-## Local Environment
-
-Copy the example environment file:
-
-```bash
-cp .env.example .env
-```
-
-Common variables:
-
-- `AGENT_CLOUD_URL`
-- hosted agent service only: `JUDGE_PASSCODE` or `JUDGE_USERS_JSON`
-- `GOOGLE_CLOUD_PROJECT`
-- `GOOGLE_CLOUD_LOCATION`
-- `GOOGLE_GENAI_API_VERSION`
-- `LIVE_MODEL`
-- `DATABASE_URL`
-
-## Judge Access Model
-
-- This public repository does not store judge credentials or private demo URLs
-- If a private hosted demo is used for submission, judge credentials should be provided privately at submission time
-- Do not commit private credentials to the public repo or the public README
-- Recommended Devpost wording:
-  - `Hosted demo URL: <url>`
-  - `Judge passcode: <passcode>`
-  - `Testing note: install the Relay desktop app, enter the passcode, and ensure the local machine has gemini CLI configured if you want real local task execution.`
-- If you provide a packaged desktop build, give judges the hosted URL and passcode in Devpost Additional Info rather than in public docs
-
-## Known Limitations
-
-- Full voice mode needs microphone and audio permissions on the local machine
-- Persistent state requires Postgres on the hosted service
-- Real local task execution still requires the desktop machine to have `gemini` CLI installed and authenticated
-- The hosted core refuses to start without Cloud-hosted runtime configuration; it does not fall back to in-memory judge mode
-- The packaged Relay desktop app is a thin client; it does not embed the hosted agent core
-- The main submission story is the Relay desktop app plus cloud-hosted core, not the standalone live-text harness
-- Cloud deployment proof is documented separately in [cloud-deployment.md](cloud-deployment.md)
+For deployment proof and hosted topology notes, see [cloud-deployment.md](cloud-deployment.md).
