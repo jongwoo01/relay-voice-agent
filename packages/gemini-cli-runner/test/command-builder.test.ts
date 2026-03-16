@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { homedir } from "node:os";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildGeminiCliCommand,
+  resolveDefaultWorkingDirectory,
   resolveGeminiCliCommand
 } from "../src/command-builder.js";
 
@@ -78,6 +81,7 @@ describe("buildGeminiCliCommand", () => {
   });
 
   it("falls back to the local home directory when the provided working directory does not exist", () => {
+    const expectedWorkingDirectory = resolveDefaultWorkingDirectory();
     const command = buildGeminiCliCommand({
       task: {
         id: "task-missing-cwd",
@@ -92,8 +96,42 @@ describe("buildGeminiCliCommand", () => {
       workingDirectory: "/definitely/not/a/real/path"
     });
 
-    expect(command.cwd).toBe(homedir());
-    expect(command.args[1]).toContain(`Working directory: ${homedir()}`);
+    expect(command.cwd).toBe(expectedWorkingDirectory);
+    expect(command.args[1]).toContain(
+      `Working directory: ${expectedWorkingDirectory}`
+    );
+  });
+
+  it("prefers Desktop over the home directory for the default workspace", () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "gemini-home-"));
+    const desktop = join(fakeHome, "Desktop");
+    mkdirSync(desktop);
+
+    try {
+      expect(
+        resolveDefaultWorkingDirectory({
+          homeDirectory: fakeHome,
+          currentWorkingDirectory: "/definitely/not/a/real/path"
+        })
+      ).toBe(desktop);
+    } finally {
+      rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the current working directory when Desktop and home are unavailable", () => {
+    const currentWorkingDirectory = mkdtempSync(join(tmpdir(), "gemini-cwd-"));
+
+    try {
+      expect(
+        resolveDefaultWorkingDirectory({
+          homeDirectory: "/definitely/not/a/real/path",
+          currentWorkingDirectory
+        })
+      ).toBe(currentWorkingDirectory);
+    } finally {
+      rmSync(currentWorkingDirectory, { recursive: true, force: true });
+    }
   });
 
   it("tells Gemini CLI not to broaden a simple directory listing into a deep scan", () => {

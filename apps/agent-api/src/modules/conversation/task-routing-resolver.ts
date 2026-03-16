@@ -8,6 +8,7 @@ import {
   createDefaultGenAiClientFactory,
   type GenAiClientFactory
 } from "../config/genai-client-factory.js";
+import { buildTaskRoutingPrompt } from "../prompts/index.js";
 
 const TASK_ROUTING_MODEL =
   process.env.GEMINI_TASK_ROUTING_MODEL ?? "gemini-2.5-flash-lite";
@@ -215,46 +216,15 @@ export class GeminiTaskRoutingResolver implements TaskRoutingResolver {
     });
     const response = await this.client.models.generateContent({
       model: this.model,
-      contents: [
-        "Route the user's latest local desktop task utterance.",
-        "Return JSON only.",
-        "You must decide exactly one kind:",
-        "- reply: only for conversational non-task replies.",
-        "- clarify: the task or action is ambiguous and needs a question.",
-        "- status: the user wants a status/result update without new execution.",
-        "- set_completion_notification: the user wants to be notified when an active task finishes.",
-        "- continue_task: continue an existing task that is not blocked.",
-        "- continue_blocked_task: the user is answering a blocked task or giving more input to continue it.",
-        "- create_task: start a brand new task.",
-        "Prefer create_task when the user references the result of a recently completed task and asks for a new action.",
-        "Treat completed tasks as references to past results by default, not as the default target to continue.",
-        "If the user refers to a recently created folder/file/list/summary and asks to do something new with it, prefer create_task.",
-        "Choose status only for explicit progress/result/completion questions.",
-        "Choose set_completion_notification only when the user is clearly asking to be told when an active task completes.",
-        "Choose continue_task or continue_blocked_task only when the user clearly wants the same task to keep going.",
-        "Use only the provided task ids. If no task should be targeted, return null.",
-        "If there are multiple plausible target tasks, choose clarify.",
-        "If explicitTaskId is provided, either target that exact id or choose clarify.",
-        "If delegateMode is status, prefer status or clarify.",
-        "If delegateMode is resume, prefer continue_task or continue_blocked_task or clarify.",
-        "If delegateMode is new_task, prefer create_task.",
-        "For continue_task, continue_blocked_task, and create_task, executorPrompt must contain the exact prompt to send to the executor.",
-        "For reply, clarify, status, and set_completion_notification, executorPrompt must be null.",
-        "Preserve the user's wording in executorPrompt. Only add the minimum necessary context if the user is clearly answering a blocked task.",
-        "For clarify, set clarificationNeeded=true and provide a short English clarificationText.",
-        "For non-clarify decisions, set clarificationNeeded=false and clarificationText=null.",
-        'Example: "Create a txt file with today\'s LLM news in the LLM folder you created earlier" -> create_task.',
-        'Example: "How far along is that folder task?" -> status.',
-        'Example: "Tell me when it finishes" -> set_completion_notification.',
-        'Example: "Continue that task" -> continue_task.',
-        `Utterance intent: ${input.utterance.intent}`,
-        `Latest utterance: ${input.utterance.text}`,
-        `delegateMode: ${input.delegateMode ?? "auto"}`,
-        `explicitTaskId: ${input.explicitTaskId ?? "null"}`,
-        `Active tasks: ${serializeTaskContexts(activeTaskContexts)}`,
-        `Recent completed tasks: ${serializeTaskContexts(recentCompletedTaskContexts)}`,
-        `Other recent tasks: ${serializeTaskContexts(otherRecentTaskContexts)}`
-      ].join("\n"),
+      contents: buildTaskRoutingPrompt({
+        utteranceIntent: input.utterance.intent,
+        utteranceText: input.utterance.text,
+        delegateMode: input.delegateMode,
+        explicitTaskId: input.explicitTaskId ?? null,
+        activeTasksJson: serializeTaskContexts(activeTaskContexts),
+        recentCompletedTasksJson: serializeTaskContexts(recentCompletedTaskContexts),
+        otherRecentTasksJson: serializeTaskContexts(otherRecentTaskContexts)
+      }),
       config: {
         responseMimeType: "application/json",
         responseJsonSchema: {

@@ -2,6 +2,7 @@ import {
   createDefaultGenAiClientFactory,
   type GenAiClientFactory
 } from "../config/genai-client-factory.js";
+import { buildSessionMemoryExtractionPrompt } from "../prompts/index.js";
 import {
   InMemorySessionMemoryRepository,
   PostgresSessionMemoryRepository,
@@ -167,22 +168,10 @@ function buildExtractorPrompt(input: SessionMemoryExtractorInput): string {
     importance: item.importance
   }));
 
-  return [
-    "You decide what session memory to save for Relay, an English-speaking voice agent for the Google ecosystem.",
-    "Return JSON only.",
-    "This memory is session-scoped only. Never assume it should persist beyond the current brainSessionId.",
-    "Store only information that is likely to improve later turns in the same session.",
-    "Good candidates: preferred name, response style, workflow preferences, safety constraints, stable background facts relevant to the ongoing session, or current project context that will matter again soon.",
-    "Ignore casual chatter, one-off requests already captured elsewhere, speculative statements, emotional venting with no future utility, and facts not explicitly stated by the user.",
-    "If the latest utterance updates an existing memory, reuse the same key so it replaces the older value.",
-    "Use short stable keys such as preferred_name, response_style, destructive_confirmation, project_context, timezone, or pronouns.",
-    "Write summary as a concise English note that can be shown directly to the live model.",
-    "Keep summaries factual. Do not include instructions that were not explicitly stated.",
-    "Return at most 3 items.",
-    `Existing session memory: ${JSON.stringify(existing)}`,
-    `Latest user utterance: ${input.text}`,
-    'Return schema: {"storeItems":[{"kind":"identity|preference|workflow|constraint|background|current_context","key":"string","summary":"string","valueText":"string","importance":"high|medium|low","confidence":0.0}]}'
-  ].join("\n");
+  return buildSessionMemoryExtractionPrompt({
+    existingItemsJson: JSON.stringify(existing),
+    text: input.text
+  });
 }
 
 function valueJsonFor(item: SessionMemoryExtractionItem): Record<string, unknown> {

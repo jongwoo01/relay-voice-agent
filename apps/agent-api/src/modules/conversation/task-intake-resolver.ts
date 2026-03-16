@@ -7,6 +7,10 @@ import {
   createDefaultGenAiClientFactory,
   type GenAiClientFactory
 } from "../config/genai-client-factory.js";
+import {
+  buildTaskIntakeStartPrompt,
+  buildTaskIntakeUpdatePrompt
+} from "../prompts/index.js";
 
 const TASK_INTAKE_MODEL =
   process.env.GEMINI_TASK_INTAKE_MODEL ?? "gemini-2.5-flash-lite";
@@ -181,18 +185,7 @@ export class GeminiTaskIntakeResolver implements TaskIntakeResolver {
   async analyzeStart(text: string): Promise<TaskIntakeAnalysis> {
     const response = await this.client.models.generateContent({
       model: this.model,
-      contents: [
-        "Analyze a user request for task intake.",
-        "Return JSON only.",
-        "Determine only execution-critical required slots for this request.",
-        "Do not ask for optional details.",
-        "Allowed slots: target, time, scope, location, risk_ack.",
-        "If the request can be executed immediately, return an empty requiredSlots array.",
-        'Treat file inspection requests like "check my desktop and tell me the names and counts of folders and files" as immediately executable.',
-        "Do not require scope when the user already specified the output format, such as names, counts, contents, or a simple listing.",
-        "Fill only slots explicitly present in the user's text.",
-        `User request: ${text}`
-      ].join("\n"),
+      contents: buildTaskIntakeStartPrompt({ text }),
       config: {
         responseMimeType: "application/json",
         responseJsonSchema: {
@@ -237,19 +230,10 @@ export class GeminiTaskIntakeResolver implements TaskIntakeResolver {
   ): Promise<TaskIntakeUpdateResponse> {
     const response = await this.client.models.generateContent({
       model: this.model,
-      contents: [
-        "Analyze a user's latest message while a task intake session is active.",
-        "Return JSON only.",
-        "Choose resolution:",
-        '- "answer_current_intake" if the message answers the current missing task details, even partially.',
-        '- "replace_task" if the message is a new standalone task request that should replace the current intake.',
-        "Allowed slots: target, time, scope, location, risk_ack.",
-        "Fill only the slots explicitly present in the latest user message.",
-        `Active intake source text: ${session.sourceText}`,
-        `Active intake working text: ${session.workingText}`,
-        `Currently missing slots: ${session.missingSlots.join(", ") || "none"}`,
-        `Latest user message: ${text}`
-      ].join("\n"),
+      contents: buildTaskIntakeUpdatePrompt({
+        session,
+        text
+      }),
       config: {
         responseMimeType: "application/json",
         responseJsonSchema: {

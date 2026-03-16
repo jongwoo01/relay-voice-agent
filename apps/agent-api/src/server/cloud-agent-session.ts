@@ -33,6 +33,7 @@ import {
   createSessionMemoryService,
   type SessionMemoryServiceLike
 } from "../modules/memory/session-memory-service.js";
+import { buildRelayPersonaInstruction } from "../modules/prompts/index.js";
 import type { AssistantMessageListener } from "../modules/realtime/text-realtime-session-loop.js";
 import type { SqlClientLike } from "../modules/persistence/postgres-client.js";
 import { ConnectedClientExecutor } from "./connected-client-executor.js";
@@ -710,7 +711,7 @@ export class CloudAgentSession {
         },
         sessionResumption: createSessionResumptionConfig(input.resumeHandle),
         tools: [createDelegateToGeminiCliTool()],
-        systemInstruction: createPersonaInstruction()
+        systemInstruction: buildRelayPersonaInstruction()
       },
       callbacks: {
         onopen: () => {

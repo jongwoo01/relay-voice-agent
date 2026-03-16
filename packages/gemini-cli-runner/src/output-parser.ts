@@ -27,6 +27,7 @@ export interface ParsedGeminiCliOutput {
 }
 
 const HANGUL_REGEX = /[\u3131-\u318e\uac00-\ud7a3]/;
+// Keep this marker aligned with the local executor prompt contract in prompts.ts.
 const REPORT_JSON_MARKER = "REPORT_JSON:";
 
 function parseJsonObjectString(value: string): Record<string, unknown> | null {

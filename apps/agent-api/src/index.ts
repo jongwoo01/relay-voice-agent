@@ -26,6 +26,16 @@ export {
   type GenAiClientFactory,
   type GenAiRuntimeMetadata
 } from "./modules/config/genai-client-factory.js";
+export {
+  buildIntentResolutionPrompt,
+  buildRelayPersonaInstruction,
+  buildSessionMemoryExtractionPrompt,
+  buildTaskIntakeStartPrompt,
+  buildTaskIntakeUpdatePrompt,
+  buildTaskRoutingPrompt,
+  type PromptMetadata,
+  type PromptSpec
+} from "./modules/prompts/index.js";
 export { BrainTurnService, type BrainTurnResult } from "./modules/conversation/brain-turn-service.js";
 export { AccountBoundaryService, type AccountBoundaryResult, type GoogleIdentityInput } from "./modules/account/account-boundary-service.js";
 export {

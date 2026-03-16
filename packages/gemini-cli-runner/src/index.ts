@@ -1,4 +1,17 @@
-export { buildGeminiCliCommand } from "./command-builder.js";
+export {
+  buildGeminiCliCommand,
+  resolveDefaultWorkingDirectory,
+  resolveGeminiCliCommand,
+  type DefaultWorkingDirectoryOptions
+} from "./command-builder.js";
+export {
+  buildExecutorPrompt,
+  EXECUTOR_COMPLETION_REPORT_PROMPT,
+  EXECUTOR_COMPLETION_REPORT_PROMPT_ID,
+  type ExecutorPromptInput,
+  type PromptMetadata,
+  type PromptSpec
+} from "./prompts.js";
 export {
   buildExecutorResultFromGeminiCliOutput,
   createMockGeminiCliOutput,
@@ -15,7 +28,9 @@ export {
   createSpawnRunner,
   defaultExecFile,
   buildGeminiCliEnvironment,
+  ExecutorCancelledError,
   GeminiCliExecutor,
+  isExecutorCancelledError,
   type ExecResult,
   type RunCommandLike,
   type RunCommandOptions,
