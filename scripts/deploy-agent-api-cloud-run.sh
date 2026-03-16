@@ -24,10 +24,7 @@ Required for persistence and judge auth:
   JUDGE_TOKEN_SECRET or JUDGE_TOKEN_SECRET_SECRET
 
 Supported database modes:
-  1. Legacy direct URL mode
-     DATABASE_URL or DATABASE_URL_SECRET
-
-  2. Cloud SQL socket mode for Cloud Run runtime
+  1. Cloud SQL socket mode for Cloud Run runtime (recommended)
      CLOUD_SQL_CONNECTION_NAME
      CLOUD_SQL_DATABASE_NAME
      CLOUD_SQL_DATABASE_USER
@@ -35,6 +32,9 @@ Supported database modes:
      plus one of:
        MIGRATION_DATABASE_URL / MIGRATION_DATABASE_URL_SECRET
        or DATABASE_URL / DATABASE_URL_SECRET as the migration fallback
+
+  2. Legacy direct URL mode (fallback / local compatibility)
+     DATABASE_URL or DATABASE_URL_SECRET
 
 Optional:
   MIGRATION_DATABASE_URL
