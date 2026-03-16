@@ -10,9 +10,9 @@
     "build:renderer": "vite build",
     "dev": "npm --prefix ../.. run build:runtimes && npm run build:renderer && electron .",
     "clean:dist": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
-    "dist:dir": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --mac --universal",
-    "dist:mac": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --universal",
-    "dist:mac:x64": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --x64",
+    "dist:dir": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && electron-builder --dir --mac --universal",
+    "dist:mac": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && electron-builder --mac dmg --universal",
+    "dist:mac:x64": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && electron-builder --mac dmg --x64",
     "dist:win": "npm run clean:dist && npm --prefix ../.. run build:runtimes && npm run build:renderer && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis --x64"
   },
   "dependencies": {
@@ -28,6 +28,7 @@
     "vanta": "^0.5.24"
   },
   "devDependencies": {
+    "@electron/notarize": "^3.1.1",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.4.27",
     "cross-env": "^10.1.0",
@@ -62,8 +63,12 @@
       "package.json"
     ],
     "mac": {
-      "identity": null,
+      "identity": "JONGWOO LEE (3H5YJPJL3D)",
       "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Relay needs microphone access to capture your voice and open a live session."
       },
@@ -77,6 +82,7 @@
       ],
       "category": "public.app-category.productivity"
     },
+    "afterSign": "build/notarize.mjs",
     "win": {
       "icon": "build/icon.ico",
       "target": [
