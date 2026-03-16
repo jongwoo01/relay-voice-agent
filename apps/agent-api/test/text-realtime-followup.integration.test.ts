@@ -66,6 +66,10 @@ class QueueDeferredExecutor implements LocalExecutor {
       resolve?.();
     }
   }
+
+  async cancel(): Promise<boolean> {
+    return false;
+  }
 }
 
 class ScriptedTaskRoutingResolver implements TaskRoutingResolver {

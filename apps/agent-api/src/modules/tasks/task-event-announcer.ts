@@ -93,5 +93,9 @@ export function buildAssistantFollowUpMessage(
     };
   }
 
+  if (input.event.type === "executor_cancelled") {
+    return null;
+  }
+
   return null;
 }

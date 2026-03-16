@@ -112,7 +112,8 @@ describe("google-live-api-transport", () => {
     );
     expect(events).toContainEqual({
       type: "input_transcription_partial",
-      text: "Desktop files"
+      text: "Desktop files",
+      rawText: "Desktop files"
     });
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -171,7 +172,8 @@ describe("google-live-api-transport", () => {
 
     expect(events).toContainEqual({
       type: "input_transcription_partial",
-      text: " hello "
+      text: " hello ",
+      rawText: " hello "
     });
     expect(events).toContainEqual({
       type: "output_transcription",
@@ -244,7 +246,8 @@ describe("google-live-api-transport", () => {
 
     expect(events).toContainEqual({
       type: "input_transcription_partial",
-      text: "check my desktop"
+      text: "check my desktop",
+      rawText: "desktop"
     });
     expect(events).toContainEqual(
       expect.objectContaining({

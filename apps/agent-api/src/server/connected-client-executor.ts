@@ -4,6 +4,7 @@ import type {
   ExecutorRunResult,
   LocalExecutor
 } from "@agent/local-executor-protocol";
+import { ExecutorCancelledError } from "@agent/gemini-cli-runner";
 import type { TaskEvent } from "@agent/shared-types";
 import type { HostedExecutorRequest } from "./protocol.js";
 
@@ -17,6 +18,7 @@ interface PendingExecution {
 
 export class ConnectedClientExecutor implements LocalExecutor {
   private readonly pendingByRunId = new Map<string, PendingExecution>();
+  private readonly runIdByTaskId = new Map<string, string>();
 
   constructor(
     private readonly sendRequest: (request: HostedExecutorRequest) => Promise<void>
@@ -41,11 +43,13 @@ export class ConnectedClientExecutor implements LocalExecutor {
         resolve,
         reject
       });
+      this.runIdByTaskId.set(request.task.id, runId);
 
       try {
         await this.sendRequest(hostedRequest);
       } catch (error) {
         this.pendingByRunId.delete(runId);
+        this.runIdByTaskId.delete(request.task.id);
         reject(
           error instanceof Error
             ? error
@@ -58,7 +62,7 @@ export class ConnectedClientExecutor implements LocalExecutor {
   async recordProgress(runId: string, event: TaskEvent): Promise<void> {
     const pending = this.pendingByRunId.get(runId);
     if (!pending) {
-      throw new Error(`Unknown executor run: ${runId}`);
+      return;
     }
 
     pending.progressEvents.push(event);
@@ -73,10 +77,11 @@ export class ConnectedClientExecutor implements LocalExecutor {
   }): void {
     const pending = this.pendingByRunId.get(input.runId);
     if (!pending) {
-      throw new Error(`Unknown executor run: ${input.runId}`);
+      return;
     }
 
     this.pendingByRunId.delete(input.runId);
+    this.runIdByTaskId.delete(pending.request.taskId);
 
     if (!input.ok) {
       pending.reject(new Error(input.error || "Connected executor failed"));
@@ -100,7 +105,21 @@ export class ConnectedClientExecutor implements LocalExecutor {
   failAll(reason: string): void {
     for (const [runId, pending] of this.pendingByRunId.entries()) {
       this.pendingByRunId.delete(runId);
+      this.runIdByTaskId.delete(pending.request.taskId);
       pending.reject(new Error(reason));
     }
+  }
+
+  async cancel(taskId: string): Promise<boolean> {
+    const runId = this.runIdByTaskId.get(taskId);
+    if (!runId) {
+      return false;
+    }
+
+    const pending = this.pendingByRunId.get(runId);
+    this.runIdByTaskId.delete(taskId);
+    this.pendingByRunId.delete(runId);
+    pending?.reject(new ExecutorCancelledError(`Task ${taskId} execution cancelled`));
+    return Boolean(pending);
   }
 }

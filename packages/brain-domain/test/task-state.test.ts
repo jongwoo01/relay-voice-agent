@@ -6,6 +6,7 @@ describe("task-state", () => {
     expect(canTransitionTask("created", "queued")).toBe(true);
     expect(reduceTaskStatus("created", "queued")).toBe("queued");
     expect(reduceTaskStatus("queued", "running")).toBe("running");
+    expect(reduceTaskStatus("running", "cancelled")).toBe("cancelled");
   });
 
   it("rejects invalid transitions", () => {

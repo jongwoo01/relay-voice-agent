@@ -8,6 +8,7 @@ export {
   type TaskIntakeFilledSlots
 } from "./task-intake.js";
 export {
+  cancelTask,
   completeTask,
   createTask,
   failTask,

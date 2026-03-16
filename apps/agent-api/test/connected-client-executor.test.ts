@@ -118,4 +118,24 @@ describe("ConnectedClientExecutor", () => {
 
     await expect(runPromise).rejects.toThrow("desktop disconnected");
   });
+
+  it("cancels a pending run by task id", async () => {
+    const sendRequest = vi.fn(async () => undefined);
+    const executor = new ConnectedClientExecutor(sendRequest);
+    const runPromise = executor.run({
+      task: {
+        id: "task-cancel",
+        title: "Cancelable task",
+        normalizedGoal: "cancelable task",
+        status: "queued",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z"
+      },
+      now: "2026-03-08T00:00:00.000Z",
+      prompt: "Cancel me"
+    });
+
+    await expect(executor.cancel("task-cancel")).resolves.toBe(true);
+    await expect(runPromise).rejects.toThrow("cancelled");
+  });
 });

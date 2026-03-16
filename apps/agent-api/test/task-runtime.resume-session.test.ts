@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
+import { resolveDefaultWorkingDirectory } from "@agent/gemini-cli-runner";
 import type {
   ExecutorRunRequest,
   ExecutorRunResult,
@@ -22,6 +23,8 @@ class CapturingExecutor implements LocalExecutor {
       sessionId: request.resumeSessionId ?? "new-session-123"
     })
   );
+
+  public readonly cancel = vi.fn(async () => false);
 }
 
 describe("task-runtime resume session", () => {
@@ -60,6 +63,8 @@ describe("task-runtime resume session", () => {
   it("captures a new session id from the executor for fresh tasks", async () => {
     const executor = new CapturingExecutor();
     const runtime = new TaskRuntime(executor);
+    const expectedWorkingDirectory =
+      resolveDefaultWorkingDirectory() ?? homedir();
 
     const result = await runtime.submit({
       text: "Start a new cleanup",
@@ -70,7 +75,7 @@ describe("task-runtime resume session", () => {
     expect(result.executorSession).toEqual({
       taskId: "task-4",
       sessionId: "new-session-123",
-      workingDirectory: homedir(),
+      workingDirectory: expectedWorkingDirectory,
       updatedAt: "2026-03-08T00:00:00.000Z"
     });
   });

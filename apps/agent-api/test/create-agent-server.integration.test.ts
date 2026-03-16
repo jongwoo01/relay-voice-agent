@@ -25,6 +25,7 @@ function createConversationState() {
     conversationTimeline: [],
     conversationTurns: [],
     activeTurnId: null,
+    rawInputPartial: "",
     inputPartial: "",
     lastUserTranscript: "",
     outputTranscript: ""

@@ -168,3 +168,28 @@ export function failTask(task: Task, now: string, message: string): TaskTransiti
     }
   };
 }
+
+export function cancelTask(task: Task, now: string, message: string): TaskTransitionResult {
+  const activeTask =
+    task.status === "created" ||
+    task.status === "queued" ||
+    task.status === "running" ||
+    task.status === "waiting_input" ||
+    task.status === "approval_required"
+      ? task
+      : startTask(task, now, "Task is running").task;
+
+  return {
+    task: {
+      ...activeTask,
+      status: reduceTaskStatus(activeTask.status, "cancelled"),
+      updatedAt: now
+    },
+    event: {
+      taskId: task.id,
+      type: "executor_cancelled",
+      message,
+      createdAt: now
+    }
+  };
+}

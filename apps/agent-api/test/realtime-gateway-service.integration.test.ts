@@ -33,6 +33,8 @@ class CapturingExecutor implements LocalExecutor {
       sessionId: request.resumeSessionId ?? "session-created"
     })
   );
+
+  public readonly cancel = vi.fn(async () => false);
 }
 
 function utterance(text: string, intent: FinalizedUtterance["intent"]): FinalizedUtterance {

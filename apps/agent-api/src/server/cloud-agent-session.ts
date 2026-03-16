@@ -19,6 +19,7 @@ import type {
   TaskRunnerTimelineEntry,
   TaskRunnerViewModel
 } from "@agent/shared-types";
+import { cancelTask as cancelTaskTransition } from "@agent/brain-domain";
 import {
   createPostgresSessionPersistence,
   GoogleLiveApiTransport,
@@ -187,22 +188,6 @@ function createContextWindowCompressionConfig(): {
   };
 }
 
-function createPersonaInstruction(): string {
-  return [
-    "You are Relay, the voice agent for the Google ecosystem.",
-    "Relay stays conversational while background tasks run, so users can chat naturally, interrupt, redirect work, and ask for updates in the same session.",
-    "The Relay desktop app provides microphone, speaker, UI, and local executor access for the user's local OS.",
-    "All Google-hosted orchestration, task state, and follow-up policy are owned by the server.",
-    "Runtime context may include session memory supplied by the server.",
-    "Never claim local work succeeded unless it was confirmed by delegate_to_gemini_cli.",
-    "When local-machine work, task follow-up, or task status is needed, call delegate_to_gemini_cli.",
-    "If the user asks about local files, file contents, browser state, desktop state, or the result of prior local work, call delegate_to_gemini_cli instead of answering from memory alone.",
-    "If delegate_to_gemini_cli returns output.presentation.speechText, treat that text as the authoritative grounded answer or completion brief from the server.",
-    "Do not add privacy-policy claims, safety-policy claims, or other refusal reasons unless they were explicitly provided by the tool result or the user asked for such a restriction.",
-    "Do not invent local files, browser tabs, app state, policy restrictions, or task results."
-  ].join(" ");
-}
-
 function normalizeError(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
@@ -283,6 +268,10 @@ function buildTaskHeroSummary(
 
   if (task.status === "failed") {
     return latestMessage ?? "The task needs attention before it can continue.";
+  }
+
+  if (task.status === "cancelled") {
+    return latestMessage ?? "The task was cancelled.";
   }
 
   return (
@@ -382,6 +371,15 @@ function toTimelineEntry(task: Task, event: TaskEvent): TaskRunnerTimelineEntry 
         event.message,
         event.createdAt,
         "error",
+        "system"
+      );
+    case "executor_cancelled":
+      return createTimelineEntry(
+        "cancelled",
+        "Task cancelled",
+        event.message,
+        event.createdAt,
+        "warning",
         "system"
       );
     default:
@@ -572,6 +570,7 @@ export class CloudAgentSession {
     conversationTimeline: [],
     conversationTurns: [],
     activeTurnId: null,
+    rawInputPartial: "",
     inputPartial: "",
     lastUserTranscript: "",
     outputTranscript: ""
@@ -807,6 +806,9 @@ export class CloudAgentSession {
   async handleClientEvent(event: CloudClientEvent): Promise<void> {
     if (!this.liveSession) {
       switch (event.type) {
+        case "cancel_task":
+          await this.cancelTaskById(event.taskId);
+          return;
         case "ping":
           this.input.send({
             type: "conversation_state",
@@ -824,6 +826,9 @@ export class CloudAgentSession {
     }
 
     switch (event.type) {
+      case "cancel_task":
+        await this.cancelTaskById(event.taskId);
+        break;
       case "typed_turn":
         await this.handleTypedTurn(event.text);
         break;
@@ -866,10 +871,16 @@ export class CloudAgentSession {
         this.liveSession?.sendAudioStreamEnd();
         break;
       case "executor_progress":
+        if (this.cancelledTaskIds.has(event.taskId)) {
+          break;
+        }
         await this.executor.recordProgress(event.runId, event.event);
         await this.broadcastTaskState();
         break;
       case "executor_terminal":
+        if (this.cancelledTaskIds.has(event.taskId)) {
+          break;
+        }
         this.executor.completeRun({
           runId: event.runId,
           ok: event.ok,
@@ -889,6 +900,51 @@ export class CloudAgentSession {
       default:
         break;
     }
+  }
+
+  private removeNotificationsForTask(taskId: string): void {
+    for (let index = this.notifications.length - 1; index >= 0; index -= 1) {
+      if (this.notifications[index]?.taskId === taskId) {
+        this.notifications.splice(index, 1);
+      }
+    }
+  }
+
+  private async cancelTaskById(taskId: string): Promise<void> {
+    const normalizedTaskId =
+      typeof taskId === "string" && taskId.trim() ? taskId.trim() : null;
+    if (!normalizedTaskId) {
+      return;
+    }
+
+    const persistence = await this.persistencePromise;
+    const task = await persistence.taskRepository.getById(normalizedTaskId);
+    if (!task) {
+      return;
+    }
+
+    if (
+      task.status === "completed" ||
+      task.status === "failed" ||
+      task.status === "cancelled"
+    ) {
+      return;
+    }
+
+    this.cancelledTaskIds.add(normalizedTaskId);
+    this.pendingToolContinuations.delete(normalizedTaskId);
+    this.removeNotificationsForTask(normalizedTaskId);
+    await this.executor.cancel(normalizedTaskId);
+
+    const cancelled = cancelTaskTransition(
+      task,
+      this.now(),
+      "Task was cancelled by the user."
+    );
+    await persistence.taskRepository.save(this.input.brainSessionId, cancelled.task);
+    await persistence.taskEventRepository.saveMany(normalizedTaskId, [cancelled.event]);
+    await persistence.taskExecutorSessionRepository.deleteByTaskId(normalizedTaskId);
+    await this.broadcastTaskState();
   }
 
   async close(
@@ -1017,7 +1073,10 @@ export class CloudAgentSession {
             `[live-input][session] input_transcription_partial session=${this.input.brainSessionId} text=${JSON.stringify(String(event.text ?? ""))}`
           );
         }
-        this.applyVoiceTranscriptPartial(String(event.text ?? ""));
+        this.applyVoiceTranscriptPartial(
+          String(event.text ?? ""),
+          typeof event.rawText === "string" ? event.rawText : String(event.text ?? "")
+        );
         this.conversationState.status = "listening";
         this.input.send({
           type: "conversation_state",
@@ -1144,6 +1203,7 @@ export class CloudAgentSession {
     if (!normalizedText) {
       this.pendingVoiceFinalTranscript = null;
       this.discardPendingVoiceTurn();
+      this.conversationState.rawInputPartial = "";
       this.conversationState.inputPartial = "";
       this.conversationState.status = "listening";
       this.input.send({
@@ -1159,6 +1219,7 @@ export class CloudAgentSession {
     }
 
     this.pendingVoiceFinalTranscript = normalizedText;
+    this.conversationState.rawInputPartial = text;
     this.conversationState.inputPartial = normalizedText;
     this.input.send({
       type: "conversation_state",
@@ -1549,11 +1610,13 @@ export class CloudAgentSession {
     this.conversationState.activeTurnId = null;
   }
 
-  private applyVoiceTranscriptPartial(text: string): void {
+  private applyVoiceTranscriptPartial(text: string, rawText = text): void {
     const normalizedText = text.trim();
+    const rawPreviewText = String(rawText ?? "");
     if (!this.pendingVoiceTurnId) {
       this.pendingVoiceFinalTranscript = null;
     }
+    this.conversationState.rawInputPartial = rawPreviewText;
     this.conversationState.inputPartial = normalizedText;
     if (!normalizedText) {
       return;
@@ -1617,6 +1680,7 @@ export class CloudAgentSession {
     this.conversationState.activeTurnId ??= turnId;
     this.pendingVoiceTurnId = null;
     this.pendingVoiceFinalTranscript = null;
+    this.conversationState.rawInputPartial = "";
     this.conversationState.inputPartial = "";
     this.conversationState.lastUserTranscript = normalizedText;
     this.conversationState.outputTranscript = "";
@@ -1771,6 +1835,7 @@ export class CloudAgentSession {
     });
 
     this.pendingVoiceFinalTranscript = null;
+    this.conversationState.rawInputPartial = "";
     this.conversationState.inputPartial = "";
     this.conversationState.lastUserTranscript = normalizedText;
 
@@ -1812,6 +1877,7 @@ export class CloudAgentSession {
     }
     this.pendingVoiceTurnId = null;
     this.pendingVoiceFinalTranscript = null;
+    this.conversationState.rawInputPartial = "";
   }
 
   private finalizeVoiceUserTurn(text: string, createdAt: string): string {
@@ -1889,6 +1955,7 @@ export class CloudAgentSession {
     } else {
       this.discardActiveVoiceUserPlaceholder();
       this.pendingVoiceFinalTranscript = null;
+      this.conversationState.rawInputPartial = "";
     }
 
     this.conversationState.inputPartial = "";

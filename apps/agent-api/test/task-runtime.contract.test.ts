@@ -14,6 +14,10 @@ class SilentExecutor implements LocalExecutor {
       }
     };
   }
+
+  async cancel(): Promise<boolean> {
+    return false;
+  }
 }
 
 describe("task-runtime contract", () => {

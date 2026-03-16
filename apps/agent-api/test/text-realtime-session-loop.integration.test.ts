@@ -111,6 +111,10 @@ describe("text-realtime-session-loop", () => {
       async run(): Promise<ExecutorRunResult> {
         throw new Error("run should not be called for small talk");
       }
+
+      async cancel(): Promise<boolean> {
+        return false;
+      }
     }
 
     const loop = new TextRealtimeSessionLoop(
@@ -170,6 +174,10 @@ describe("text-realtime-session-loop", () => {
               sessionId: request.resumeSessionId ?? "session-new"
             });
         });
+      }
+
+      async cancel(): Promise<boolean> {
+        return false;
       }
     }
 
@@ -257,6 +265,10 @@ describe("text-realtime-session-loop", () => {
       async run(): Promise<ExecutorRunResult> {
         throw new Error("run should not be called for task intake clarify");
       }
+
+      async cancel(): Promise<boolean> {
+        return false;
+      }
     }
 
     const loop = new TextRealtimeSessionLoop(new NoopExecutor(), undefined, undefined, {
@@ -298,6 +310,10 @@ describe("text-realtime-session-loop", () => {
           }
         };
       }
+
+      async cancel(): Promise<boolean> {
+        return false;
+      }
     }
 
     const executor = new CapturingExecutor();
@@ -329,6 +345,10 @@ describe("text-realtime-session-loop", () => {
     class NoopExecutor implements LocalExecutor {
       async run(): Promise<ExecutorRunResult> {
         throw new Error("run should not be called when routing clarifies");
+      }
+
+      async cancel(): Promise<boolean> {
+        return false;
       }
     }
 
@@ -366,6 +386,10 @@ describe("text-realtime-session-loop", () => {
     class NoopExecutor implements LocalExecutor {
       async run(): Promise<ExecutorRunResult> {
         throw new Error("run should not be called for task intake clarify");
+      }
+
+      async cancel(): Promise<boolean> {
+        return false;
       }
     }
 
@@ -413,6 +437,10 @@ describe("text-realtime-session-loop", () => {
           }
         };
       }
+
+      async cancel(): Promise<boolean> {
+        return false;
+      }
     }
 
     const executor = new CapturingExecutor();
@@ -449,6 +477,10 @@ describe("text-realtime-session-loop", () => {
             createdAt: request.now
           }
         };
+      }
+
+      async cancel(): Promise<boolean> {
+        return false;
       }
     }
 

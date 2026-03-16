@@ -33,7 +33,7 @@ function isLiveTransportDebugEnabled(): boolean {
 export type GoogleLiveTransportEvent =
   | { type: "raw_server_message"; summary: string }
   | { type: "live_error"; code?: string; message?: string; raw: unknown }
-  | { type: "input_transcription_partial"; text: string }
+  | { type: "input_transcription_partial"; text: string; rawText: string }
   | {
       type: "input_transcription_final";
       text: string;
@@ -510,7 +510,8 @@ export class GoogleLiveApiTransport {
             }
           : {
               type: "input_transcription_partial",
-              text: turn.partialText ?? inputText
+              text: turn.partialText ?? inputText,
+              rawText: inputText
             }
       );
     }

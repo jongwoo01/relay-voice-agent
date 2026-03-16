@@ -36,4 +36,5 @@ export interface LocalExecutor {
     request: ExecutorRunRequest,
     onProgress?: ExecutorProgressListener
   ): Promise<ExecutorRunResult>;
+  cancel(taskId: string): Promise<boolean>;
 }

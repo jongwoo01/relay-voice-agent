@@ -34,6 +34,7 @@ export interface RunCommandOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   onStdoutLine?: (line: string) => void | Promise<void>;
+  signal?: AbortSignal;
 }
 
 export type SpawnLike = (
@@ -47,6 +48,17 @@ export type RunCommandLike = (
   args: string[],
   options?: RunCommandOptions
 ) => Promise<ExecResult>;
+
+export class ExecutorCancelledError extends Error {
+  constructor(message = "Task execution cancelled") {
+    super(message);
+    this.name = "ExecutorCancelledError";
+  }
+}
+
+export function isExecutorCancelledError(error: unknown): error is ExecutorCancelledError {
+  return error instanceof ExecutorCancelledError;
+}
 
 function flushLines(
   buffer: string,
@@ -102,6 +114,18 @@ export function createSpawnRunner(
         }
         reject(error);
       };
+
+      const abort = () => {
+        fail(new ExecutorCancelledError());
+      };
+
+      if (options?.signal) {
+        if (options.signal.aborted) {
+          abort();
+          return;
+        }
+        options.signal.addEventListener("abort", abort, { once: true });
+      }
 
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
@@ -251,6 +275,8 @@ function detectTerminalFailure(event: GeminiCliHeadlessEvent): string | null {
 }
 
 export class GeminiCliExecutor implements LocalExecutor {
+  private readonly abortControllersByTaskId = new Map<string, AbortController>();
+
   constructor(
     private readonly exec: RunCommandLike = defaultExecFile,
     private readonly onRawEvent?: GeminiCliRawEventListener
@@ -262,48 +288,69 @@ export class GeminiCliExecutor implements LocalExecutor {
   ): Promise<ExecutorRunResult> {
     const command = buildGeminiCliCommand(request);
     const streamedEvents: GeminiCliHeadlessEvent[] = [];
+    const abortController = new AbortController();
+    this.abortControllersByTaskId.set(request.task.id, abortController);
 
-    const result = await this.exec(command.command, command.args, {
-      cwd: command.cwd,
-      env: buildGeminiCliEnvironment(),
-      onStdoutLine: async (line) => {
-        const event = parseGeminiCliEventLine(line);
-        const contextualEvent: GeminiCliHeadlessEvent = {
-          ...event,
-          payload: {
-            ...event.payload,
-            taskId: request.task.id
+    try {
+      const result = await this.exec(command.command, command.args, {
+        cwd: command.cwd,
+        env: buildGeminiCliEnvironment(),
+        signal: abortController.signal,
+        onStdoutLine: async (line) => {
+          const event = parseGeminiCliEventLine(line);
+          const contextualEvent: GeminiCliHeadlessEvent = {
+            ...event,
+            payload: {
+              ...event.payload,
+              taskId: request.task.id
+            }
+          };
+          streamedEvents.push(contextualEvent);
+          await this.onRawEvent?.(contextualEvent);
+
+          const progressEvent = toExecutorProgressEvent(
+            request.task.id,
+            request.now,
+            contextualEvent
+          );
+
+          if (progressEvent && onProgress) {
+            await onProgress(progressEvent);
           }
-        };
-        streamedEvents.push(contextualEvent);
-        await this.onRawEvent?.(contextualEvent);
 
-        const progressEvent = toExecutorProgressEvent(
-          request.task.id,
-          request.now,
-          contextualEvent
-        );
-
-        if (progressEvent && onProgress) {
-          await onProgress(progressEvent);
+          const terminalFailure = detectTerminalFailure(contextualEvent);
+          if (terminalFailure) {
+            throw new Error(terminalFailure);
+          }
         }
+      });
 
-        const terminalFailure = detectTerminalFailure(contextualEvent);
-        if (terminalFailure) {
-          throw new Error(terminalFailure);
-        }
+      const parsed =
+        streamedEvents.length > 0
+          ? { events: streamedEvents }
+          : parseGeminiCliOutput(result.stdout);
+
+      return buildExecutorResultFromGeminiCliOutput({
+        taskId: request.task.id,
+        now: request.now,
+        output: parsed
+      });
+    } finally {
+      const activeController = this.abortControllersByTaskId.get(request.task.id);
+      if (activeController === abortController) {
+        this.abortControllersByTaskId.delete(request.task.id);
       }
-    });
+    }
+  }
 
-    const parsed =
-      streamedEvents.length > 0
-        ? { events: streamedEvents }
-        : parseGeminiCliOutput(result.stdout);
+  async cancel(taskId: string): Promise<boolean> {
+    const controller = this.abortControllersByTaskId.get(taskId);
+    if (!controller) {
+      return false;
+    }
 
-    return buildExecutorResultFromGeminiCliOutput({
-      taskId: request.task.id,
-      now: request.now,
-      output: parsed
-    });
+    this.abortControllersByTaskId.delete(taskId);
+    controller.abort();
+    return true;
   }
 }

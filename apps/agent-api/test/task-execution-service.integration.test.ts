@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
+import { resolveDefaultWorkingDirectory } from "@agent/gemini-cli-runner";
 import type {
   ExecutorRunRequest,
   ExecutorRunResult,
@@ -26,6 +27,8 @@ class CapturingExecutor implements LocalExecutor {
       sessionId: request.resumeSessionId ?? "session-new"
     })
   );
+
+  public readonly cancel = vi.fn(async () => false);
 }
 
 describe("task-execution-service", () => {
@@ -75,6 +78,8 @@ describe("task-execution-service", () => {
   it("stores a newly issued executor session for fresh tasks", async () => {
     const repository = new InMemoryTaskExecutorSessionRepository();
     const executor = new CapturingExecutor();
+    const expectedWorkingDirectory =
+      resolveDefaultWorkingDirectory() ?? homedir();
     const service = new TaskExecutionService(
       new TaskRuntime(executor),
       repository
@@ -88,7 +93,7 @@ describe("task-execution-service", () => {
 
     expect(executor.run).toHaveBeenCalledWith(
       expect.objectContaining({
-        workingDirectory: homedir()
+        workingDirectory: expectedWorkingDirectory
       }),
       undefined
     );
@@ -96,14 +101,14 @@ describe("task-execution-service", () => {
     expect(result.executorSession).toEqual({
       taskId: "task-2",
       sessionId: "session-new",
-      workingDirectory: homedir(),
+      workingDirectory: expectedWorkingDirectory,
       updatedAt: "2026-03-08T00:01:00.000Z"
     });
 
     await expect(repository.getByTaskId("task-2")).resolves.toEqual({
       taskId: "task-2",
       sessionId: "session-new",
-      workingDirectory: homedir(),
+      workingDirectory: expectedWorkingDirectory,
       updatedAt: "2026-03-08T00:01:00.000Z"
     });
   });

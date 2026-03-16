@@ -4,6 +4,7 @@ import type {
   ExecutorRunResult,
   LocalExecutor
 } from "@agent/local-executor-protocol";
+import { ExecutorCancelledError } from "@agent/gemini-cli-runner";
 import { TaskRuntime } from "../src/index.js";
 
 describe("task-runtime", () => {
@@ -33,6 +34,10 @@ describe("task-runtime", () => {
         _request: ExecutorRunRequest
       ): Promise<ExecutorRunResult> {
         throw new Error("The task stopped because permission is required");
+      }
+
+      async cancel(): Promise<boolean> {
+        return false;
       }
     }
 
@@ -69,6 +74,10 @@ describe("task-runtime", () => {
           outcome: "waiting_input"
         };
       }
+
+      async cancel(): Promise<boolean> {
+        return false;
+      }
     }
 
     const runtime = new TaskRuntime(new WaitingInputExecutor());
@@ -84,6 +93,33 @@ describe("task-runtime", () => {
       expect.objectContaining({
         type: "executor_waiting_input",
         message: "Tell me the exact date"
+      })
+    );
+  });
+
+  it("marks the task cancelled when the executor is cancelled", async () => {
+    class CancelledExecutor implements LocalExecutor {
+      async run(): Promise<ExecutorRunResult> {
+        throw new ExecutorCancelledError("Task execution cancelled");
+      }
+
+      async cancel(): Promise<boolean> {
+        return true;
+      }
+    }
+
+    const runtime = new TaskRuntime(new CancelledExecutor());
+    const result = await runtime.submit({
+      text: "Stop the task",
+      taskId: "task-4",
+      now: "2026-03-08T00:00:00.000Z"
+    });
+
+    expect(result.task.status).toBe("cancelled");
+    expect(result.events.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "executor_cancelled",
+        message: "Task was cancelled by the user."
       })
     );
   });

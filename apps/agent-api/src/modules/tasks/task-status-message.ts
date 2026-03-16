@@ -35,6 +35,8 @@ export function buildTaskStatusMessage(
       return "The task is complete.";
     case "failed":
       return "The task failed.";
+    case "cancelled":
+      return "The task was cancelled.";
     default:
       return "I checked the task status.";
   }

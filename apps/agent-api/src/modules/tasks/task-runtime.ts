@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import {
+  cancelTask,
   completeTask,
   createTask,
   failTask,
@@ -8,7 +9,12 @@ import {
   queueTask,
   reportTaskProgress
 } from "@agent/brain-domain";
-import { MockExecutor } from "@agent/gemini-cli-runner";
+import {
+  ExecutorCancelledError,
+  MockExecutor,
+  isExecutorCancelledError,
+  resolveDefaultWorkingDirectory
+} from "@agent/gemini-cli-runner";
 import type {
   ExecutorRunRequest,
   ExecutorRunResult,
@@ -48,18 +54,19 @@ export interface PreparedTaskRun {
 }
 
 export class TaskRuntime {
-  private readonly defaultWorkingDirectory: string;
+  private readonly defaultWorkingDirectory?: string;
 
   constructor(
     private readonly executor: LocalExecutor = new MockExecutor(),
-    defaultWorkingDirectory: string = homedir()
+    defaultWorkingDirectory: string | undefined = resolveDefaultWorkingDirectory()
   ) {
-    this.defaultWorkingDirectory = defaultWorkingDirectory;
+    this.defaultWorkingDirectory =
+      defaultWorkingDirectory ?? resolveDefaultWorkingDirectory() ?? homedir();
   }
 
   private resolveWorkingDirectory(
     executorSession?: TaskExecutorSession
-  ): string {
+  ): string | undefined {
     return executorSession?.workingDirectory ?? this.defaultWorkingDirectory;
   }
 
@@ -187,6 +194,21 @@ export class TaskRuntime {
     prepared: PreparedTaskRun,
     error: unknown
   ): TaskRunResult {
+    if (isExecutorCancelledError(error) || error instanceof ExecutorCancelledError) {
+      const cancelled = cancelTask(
+        prepared.task,
+        prepared.request.now,
+        "Task was cancelled by the user."
+      );
+
+      return {
+        task: cancelled.task,
+        events: [cancelled.event],
+        executorSession: undefined,
+        artifacts: []
+      };
+    }
+
     const failed = failTask(
       prepared.task,
       prepared.request.now,

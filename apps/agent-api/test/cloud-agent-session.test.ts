@@ -672,11 +672,18 @@ describe("CloudAgentSession", () => {
 
     await liveCallbacks?.onevent?.({
       type: "input_transcription_partial",
-      text: "check my"
+      text: "check my",
+      rawText: " check my "
     });
 
     let conversationStates = sentEvents.filter((event) => event.type === "conversation_state");
     let lastState = conversationStates.at(-1)?.state;
+    expect(lastState).toEqual(
+      expect.objectContaining({
+        rawInputPartial: " check my ",
+        inputPartial: "check my"
+      })
+    );
     expect(lastState?.conversationTimeline).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -767,7 +774,8 @@ describe("CloudAgentSession", () => {
 
     await liveCallbacks?.onevent?.({
       type: "input_transcription_partial",
-      text: "check my desktop"
+      text: "check my desktop",
+      rawText: "check my desktop"
     });
     await liveCallbacks?.onevent?.({
       type: "input_transcription_final",
@@ -856,7 +864,8 @@ describe("CloudAgentSession", () => {
 
     await liveCallbacks?.onevent?.({
       type: "input_transcription_partial",
-      text: "check my desktop"
+      text: "check my desktop",
+      rawText: "check my desktop"
     });
     await liveCallbacks?.onevent?.({
       type: "output_transcription",
@@ -955,7 +964,8 @@ describe("CloudAgentSession", () => {
 
     await liveCallbacks?.onevent?.({
       type: "input_transcription_partial",
-      text: "너무 좋아요."
+      text: "너무 좋아요.",
+      rawText: "너무 좋아요."
     });
     await liveCallbacks?.onevent?.({
       type: "input_transcription_final",
@@ -972,7 +982,8 @@ describe("CloudAgentSession", () => {
 
     await liveCallbacks?.onevent?.({
       type: "input_transcription_partial",
-      text: "그리고지금내가당신을사랑한다고얘기해도될까?"
+      text: "그리고지금내가당신을사랑한다고얘기해도될까?",
+      rawText: "그리고지금내가당신을사랑한다고얘기해도될까?"
     });
     await liveCallbacks?.onevent?.({
       type: "input_transcription_final",
@@ -1055,7 +1066,8 @@ describe("CloudAgentSession", () => {
 
     await liveCallbacks?.onevent?.({
       type: "input_transcription_partial",
-      text: "그리고지금"
+      text: "그리고지금",
+      rawText: "그리고지금"
     });
     await liveCallbacks?.onevent?.({
       type: "output_transcription",
@@ -1147,7 +1159,8 @@ describe("CloudAgentSession", () => {
 
     await liveCallbacks?.onevent?.({
       type: "input_transcription_partial",
-      text: "."
+      text: ".",
+      rawText: "."
     });
     await liveCallbacks?.onevent?.({
       type: "output_transcription",

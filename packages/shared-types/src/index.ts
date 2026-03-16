@@ -18,7 +18,8 @@ export type TaskEventType =
   | "executor_waiting_input"
   | "executor_approval_required"
   | "executor_completed"
-  | "executor_failed";
+  | "executor_failed"
+  | "executor_cancelled";
 
 export type TaskIntakeSlot =
   | "target"
@@ -232,7 +233,8 @@ export type TaskRunnerTimelineEntryKind =
   | "needs_approval"
   | "completion_received"
   | "final_summary"
-  | "failure";
+  | "failure"
+  | "cancelled";
 
 export type TaskRunnerTimelineEntrySource = "task" | "executor" | "system";
 
@@ -386,6 +388,7 @@ export interface HostedConversationStateSnapshot {
   conversationTimeline: ConversationTimelineItem[];
   conversationTurns: ConversationTurnViewModel[];
   activeTurnId: string | null;
+  rawInputPartial: string;
   inputPartial: string;
   lastUserTranscript: string;
   outputTranscript: string;

@@ -43,4 +43,8 @@ export class MockExecutor implements LocalExecutor {
       ])
     });
   }
+
+  async cancel(): Promise<boolean> {
+    return false;
+  }
 }

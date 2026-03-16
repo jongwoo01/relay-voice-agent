@@ -110,17 +110,25 @@ export class TaskExecutionService {
         await this.taskEventRepository.saveMany(input.taskId, [progressEvent]);
       })
       .then(async (result) => {
-        await this.taskRepository.save(input.brainSessionId!, result.task);
-        await this.taskEventRepository.saveMany(
-          input.taskId,
-          result.events.filter((event) => event.type !== "executor_progress")
-        );
+        const currentTask = await this.taskRepository.getById(input.taskId);
+        const isAlreadyCancelled =
+          result.task.status === "cancelled" && currentTask?.status === "cancelled";
+
+        if (!isAlreadyCancelled) {
+          await this.taskRepository.save(input.brainSessionId!, result.task);
+          await this.taskEventRepository.saveMany(
+            input.taskId,
+            result.events.filter((event) => event.type !== "executor_progress")
+          );
+        }
         if (result.artifacts.length > 0) {
           await this.taskExecutionArtifactRepository.saveMany(input.taskId, result.artifacts);
         }
 
         if (result.executorSession) {
           await this.sessionRepository.save(result.executorSession);
+        } else if (result.task.status === "cancelled") {
+          await this.sessionRepository.deleteByTaskId(input.taskId);
         }
 
         const terminalEvent = [...result.events]
@@ -130,7 +138,8 @@ export class TaskExecutionService {
               event.type === "executor_waiting_input" ||
               event.type === "executor_approval_required" ||
               event.type === "executor_completed" ||
-              event.type === "executor_failed"
+              event.type === "executor_failed" ||
+              event.type === "executor_cancelled"
           );
 
         if (terminalEvent && this.notifyTerminalState) {

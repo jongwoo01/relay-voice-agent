@@ -5,6 +5,7 @@ import { normalizePostgresTimestamp } from "./postgres-value-normalizer.js";
 export interface TaskExecutorSessionRepository {
   getByTaskId(taskId: string): Promise<TaskExecutorSession | null>;
   save(session: TaskExecutorSession): Promise<void>;
+  deleteByTaskId(taskId: string): Promise<void>;
 }
 
 export class InMemoryTaskExecutorSessionRepository
@@ -18,6 +19,10 @@ export class InMemoryTaskExecutorSessionRepository
 
   async save(session: TaskExecutorSession): Promise<void> {
     this.sessions.set(session.taskId, session);
+  }
+
+  async deleteByTaskId(taskId: string): Promise<void> {
+    this.sessions.delete(taskId);
   }
 }
 
@@ -93,6 +98,16 @@ export class PostgresTaskExecutorSessionRepository
         session.workingDirectory ?? null,
         session.updatedAt
       ]
+    );
+  }
+
+  async deleteByTaskId(taskId: string): Promise<void> {
+    await this.sql.query(
+      `
+        delete from task_executor_sessions
+        where task_id = $1
+      `,
+      [taskId]
     );
   }
 }
