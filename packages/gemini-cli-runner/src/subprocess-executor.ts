@@ -155,9 +155,23 @@ export function buildGeminiCliEnvironment(
   env: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const homeDirectory = homedir();
+  const sharedNodePathEntries =
+    process.platform === "darwin"
+      ? [
+          "/opt/homebrew/opt/node/bin",
+          "/opt/homebrew/opt/node@22/bin",
+          "/opt/homebrew/opt/node@20/bin",
+          "/opt/homebrew/opt/node@18/bin"
+        ]
+      : [];
   const additionalPathEntries =
     process.platform === "darwin"
-      ? ["/opt/homebrew/bin", "/usr/local/bin", `${homeDirectory}/.local/bin`]
+      ? [
+          "/opt/homebrew/bin",
+          "/usr/local/bin",
+          `${homeDirectory}/.local/bin`,
+          ...sharedNodePathEntries
+        ]
       : process.platform === "win32"
         ? [
             `${env.APPDATA ?? ""}\\npm`,

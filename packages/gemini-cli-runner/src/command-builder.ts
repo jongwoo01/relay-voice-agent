@@ -1,4 +1,4 @@
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
 import { homedir } from "node:os";
 import type { ExecutorRunRequest } from "@agent/local-executor-protocol";
 
@@ -15,6 +15,32 @@ function isExecutableFile(path: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function resolveLocalWorkingDirectory(input?: string): string | undefined {
+  const candidate = input?.trim();
+  if (!candidate) {
+    return undefined;
+  }
+
+  if (isDirectory(candidate)) {
+    return candidate;
+  }
+
+  const localHome = homedir();
+  if (isDirectory(localHome)) {
+    return localHome;
+  }
+
+  return undefined;
 }
 
 export function resolveGeminiCliCommand(
@@ -71,8 +97,9 @@ const COMPLETION_REPORT_INSTRUCTIONS = [
 ].join("\n");
 
 function buildExecutorPrompt(request: ExecutorRunRequest): string {
-  const locationHint = request.workingDirectory
-    ? `Working directory: ${request.workingDirectory}`
+  const workingDirectory = resolveLocalWorkingDirectory(request.workingDirectory);
+  const locationHint = workingDirectory
+    ? `Working directory: ${workingDirectory}`
     : "Working directory: current default workspace";
 
   return `${COMPLETION_REPORT_INSTRUCTIONS}\n\n${locationHint}\n\nUser task:\n${request.prompt}`;
@@ -82,6 +109,7 @@ export function buildGeminiCliCommand(
   request: ExecutorRunRequest,
   env: NodeJS.ProcessEnv = process.env
 ): GeminiCliCommand {
+  const workingDirectory = resolveLocalWorkingDirectory(request.workingDirectory);
   const prompt = buildExecutorPrompt(request);
   const args = request.resumeSessionId
     ? [
@@ -106,6 +134,6 @@ export function buildGeminiCliCommand(
   return {
     command: resolveGeminiCliCommand(env),
     args,
-    cwd: request.workingDirectory
+    cwd: workingDirectory
   };
 }

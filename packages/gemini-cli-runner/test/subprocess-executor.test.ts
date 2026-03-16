@@ -1,11 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 import { resolveGeminiCliCommand } from "../src/command-builder.js";
 import {
+  buildGeminiCliEnvironment,
   GeminiCliExecutor,
   type RunCommandOptions
 } from "../src/subprocess-executor.js";
 
 describe("GeminiCliExecutor", () => {
+  it("adds common Homebrew node paths so the gemini shebang can resolve node", () => {
+    const env = buildGeminiCliEnvironment({
+      PATH: "/usr/bin:/bin"
+    });
+
+    if (process.platform === "darwin") {
+      const pathEntries = env.PATH?.split(":") ?? [];
+      expect(pathEntries).toContain("/opt/homebrew/opt/node/bin");
+      expect(pathEntries).toContain("/opt/homebrew/opt/node@22/bin");
+    }
+  });
+
   it("executes a new task request and maps stream-json output to the executor contract", async () => {
     const exec = vi.fn(async (_file, _args, options) => {
       await options?.onStdoutLine?.(
@@ -169,7 +182,7 @@ describe("GeminiCliExecutor", () => {
       now: "2026-03-08T00:00:00.000Z",
       prompt: "Continue cleanup",
       resumeSessionId: "session-999",
-      workingDirectory: "/tmp/work"
+      workingDirectory: "/tmp"
     });
 
     const call = exec.mock.calls[0] as unknown as
@@ -188,7 +201,7 @@ describe("GeminiCliExecutor", () => {
       "--output-format",
       "stream-json"
     ]);
-    expect(options?.cwd).toBe("/tmp/work");
+    expect(options?.cwd).toBe("/tmp");
     expect(options?.env).toEqual(
       expect.objectContaining({
         GOOGLE_GENAI_USE_GCA: "true"

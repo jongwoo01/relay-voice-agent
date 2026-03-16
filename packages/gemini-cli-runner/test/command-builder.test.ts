@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { homedir } from "node:os";
 import {
   buildGeminiCliCommand,
   resolveGeminiCliCommand
@@ -74,6 +75,25 @@ describe("buildGeminiCliCommand", () => {
     expect(command.args[3]).toContain(
       "Working directory: current default workspace"
     );
+  });
+
+  it("falls back to the local home directory when the provided working directory does not exist", () => {
+    const command = buildGeminiCliCommand({
+      task: {
+        id: "task-missing-cwd",
+        title: "Inspect desktop",
+        normalizedGoal: "inspect desktop",
+        status: "queued",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z"
+      },
+      now: "2026-03-08T00:00:00.000Z",
+      prompt: "Read my desktop",
+      workingDirectory: "/definitely/not/a/real/path"
+    });
+
+    expect(command.cwd).toBe(homedir());
+    expect(command.args[1]).toContain(`Working directory: ${homedir()}`);
   });
 
   it("tells Gemini CLI not to broaden a simple directory listing into a deep scan", () => {
