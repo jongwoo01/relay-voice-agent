@@ -35,6 +35,16 @@ export const DEBUG_FILTER_DEFAULTS = {
 const EMPTY_UI_STATE = {
   brainSessionId: null,
   executionMode: "unknown",
+  executorHealth: {
+    status: "unknown",
+    code: null,
+    summary: "Gemini CLI health has not been checked yet.",
+    detail: "Relay will check the local executor before running Gemini-backed tasks.",
+    checkedAt: null,
+    canRunLocalTasks: false,
+    commandPath: null,
+    stderrSnippet: null
+  },
   conversationTimeline: [],
   conversationTurns: [],
   activeTurnId: null,
@@ -201,6 +211,7 @@ export function useDesktopAppController() {
   }, []);
 
   const voiceState = deferredUiState.voiceControlState ?? EMPTY_UI_STATE.voiceControlState;
+  const executorHealth = deferredUiState.executorHealth ?? EMPTY_UI_STATE.executorHealth;
   const summary = deferredUiState.taskSummary ?? EMPTY_UI_STATE.taskSummary;
   const historySummary = deferredUiState.historySummary ?? EMPTY_UI_STATE.historySummary;
   const inputState = deferredUiState.inputState ?? EMPTY_UI_STATE.inputState;
@@ -811,6 +822,15 @@ export function useDesktopAppController() {
     }
   }, [hideRuntimeError, showRuntimeError]);
 
+  const handleRetryExecutorHealthCheck = useCallback(async () => {
+    try {
+      hideRuntimeError();
+      await window.desktopUi.retryExecutorHealthCheck();
+    } catch (error) {
+      showRuntimeError(error);
+    }
+  }, [hideRuntimeError, showRuntimeError]);
+
   return {
     archivedEntries,
     audioEnergy,
@@ -823,6 +843,7 @@ export function useDesktopAppController() {
     debugTurnFilter,
     displayConversationTimeline,
     deferredUiState,
+    executorHealth,
     filteredDebugEvents,
     handleConnect,
     handleHangup,
@@ -831,6 +852,7 @@ export function useDesktopAppController() {
     handlePromptKeyDown,
     handlePromptSubmit,
     handleRefreshHistory,
+    handleRetryExecutorHealthCheck,
     historyEntries,
     historyOpen,
     historySummary,

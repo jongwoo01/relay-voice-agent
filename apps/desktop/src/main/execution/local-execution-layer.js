@@ -1,4 +1,8 @@
-import { GeminiCliExecutor, MockExecutor } from "@agent/gemini-cli-runner";
+import {
+  GeminiCliExecutor,
+  MockExecutor,
+  probeGeminiCliHealth
+} from "@agent/gemini-cli-runner";
 
 export function resolveExecutionMode(input) {
   if (typeof input !== "string") {
@@ -36,6 +40,18 @@ export function createLocalExecutionLayer(options = {}) {
       enabled: debugEnabled,
       rawEvents
     },
+    probeHealth:
+      mode === "gemini"
+        ? (healthOptions) => probeGeminiCliHealth(healthOptions)
+        : async ({ now } = {}) => ({
+            status: "healthy",
+            code: "healthy",
+            summary: "Mock executor is active.",
+            detail: "Local tasks will use the mock executor in this desktop session.",
+            checkedAt: typeof now === "function" ? now() : new Date().toISOString(),
+            canRunLocalTasks: true,
+            commandPath: "mock"
+          }),
     executor:
       mode === "gemini"
         ? new GeminiCliExecutor(undefined, onRawEvent)

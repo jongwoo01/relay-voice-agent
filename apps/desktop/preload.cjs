@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld("relayApp", {
 contextBridge.exposeInMainWorld("desktopUi", {
   init: () => ipcRenderer.invoke("desktop-ui:init"),
   refreshHistory: () => ipcRenderer.invoke("desktop-ui:refresh-history"),
+  retryExecutorHealthCheck: () =>
+    ipcRenderer.invoke("desktop-ui:retry-executor-health"),
   onStateUpdated: (listener) => {
     const wrapped = (_event, state) => listener(state);
     ipcRenderer.on("desktop-ui:state-updated", wrapped);

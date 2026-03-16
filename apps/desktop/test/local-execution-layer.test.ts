@@ -37,4 +37,21 @@ describe("local-execution-layer", () => {
     const layer = createLocalExecutionLayer({ debugEnabled: false });
     expect(layer.debug.enabled).toBe(false);
   });
+
+  it("reports a healthy mock executor probe result", async () => {
+    const layer = createLocalExecutionLayer({ mode: "mock" });
+
+    await expect(
+      layer.probeHealth({
+        phase: "full",
+        now: () => "2026-03-16T00:00:00.000Z"
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({
+        status: "healthy",
+        code: "healthy",
+        commandPath: "mock"
+      })
+    );
+  });
 });

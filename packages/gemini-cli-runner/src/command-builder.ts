@@ -79,7 +79,8 @@ function buildExecutorPrompt(request: ExecutorRunRequest): string {
 }
 
 export function buildGeminiCliCommand(
-  request: ExecutorRunRequest
+  request: ExecutorRunRequest,
+  env: NodeJS.ProcessEnv = process.env
 ): GeminiCliCommand {
   const prompt = buildExecutorPrompt(request);
   const args = request.resumeSessionId
@@ -103,7 +104,7 @@ export function buildGeminiCliCommand(
       ];
 
   return {
-    command: resolveGeminiCliCommand(),
+    command: resolveGeminiCliCommand(env),
     args,
     cwd: request.workingDirectory
   };

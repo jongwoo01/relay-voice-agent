@@ -151,7 +151,7 @@ export function createSpawnRunner(
 
 export const defaultExecFile = createSpawnRunner();
 
-function buildGeminiCliEnvironment(
+export function buildGeminiCliEnvironment(
   env: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const homeDirectory = homedir();

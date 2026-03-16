@@ -1,7 +1,17 @@
 function createInitialState() {
   return {
     brainSessionId: null,
-    executionMode: "cloud",
+    executionMode: "unknown",
+    executorHealth: {
+      status: "unknown",
+      code: null,
+      summary: "Gemini CLI health has not been checked yet.",
+      detail: "Relay will check the local executor before running Gemini-backed tasks.",
+      checkedAt: null,
+      canRunLocalTasks: false,
+      commandPath: null,
+      stderrSnippet: null
+    },
     mic: { mode: "idle", enabled: true },
     activity: { userSpeaking: false, assistantSpeaking: false },
     input: { inFlight: false, queueSize: 0, activeText: null, lastError: null },
@@ -29,6 +39,15 @@ export class HostedSessionRuntime {
 
   async getState() {
     return { ...this.state };
+  }
+
+  async setExecutionContext(input = {}) {
+    this.state = {
+      ...this.state,
+      executionMode: input.executionMode ?? this.state.executionMode,
+      executorHealth: input.executorHealth ?? this.state.executorHealth
+    };
+    return this.publishState();
   }
 
   async setBrainSessionId(brainSessionId) {

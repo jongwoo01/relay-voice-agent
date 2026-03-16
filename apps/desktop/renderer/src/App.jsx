@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { AgentActivityPanel } from "./components/activity/AgentActivityPanel.jsx";
 import { HistoryIcon } from "./components/icons.jsx";
 import { LiveSpeechHud } from "./components/overlays/LiveSpeechHud.jsx";
+import { buildExecutorHealthBannerModel } from "./executor-health-banner.js";
 import { useDesktopAppController } from "./hooks/useDesktopAppController.js";
 
 const LiveScene = lazy(() => import("./LiveScene.jsx"));
@@ -78,6 +79,75 @@ function classifyRuntimeIssue(errorText, platform) {
   return null;
 }
 
+function ExecutorHealthBanner({ model, onRetry }) {
+  if (!model) {
+    return null;
+  }
+
+  const accent =
+    model.tone === "info"
+      ? {
+          surface: "border-sky-200 bg-sky-50/95 text-sky-800 shadow-[0_20px_60px_-20px_rgba(14,165,233,0.22)]",
+          secondary: "text-sky-700",
+          button: "border-sky-300 bg-white/85 text-sky-800 hover:bg-white"
+        }
+      : model.tone === "warning"
+        ? {
+            surface:
+              "border-amber-200 bg-amber-50/95 text-amber-900 shadow-[0_20px_60px_-20px_rgba(245,158,11,0.24)]",
+            secondary: "text-amber-800",
+            button: "border-amber-300 bg-white/85 text-amber-900 hover:bg-white"
+          }
+        : {
+            surface:
+              "border-red-200 bg-red-50/95 text-red-800 shadow-[0_20px_60px_-20px_rgba(220,38,38,0.24)]",
+            secondary: "text-red-700",
+            button: "border-red-300 bg-white/85 text-red-800 hover:bg-white"
+          };
+
+  const checkedAtText = model.checkedAt
+    ? new Date(model.checkedAt).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      })
+    : null;
+
+  return (
+    <div
+      className={`rounded-[26px] border px-5 py-4 backdrop-blur-xl ${accent.surface}`}
+    >
+      <div className="text-[13px] font-semibold tracking-wide">{model.title}</div>
+      <p className={`mt-1 text-[13px] leading-relaxed ${accent.secondary}`}>
+        {model.detail}
+      </p>
+      {checkedAtText ? (
+        <p className={`mt-2 text-[11px] ${accent.secondary}`}>Last checked · {checkedAtText}</p>
+      ) : null}
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        {model.showPrivacyShortcut ? (
+          <button
+            type="button"
+            onClick={() => void window.desktopSystem.openMacPrivacySettings()}
+            className={`rounded-full border px-4 py-2 text-[12px] font-semibold transition-colors ${accent.button}`}
+          >
+            Open Privacy Settings
+          </button>
+        ) : null}
+        {model.showRetry ? (
+          <button
+            type="button"
+            onClick={() => void onRetry()}
+            className={`rounded-full border px-4 py-2 text-[12px] font-semibold transition-colors ${accent.button}`}
+          >
+            Retry Health Check
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const {
     archivedEntries,
@@ -91,6 +161,7 @@ export default function App() {
     debugTurnFilter,
     displayConversationTimeline,
     deferredUiState,
+    executorHealth,
     filteredDebugEvents,
     handleConnect,
     handleHangup,
@@ -99,6 +170,7 @@ export default function App() {
     handlePromptKeyDown,
     handlePromptSubmit,
     handleRefreshHistory,
+    handleRetryExecutorHealthCheck,
     historyEntries,
     historyOpen,
     historySummary,
@@ -137,6 +209,10 @@ export default function App() {
     resolvedRuntimeError,
     window.desktopSystem?.platform ?? "unknown"
   );
+  const executorHealthBanner = buildExecutorHealthBannerModel(
+    executorHealth,
+    window.desktopSystem?.platform ?? "unknown"
+  );
 
   useEffect(() => {
     if (voiceState.connected) {
@@ -154,7 +230,7 @@ export default function App() {
 
   return (
     <>
-      <main className="h-screen overflow-hidden bg-[#f8f9fa] p-4 text-gray-800">
+      <main className="h-screen w-full overflow-hidden bg-[#f8f9fa] p-2 text-gray-800">
         <div className="grid h-full grid-cols-[minmax(0,1.65fr)_minmax(360px,0.95fr)] gap-4">
           <section className="relative overflow-hidden rounded-[40px] border border-white/80 bg-white/60 shadow-[0_20px_80px_-40px_rgba(15,23,42,0.08)] backdrop-blur-2xl">
             <Suspense fallback={null}>
@@ -167,13 +243,13 @@ export default function App() {
               />
             </Suspense>
 
-            <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between px-8 py-8">
-              <div className="pointer-events-auto flex items-center gap-6">
+            <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between px-6 py-4">
+              <div className="pointer-events-auto flex items-center gap-4">
                 <div className="flex items-center gap-3.5">
                   <img
                     src={relayLogoUrl}
                     alt="Relay logo"
-                    className="h-11 w-11 rounded-2xl border border-white/80 bg-white/85 p-1.5 shadow-[0_12px_30px_-18px_rgba(37,99,235,0.65)] backdrop-blur-xl"
+                    className="h-10 w-10 object-contain rounded-2xl border border-white/80 bg-white/85 p-1.5 shadow-[0_12px_30px_-18px_rgba(37,99,235,0.65)] backdrop-blur-xl"
                   />
                   <div>
                     <h1 className="m-0 text-[18px] font-bold tracking-tight text-gray-800">
@@ -185,7 +261,7 @@ export default function App() {
                   </div>
                 </div>
                 
-                <div className="h-10 w-px bg-gray-200/60" />
+                <div className="h-8 w-px bg-gray-200/60" />
                 
                 <div className="flex items-center gap-2.5">
                   {!voiceState.connected ? (
@@ -213,7 +289,7 @@ export default function App() {
                       <button
                         onClick={handleConnect}
                         disabled={voiceState.connecting}
-                        className="flex items-center gap-1.5 rounded-full bg-blue-600 px-5 py-2 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-500 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex items-center gap-1.5 rounded-full bg-blue-600 px-4 py-1.5 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-500 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {voiceState.connecting ? "Connecting…" : "Start Session"}
                       </button>
@@ -222,7 +298,7 @@ export default function App() {
                     <>
                       <button
                         onClick={handleMuteToggle}
-                        className={`group flex items-center justify-center gap-1.5 rounded-full px-5 py-2 text-[12px] font-semibold transition-all duration-200 border shadow-sm ${
+                        className={`group flex whitespace-nowrap items-center justify-center gap-1.5 rounded-full px-4 py-1.5 text-[12px] font-semibold transition-all duration-200 border shadow-sm ${
                           voiceState.muted
                             ? "bg-red-50 text-red-600 border-red-200/80 hover:bg-red-100"
                             : "bg-white/90 text-gray-700 border-gray-200/80 hover:bg-white"
@@ -237,7 +313,7 @@ export default function App() {
                       </button>
                       <button
                         onClick={handleHangup}
-                        className="group flex items-center gap-1.5 rounded-full bg-red-500 px-5 py-2 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:bg-red-400 hover:shadow-md"
+                        className="group flex whitespace-nowrap items-center gap-1.5 rounded-full bg-red-500 px-4 py-1.5 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:bg-red-400 hover:shadow-md"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-hover:scale-110"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="22" y1="2" x2="2" y2="22"/></svg>
                         End Session
@@ -246,19 +322,18 @@ export default function App() {
                   )}
                 </div>
               </div>
-
               <div className="pointer-events-auto flex items-center gap-3">
                 <button
                   onClick={() => setChatOpen(true)}
                   title="Open Live Transcript"
-                  className="flex h-[46px] w-[46px] items-center justify-center rounded-full border border-white/40 bg-white/40 text-gray-600 backdrop-blur-3xl transition-all duration-200 hover:bg-white/70 hover:text-gray-900 shadow-[0_8px_24px_rgba(0,0,0,0.06)]"
+                  className="flex h-[40px] w-[40px] items-center justify-center rounded-full border border-white/40 bg-white/40 text-gray-600 backdrop-blur-3xl transition-all duration-200 hover:bg-white/70 hover:text-gray-900 shadow-[0_8px_24px_rgba(0,0,0,0.06)]"
                 >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z"/></svg>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z"/></svg>
                 </button>
                 <button
                   onClick={() => setHistoryOpen(true)}
                   aria-label="Recent Sessions"
-                  className="flex h-[46px] w-[46px] items-center justify-center rounded-full border border-white/40 bg-white/40 text-gray-600 backdrop-blur-3xl transition-all duration-200 hover:bg-white/70 hover:text-gray-900 shadow-[0_8px_24px_rgba(0,0,0,0.06)]"
+                  className="flex h-[40px] w-[40px] items-center justify-center rounded-full border border-white/40 bg-white/40 text-gray-600 backdrop-blur-3xl transition-all duration-200 hover:bg-white/70 hover:text-gray-900 shadow-[0_8px_24px_rgba(0,0,0,0.06)]"
                 >
                   <HistoryIcon />
                 </button>
@@ -295,6 +370,15 @@ export default function App() {
                   {resolvedRuntimeError}
                 </div>
               ))}
+
+            {isUnlocked && !resolvedRuntimeError && executorHealthBanner ? (
+              <div className="absolute left-1/2 top-28 z-40 w-[min(92vw,680px)] -translate-x-1/2">
+                <ExecutorHealthBanner
+                  model={executorHealthBanner}
+                  onRetry={handleRetryExecutorHealthCheck}
+                />
+              </div>
+            ) : null}
 
             <LiveSpeechHud
               sessionActive={sessionActive}
@@ -391,6 +475,12 @@ export default function App() {
                 setIsUnlocked(true);
               }}
             >
+              {executorHealthBanner ? (
+                <ExecutorHealthBanner
+                  model={executorHealthBanner}
+                  onRetry={handleRetryExecutorHealthCheck}
+                />
+              ) : null}
               <div className="relative flex w-full items-center">
                 <input
                   type={showPasscode ? "text" : "password"}

@@ -14,6 +14,7 @@ export {
 export {
   createSpawnRunner,
   defaultExecFile,
+  buildGeminiCliEnvironment,
   GeminiCliExecutor,
   type ExecResult,
   type RunCommandLike,
@@ -21,3 +22,13 @@ export {
   type SpawnLike
 } from "./subprocess-executor.js";
 export { MockExecutor } from "./mock-executor.js";
+export {
+  probeGeminiCliHealth,
+  type GeminiCliHealthCode,
+  type GeminiCliHealthPhase,
+  type GeminiCliHealthResult,
+  type GeminiCliHealthStatus,
+  type ProbeGeminiCliHealthOptions,
+  type ProbeRunner,
+  type ProbeRunnerOptions
+} from "./healthcheck.js";

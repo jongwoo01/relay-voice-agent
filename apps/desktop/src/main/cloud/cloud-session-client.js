@@ -25,6 +25,20 @@ function createInitialHistoryState() {
   };
 }
 
+function createExecutorHealthState(overrides = {}) {
+  return {
+    status: "unknown",
+    code: null,
+    summary: "Gemini CLI health has not been checked yet.",
+    detail: "Relay will check the local executor before running Gemini-backed tasks.",
+    checkedAt: null,
+    canRunLocalTasks: false,
+    commandPath: null,
+    stderrSnippet: null,
+    ...overrides
+  };
+}
+
 function normalizeError(error) {
   if (error instanceof Error) {
     return error.message;
@@ -94,10 +108,12 @@ export class CloudSessionClient {
       mode: process.env.DESKTOP_EXECUTOR,
       onRawEvent: options.onRawExecutorEvent
     });
+    this.onExecutorHealth = options.onExecutorHealth;
     this.seenConversationDebugIds = new Set();
     this.lastIntakeDebugKey = null;
     this.liveAudioChunkCount = 0;
     this.liveActivitySequence = 0;
+    this.executorHealth = createExecutorHealthState();
   }
 
   async getState() {
@@ -109,6 +125,113 @@ export class CloudSessionClient {
       ...this.historyState,
       sessions: [...(this.historyState.sessions ?? [])]
     };
+  }
+
+  async getExecutorHealth() {
+    return { ...this.executorHealth };
+  }
+
+  async publishExecutorHealth() {
+    await this.onExecutorHealth?.(this.executorHealth, this.execution.mode);
+    return this.getExecutorHealth();
+  }
+
+  async setExecutorHealth(nextHealth) {
+    this.executorHealth = {
+      ...createExecutorHealthState(),
+      ...nextHealth
+    };
+    await this.publishExecutorHealth();
+    return this.getExecutorHealth();
+  }
+
+  async emitExecutorHealthDebugEvent(kind, summary, detail) {
+    await this.onDebugEvent?.({
+      source: "executor",
+      kind,
+      summary,
+      detail,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  formatExecutorHealthBlocker() {
+    if (this.executorHealth.status === "checking") {
+      return "Gemini CLI is still being checked on this machine. Wait for the health check to finish, then retry the task.";
+    }
+
+    if (this.executorHealth.status === "unhealthy") {
+      return `${this.executorHealth.summary} ${this.executorHealth.detail}`.trim();
+    }
+
+    return "Gemini CLI is not ready on this machine yet.";
+  }
+
+  async runExecutorHealthCheck(phase = "full") {
+    await this.setExecutorHealth({
+      status: "checking",
+      code: null,
+      canRunLocalTasks: false,
+      checkedAt: this.executorHealth.checkedAt,
+      commandPath: this.executorHealth.commandPath,
+      stderrSnippet: null,
+      summary:
+        phase === "binary"
+          ? "Checking whether Gemini CLI is installed locally."
+          : "Checking Gemini CLI authentication and readiness.",
+      detail:
+        phase === "binary"
+          ? "Relay is verifying that the local Gemini CLI binary is available."
+          : "Relay is verifying that Gemini CLI can authenticate and answer a lightweight probe."
+    });
+    await this.emitExecutorHealthDebugEvent(
+      "health_check_started",
+      phase === "binary"
+        ? "Gemini CLI binary check started."
+        : "Gemini CLI readiness probe started.",
+      `phase=${phase}`
+    );
+
+    try {
+      const result = await this.execution.probeHealth({
+        phase,
+        now: () => new Date().toISOString()
+      });
+      await this.setExecutorHealth(result);
+      await this.emitExecutorHealthDebugEvent(
+        "health_check_result",
+        result.summary,
+        JSON.stringify({
+          phase,
+          status: result.status,
+          code: result.code,
+          commandPath: result.commandPath,
+          checkedAt: result.checkedAt,
+          stderrSnippet: result.stderrSnippet ?? null
+        })
+      );
+      return result;
+    } catch (error) {
+      const message = normalizeError(error);
+      const fallback = createExecutorHealthState({
+        status: "unhealthy",
+        code: "probe_failed_unknown",
+        summary: "Gemini CLI could not complete its readiness check.",
+        detail:
+          "Relay could not finish the local Gemini CLI probe. Review the executor details and retry.",
+        checkedAt: new Date().toISOString(),
+        canRunLocalTasks: false,
+        commandPath: this.executorHealth.commandPath,
+        stderrSnippet: message
+      });
+      await this.setExecutorHealth(fallback);
+      await this.emitExecutorHealthDebugEvent(
+        "health_check_failed",
+        fallback.summary,
+        message
+      );
+      return fallback;
+    }
   }
 
   async connect(passcode) {
@@ -164,6 +287,7 @@ export class CloudSessionClient {
     const wsUrl = String(payload.wsUrl);
     await this.openWebSocket(wsUrl);
     await this.refreshHistory();
+    void this.runExecutorHealthCheck("full");
     return this.getState();
   }
 
@@ -555,6 +679,28 @@ export class CloudSessionClient {
   }
 
   async handleExecutorRequest(request) {
+    if (!this.executorHealth.canRunLocalTasks) {
+      const error = this.formatExecutorHealthBlocker();
+      await this.emitExecutorHealthDebugEvent(
+        "health_check_blocked_task",
+        "Blocked local task because Gemini CLI is not ready.",
+        JSON.stringify({
+          taskId: request.taskId,
+          status: this.executorHealth.status,
+          code: this.executorHealth.code,
+          message: error
+        })
+      );
+      this.send({
+        type: "executor_terminal",
+        runId: request.runId,
+        taskId: request.taskId,
+        ok: false,
+        error
+      });
+      return;
+    }
+
     try {
       const result = await this.execution.executor.run(request.request, async (progressEvent) => {
         this.send({

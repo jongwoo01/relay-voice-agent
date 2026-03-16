@@ -128,6 +128,16 @@ export class DesktopUiStateStore {
     const sessionState = this.sessionState ?? {
       brainSessionId: null,
       executionMode: "unknown",
+      executorHealth: {
+        status: "unknown",
+        code: null,
+        summary: "Gemini CLI health has not been checked yet.",
+        detail: "Relay will check the local executor before running Gemini-backed tasks.",
+        checkedAt: null,
+        canRunLocalTasks: false,
+        commandPath: null,
+        stderrSnippet: null
+      },
       mic: { mode: "idle", enabled: false },
       activity: { userSpeaking: false, assistantSpeaking: false },
       input: { inFlight: false, queueSize: 0, activeText: null, lastError: null },
@@ -170,6 +180,17 @@ export class DesktopUiStateStore {
     return {
       brainSessionId: sessionState.brainSessionId,
       executionMode: sessionState.executionMode,
+      executorHealth:
+        sessionState.executorHealth ?? {
+          status: "unknown",
+          code: null,
+          summary: "Gemini CLI health has not been checked yet.",
+          detail: "Relay will check the local executor before running Gemini-backed tasks.",
+          checkedAt: null,
+          canRunLocalTasks: false,
+          commandPath: null,
+          stderrSnippet: null
+        },
       conversationTimeline,
       conversationTurns,
       activeTurnId: liveState.activeTurnId ?? null,

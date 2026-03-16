@@ -284,8 +284,25 @@ function createWindow() {
             : undefined
       });
       broadcastUiState();
+    },
+    onExecutorHealth: async (health, executionMode) => {
+      const runtimeInstance = runtime;
+      if (runtimeInstance) {
+        await runtimeInstance.setExecutionContext({
+          executionMode,
+          executorHealth: health
+        });
+      }
     }
   });
+
+  void cloudSession.getExecutorHealth().then((health) =>
+    runtime?.setExecutionContext({
+      executionMode: cloudSession.execution.mode,
+      executorHealth: health
+    })
+  );
+  void cloudSession.runExecutorHealthCheck("binary");
 
   mainWindow.once("ready-to-show", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -414,6 +431,11 @@ app.whenReady().then(() => {
     desktopUiState.setLiveState(liveState);
     desktopUiState.setHistoryState(historyState);
     return desktopUiState.compose();
+  });
+
+  registerIpcHandle("desktop-ui:retry-executor-health", async (event) => {
+    assertTrustedSender(event);
+    return cloudSession.runExecutorHealthCheck("full");
   });
 
   registerIpcHandle("desktop-ui:refresh-history", async (event) => {

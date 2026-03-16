@@ -8,6 +8,16 @@ describe("desktop-ui-state", () => {
     store.setSessionState({
       brainSessionId: "desktop-session-1",
       executionMode: "gemini",
+      executorHealth: {
+        status: "unhealthy",
+        code: "missing_binary",
+        summary: "Gemini CLI is not available locally.",
+        detail: "Install Gemini CLI, then retry the health check.",
+        checkedAt: "2026-03-13T05:00:00.000Z",
+        canRunLocalTasks: false,
+        commandPath: "/usr/local/bin/gemini",
+        stderrSnippet: "spawn /usr/local/bin/gemini ENOENT"
+      },
       mic: { mode: "idle", enabled: true },
       activity: { userSpeaking: false, assistantSpeaking: false },
       input: { inFlight: false, queueSize: 0, activeText: null, lastError: null },
@@ -168,6 +178,13 @@ describe("desktop-ui-state", () => {
           reason: "task_completed"
         })
       ])
+    );
+    expect(uiState.executorHealth).toEqual(
+      expect.objectContaining({
+        status: "unhealthy",
+        code: "missing_binary",
+        canRunLocalTasks: false
+      })
     );
   });
 

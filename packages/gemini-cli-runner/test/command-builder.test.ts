@@ -108,4 +108,26 @@ describe("buildGeminiCliCommand", () => {
       })
     ).toBe("/tmp/custom-gemini");
   });
+
+  it("uses the provided env override when building a command", () => {
+    const command = buildGeminiCliCommand(
+      {
+        task: {
+          id: "task-env",
+          title: "Health check",
+          normalizedGoal: "health check",
+          status: "queued",
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z"
+        },
+        now: "2026-03-08T00:00:00.000Z",
+        prompt: "Reply with READY"
+      },
+      {
+        GEMINI_CLI_PATH: "/tmp/custom-gemini"
+      }
+    );
+
+    expect(command.command).toBe("/tmp/custom-gemini");
+  });
 });

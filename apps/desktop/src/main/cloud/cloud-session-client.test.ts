@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { runMock } = vi.hoisted(() => ({
-  runMock: vi.fn()
+const { runMock, probeHealthMock } = vi.hoisted(() => ({
+  runMock: vi.fn(),
+  probeHealthMock: vi.fn()
 }));
 
 vi.mock("../execution/local-execution-layer.js", () => ({
@@ -13,7 +14,8 @@ vi.mock("../execution/local-execution-layer.js", () => ({
     },
     executor: {
       run: runMock
-    }
+    },
+    probeHealth: probeHealthMock
   }))
 }));
 
@@ -150,6 +152,16 @@ async function waitFor(predicate: () => boolean, attempts = 20): Promise<void> {
 describe("CloudSessionClient", () => {
   beforeEach(() => {
     runMock.mockReset();
+    probeHealthMock.mockReset();
+    probeHealthMock.mockResolvedValue({
+      status: "healthy",
+      code: "healthy",
+      summary: "Gemini CLI is ready on this machine.",
+      detail: "Local Gemini-backed tasks can run.",
+      checkedAt: "2026-03-16T00:00:00.000Z",
+      canRunLocalTasks: true,
+      commandPath: "mock"
+    });
     MockWebSocket.instances.length = 0;
     delete process.env.JUDGE_PASSCODE;
     vi.stubGlobal("WebSocket", MockWebSocket);
@@ -240,6 +252,7 @@ describe("CloudSessionClient", () => {
       tasks: createTaskState()
     });
     await connectPromise;
+    await waitFor(() => probeHealthMock.mock.calls.length > 0);
 
     socket.emitMessage({
       type: "executor_request",
@@ -312,6 +325,104 @@ describe("CloudSessionClient", () => {
     );
     expect(taskStates).toHaveLength(1);
     expect(conversationStates.at(-1)?.status).toBe("listening");
+  });
+
+  it("runs a full executor health check after connect without blocking session readiness", async () => {
+    const executorHealthUpdates: unknown[] = [];
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host",
+      onExecutorHealth: async (health: unknown) => {
+        executorHealthUpdates.push(health);
+      }
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState(),
+      tasks: createTaskState()
+    });
+
+    await connectPromise;
+    await waitFor(() => probeHealthMock.mock.calls.length > 0);
+
+    expect(probeHealthMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: "full",
+        now: expect.any(Function)
+      })
+    );
+    expect(executorHealthUpdates.length).toBeGreaterThan(0);
+  });
+
+  it("blocks executor requests early when the health state is unhealthy", async () => {
+    probeHealthMock.mockResolvedValue({
+      status: "unhealthy",
+      code: "missing_binary",
+      summary: "Gemini CLI is not available locally.",
+      detail: "Install Gemini CLI, then retry the health check.",
+      checkedAt: "2026-03-16T00:00:00.000Z",
+      canRunLocalTasks: false,
+      commandPath: "/usr/local/bin/gemini"
+    });
+
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host"
+    });
+
+    await client.runExecutorHealthCheck("full");
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState(),
+      tasks: createTaskState()
+    });
+    await connectPromise;
+    await waitFor(() => probeHealthMock.mock.calls.length >= 2);
+
+    socket.emitMessage({
+      type: "executor_request",
+      request: {
+        runId: "run-blocked",
+        taskId: "task-blocked",
+        request: {
+          task: {
+            id: "task-blocked",
+            title: "Blocked task",
+            normalizedGoal: "Blocked task",
+            status: "running",
+            createdAt: "2026-03-14T00:00:00.000Z",
+            updatedAt: "2026-03-14T00:00:00.000Z"
+          },
+          now: "2026-03-14T00:00:00.000Z",
+          prompt: "Try to run"
+        }
+      }
+    });
+
+    await waitFor(() =>
+      socket.sent.some(
+        (payload: any) =>
+          payload?.type === "executor_terminal" && payload?.runId === "run-blocked"
+      )
+    );
+
+    expect(runMock).not.toHaveBeenCalled();
+    expect(socket.sent).toContainEqual(
+      expect.objectContaining({
+        type: "executor_terminal",
+        runId: "run-blocked",
+        ok: false,
+        error: expect.stringContaining("Gemini CLI is not available locally.")
+      })
+    );
   });
 
   it("surfaces server errors in the client state", async () => {
