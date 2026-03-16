@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { AgentActivityPanel } from "./components/activity/AgentActivityPanel.jsx";
-import { HistoryIcon } from "./components/icons.jsx";
+import { HistoryIcon, SettingsIcon } from "./components/icons.jsx";
 import { LiveSpeechHud } from "./components/overlays/LiveSpeechHud.jsx";
 import { buildExecutorHealthBannerModel } from "./executor-health-banner.js";
 import { useDesktopAppController } from "./hooks/useDesktopAppController.js";
@@ -14,6 +14,11 @@ const ConversationOverlay = lazy(() =>
 const HistoryModal = lazy(() =>
   import("./components/overlays/HistoryModal.jsx").then((module) => ({
     default: module.HistoryModal
+  }))
+);
+const SettingsModal = lazy(() =>
+  import("./components/overlays/SettingsModal.jsx").then((module) => ({
+    default: module.SettingsModal
   }))
 );
 const DebugConsole = lazy(() =>
@@ -163,14 +168,25 @@ export default function App() {
     deferredUiState,
     executorHealth,
     filteredDebugEvents,
+    handleAutoOpenCompletedTasksChange,
     handleConnect,
+    handleCopyDiagnostics,
+    handleExecutorEnabledChange,
     handleHangup,
-    handleMicToggle,
+    handleHeaderHealthWarningsChange,
     handleMuteToggle,
+    handleMotionPreferenceChange,
+    handleOpenDeveloperConsole,
     handlePromptKeyDown,
     handlePromptSubmit,
     handleRefreshHistory,
+    handleRefreshMicrophones,
+    handleRequestMicrophoneAccess,
+    handleResetSettings,
     handleRetryExecutorHealthCheck,
+    handleSelectMicrophone,
+    handleStartMutedChange,
+    handleToggleDebugFilter,
     historyEntries,
     historyOpen,
     historySummary,
@@ -183,9 +199,9 @@ export default function App() {
     promptComposing,
     runtimeError,
     selectedMicId,
+    selectedMicrophoneLabel,
     selectedTaskId,
     setChatOpen,
-    setDebugFilters,
     setDebugOpen,
     setDebugTaskFilter,
     setDebugTurnFilter,
@@ -193,9 +209,12 @@ export default function App() {
     setPasscode,
     setPrompt,
     setPromptComposing,
-    setSelectedMicId,
+    setSettingsOpen,
     setSelectedTaskId,
+    settings,
+    settingsOpen,
     summary,
+    systemStatus,
     taskRunners,
     turnsById,
     voiceState
@@ -262,29 +281,12 @@ export default function App() {
                 </div>
                 
                 <div className="h-8 w-px bg-gray-200/60" />
-                
+
                 <div className="flex items-center gap-2.5">
                   {!voiceState.connected ? (
                     <>
-                      <div className="relative flex items-center">
-                        <select
-                          value={selectedMicId}
-                          onChange={(event) => setSelectedMicId(event.target.value)}
-                          className="appearance-none w-[140px] truncate rounded-full border border-gray-200/80 bg-white/80 py-2 pl-4 pr-8 text-[12px] font-medium text-gray-700 outline-none backdrop-blur-md transition-all hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-100/50 shadow-sm"
-                        >
-                          {microphones.length === 0 ? (
-                            <option value="">Default input</option>
-                          ) : (
-                            microphones.map((microphone) => (
-                              <option key={microphone.deviceId} value={microphone.deviceId}>
-                                {microphone.label || "Audio input"}
-                              </option>
-                            ))
-                          )}
-                        </select>
-                        <div className="pointer-events-none absolute right-3 flex items-center text-gray-400">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                        </div>
+                      <div className="rounded-full border border-gray-200/80 bg-white/80 px-4 py-2 text-[12px] font-medium text-gray-700 shadow-sm backdrop-blur-md">
+                        Mic · {selectedMicrophoneLabel}
                       </div>
                       <button
                         onClick={handleConnect}
@@ -337,6 +339,13 @@ export default function App() {
                 >
                   <HistoryIcon />
                 </button>
+                <button
+                  onClick={() => setSettingsOpen(true)}
+                  aria-label="Settings"
+                  className="flex h-[40px] w-[40px] items-center justify-center rounded-full border border-white/40 bg-white/40 text-gray-600 backdrop-blur-3xl transition-all duration-200 hover:bg-white/70 hover:text-gray-900 shadow-[0_8px_24px_rgba(0,0,0,0.06)]"
+                >
+                  <SettingsIcon />
+                </button>
               </div>
             </header>
 
@@ -371,7 +380,10 @@ export default function App() {
                 </div>
               ))}
 
-            {isUnlocked && !resolvedRuntimeError && executorHealthBanner ? (
+            {isUnlocked &&
+            settings.ui.showHeaderHealthWarnings &&
+            !resolvedRuntimeError &&
+            executorHealthBanner ? (
               <div className="absolute left-1/2 top-28 z-40 w-[min(92vw,680px)] -translate-x-1/2">
                 <ExecutorHealthBanner
                   model={executorHealthBanner}
@@ -431,14 +443,43 @@ export default function App() {
           />
         </Suspense>
       ) : null}
+      {settingsOpen ? (
+        <Suspense fallback={null}>
+          <SettingsModal
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            settings={settings}
+            systemStatus={systemStatus}
+            microphones={microphones}
+            selectedMicId={selectedMicId}
+            selectedMicrophoneLabel={selectedMicrophoneLabel}
+            executionMode={deferredUiState.executionMode}
+            executorHealth={executorHealth}
+            historyLoading={historySummary.loading}
+            onSelectMicrophone={handleSelectMicrophone}
+            onRefreshMicrophones={handleRefreshMicrophones}
+            onRequestMicrophoneAccess={handleRequestMicrophoneAccess}
+            onStartMutedChange={handleStartMutedChange}
+            onExecutorEnabledChange={handleExecutorEnabledChange}
+            onRetryExecutorHealthCheck={handleRetryExecutorHealthCheck}
+            onMotionPreferenceChange={handleMotionPreferenceChange}
+            onHeaderHealthWarningsChange={handleHeaderHealthWarningsChange}
+            onAutoOpenCompletedTasksChange={handleAutoOpenCompletedTasksChange}
+            onOpenDeveloperConsole={handleOpenDeveloperConsole}
+            debugFilters={debugFilters}
+            onToggleDebugFilter={handleToggleDebugFilter}
+            onCopyDiagnostics={handleCopyDiagnostics}
+            onRefreshHistory={handleRefreshHistory}
+            onResetSettings={handleResetSettings}
+          />
+        </Suspense>
+      ) : null}
       {debugOpen ? (
         <Suspense fallback={null}>
           <DebugConsole
             open={debugOpen}
             filters={debugFilters}
-            onToggleFilter={(source) =>
-              setDebugFilters((current) => ({ ...current, [source]: !current[source] }))
-            }
+            onToggleFilter={handleToggleDebugFilter}
             turnFilter={debugTurnFilter}
             onTurnFilterChange={setDebugTurnFilter}
             taskFilter={debugTaskFilter}

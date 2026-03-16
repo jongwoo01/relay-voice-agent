@@ -28,6 +28,10 @@ function createConversationState(overrides: Record<string, unknown> = {}) {
     status: "listening",
     muted: false,
     error: null,
+    activityDetection: {
+      mode: "auto",
+      source: "server"
+    },
     routing: {
       mode: "idle",
       summary: "",
@@ -234,6 +238,15 @@ describe("CloudSessionClient", () => {
         taskStates.push(state);
       }
     });
+    await client.setExecutorHealth({
+      status: "healthy",
+      code: "healthy",
+      summary: "Gemini CLI is ready on this machine.",
+      detail: "Local Gemini-backed tasks can run.",
+      checkedAt: "2026-03-16T00:00:00.000Z",
+      canRunLocalTasks: true,
+      commandPath: "mock"
+    });
 
     const connectPromise = client.connect("judge-passcode");
     await waitFor(() => MockWebSocket.instances.length > 0);
@@ -252,7 +265,6 @@ describe("CloudSessionClient", () => {
       tasks: createTaskState()
     });
     await connectPromise;
-    await waitFor(() => probeHealthMock.mock.calls.length > 0);
 
     socket.emitMessage({
       type: "executor_request",
@@ -327,7 +339,7 @@ describe("CloudSessionClient", () => {
     expect(conversationStates.at(-1)?.status).toBe("listening");
   });
 
-  it("runs a full executor health check after connect without blocking session readiness", async () => {
+  it("does not run a full executor health check automatically after connect", async () => {
     const executorHealthUpdates: unknown[] = [];
     const client = new CloudSessionClient({
       baseUrl: "http://judge-host",
@@ -347,15 +359,9 @@ describe("CloudSessionClient", () => {
     });
 
     await connectPromise;
-    await waitFor(() => probeHealthMock.mock.calls.length > 0);
 
-    expect(probeHealthMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        phase: "full",
-        now: expect.any(Function)
-      })
-    );
-    expect(executorHealthUpdates.length).toBeGreaterThan(0);
+    expect(probeHealthMock).not.toHaveBeenCalled();
+    expect(executorHealthUpdates).toEqual([]);
   });
 
   it("blocks executor requests early when the health state is unhealthy", async () => {
@@ -385,7 +391,7 @@ describe("CloudSessionClient", () => {
       tasks: createTaskState()
     });
     await connectPromise;
-    await waitFor(() => probeHealthMock.mock.calls.length >= 2);
+    expect(probeHealthMock).toHaveBeenCalledTimes(1);
 
     socket.emitMessage({
       type: "executor_request",
@@ -421,6 +427,167 @@ describe("CloudSessionClient", () => {
         runId: "run-blocked",
         ok: false,
         error: expect.stringContaining("Gemini CLI is not available locally.")
+      })
+    );
+  });
+
+  it("keeps local tasks runnable after a full health check times out", async () => {
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host"
+    });
+
+    await client.setExecutorHealth({
+      status: "healthy",
+      code: "healthy",
+      summary: "Gemini CLI is ready on this machine.",
+      detail: "Local Gemini-backed tasks can run.",
+      checkedAt: "2026-03-16T00:00:00.000Z",
+      canRunLocalTasks: true,
+      commandPath: "mock"
+    });
+
+    probeHealthMock.mockResolvedValueOnce({
+      status: "unhealthy",
+      code: "probe_timeout",
+      summary: "Gemini CLI health check timed out.",
+      detail:
+        "The CLI did not finish its startup/auth probe in time. Check local auth or connectivity, then retry.",
+      checkedAt: "2026-03-16T00:10:00.000Z",
+      canRunLocalTasks: false,
+      commandPath: "mock"
+    });
+
+    const health = await client.runExecutorHealthCheck("full");
+
+    expect(health).toEqual(
+      expect.objectContaining({
+        status: "unhealthy",
+        code: "probe_timeout",
+        canRunLocalTasks: true
+      })
+    );
+
+    runMock.mockResolvedValue({
+      progressEvents: [],
+      completionEvent: {
+        taskId: "task-after-timeout",
+        type: "executor_completed",
+        message: "Completed",
+        createdAt: "2026-03-14T00:00:00.000Z"
+      },
+      outcome: "completed",
+      report: {
+        summary: "Finished",
+        verification: "verified",
+        changes: []
+      }
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState(),
+      tasks: createTaskState()
+    });
+    await connectPromise;
+
+    socket.emitMessage({
+      type: "executor_request",
+      request: {
+        runId: "run-after-timeout",
+        taskId: "task-after-timeout",
+        request: {
+          task: {
+            id: "task-after-timeout",
+            title: "Timeout task",
+            normalizedGoal: "Timeout task",
+            status: "running",
+            createdAt: "2026-03-14T00:00:00.000Z",
+            updatedAt: "2026-03-14T00:00:00.000Z"
+          },
+          now: "2026-03-14T00:00:00.000Z",
+          prompt: "Try after timeout"
+        }
+      }
+    });
+
+    await waitFor(() =>
+      socket.sent.some(
+        (payload: any) =>
+          payload?.type === "executor_terminal" &&
+          payload?.runId === "run-after-timeout" &&
+          payload?.ok === true
+      )
+    );
+
+    expect(runMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "Try after timeout"
+      }),
+      expect.any(Function)
+    );
+  });
+
+  it("blocks executor requests when local execution is disabled in settings", async () => {
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host",
+      localSettings: {
+        executor: {
+          enabled: false
+        }
+      }
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState(),
+      tasks: createTaskState()
+    });
+    await connectPromise;
+    expect(probeHealthMock).not.toHaveBeenCalled();
+
+    socket.emitMessage({
+      type: "executor_request",
+      request: {
+        runId: "run-disabled",
+        taskId: "task-disabled",
+        request: {
+          task: {
+            id: "task-disabled",
+            title: "Disabled task",
+            normalizedGoal: "Disabled task",
+            status: "running",
+            createdAt: "2026-03-14T00:00:00.000Z",
+            updatedAt: "2026-03-14T00:00:00.000Z"
+          },
+          now: "2026-03-14T00:00:00.000Z",
+          prompt: "Try to run"
+        }
+      }
+    });
+
+    await waitFor(() =>
+      socket.sent.some(
+        (payload: any) =>
+          payload?.type === "executor_terminal" && payload?.runId === "run-disabled"
+      )
+    );
+
+    expect(runMock).not.toHaveBeenCalled();
+    expect(socket.sent).toContainEqual(
+      expect.objectContaining({
+        type: "executor_terminal",
+        runId: "run-disabled",
+        taskId: "task-disabled",
+        ok: false,
+        error: expect.stringContaining("turned off in Relay settings")
       })
     );
   });
@@ -501,6 +668,73 @@ describe("CloudSessionClient", () => {
     client.endAudioStream();
 
     expect(socket.sent).toEqual([]);
+  });
+
+  it("suppresses client activity boundary events when the server owns automatic detection", async () => {
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host",
+      onConversationState: async () => undefined,
+      onTaskState: async () => undefined
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState({
+        activityDetection: {
+          mode: "auto",
+          source: "server"
+        }
+      }),
+      tasks: createTaskState()
+    });
+    await connectPromise;
+
+    socket.sent.length = 0;
+    client.startActivity();
+    client.endActivity();
+
+    expect(socket.sent).toEqual([]);
+  });
+
+  it("forwards client activity boundary events only when the server requests manual detection", async () => {
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host",
+      onConversationState: async () => undefined,
+      onTaskState: async () => undefined
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState({
+        activityDetection: {
+          mode: "manual",
+          source: "server"
+        }
+      }),
+      tasks: createTaskState()
+    });
+    await connectPromise;
+
+    socket.sent.length = 0;
+    client.startActivity();
+    client.endActivity();
+
+    expect(socket.sent).toEqual([
+      {
+        type: "activity_start"
+      },
+      {
+        type: "activity_end"
+      }
+    ]);
   });
 
   it("loads judge history after connect and publishes it", async () => {

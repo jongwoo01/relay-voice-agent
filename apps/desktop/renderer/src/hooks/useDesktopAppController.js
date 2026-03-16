@@ -9,6 +9,8 @@ import {
 } from "react";
 import { useMotionValue } from "motion/react";
 import { connectHostedSession } from "../connect-hosted-session.js";
+import liveInputMeterWorkletUrl from "../audio/live-input-meter.worklet.js?url";
+import { createDefaultDesktopSettings } from "../../../src/main/ui/desktop-settings.js";
 import {
   buildDisplayConversationTimeline,
   buildArchivedTaskEntries,
@@ -19,11 +21,8 @@ import {
 } from "../ui-utils.js";
 
 const LIVE_INPUT_BUFFER_SIZE = 512;
-const LIVE_SPEECH_ACTIVITY_THRESHOLD = 0.03;
-const LIVE_SPEECH_IDLE_MS = 320;
-const LIVE_BARGE_IN_CONFIRM_MS = 140;
-const LIVE_INPUT_PREROLL_CHUNKS = 12;
-const LIVE_INPUT_DEBUG_ENABLED = import.meta.env.DEV;
+const LIVE_INPUT_WORKLET_NAME = "relay-live-input-meter";
+const LIVE_INPUT_DEBUG_ENABLED = import.meta.env.VITE_LIVE_INPUT_DEBUG === "1";
 export const DEBUG_FILTER_DEFAULTS = {
   transport: true,
   live: true,
@@ -62,6 +61,10 @@ const EMPTY_UI_STATE = {
     notifications: { pending: [], delivered: [] },
     pendingBriefingCount: 0
   },
+  settings: createDefaultDesktopSettings(),
+  systemStatus: {
+    microphonePermissionStatus: "unknown"
+  },
   historySummary: { loading: false, error: null, sessions: [] },
   voiceControlState: {
     connected: false,
@@ -69,6 +72,7 @@ const EMPTY_UI_STATE = {
     status: "idle",
     muted: false,
     error: null,
+    activityDetection: { mode: "auto", source: "server" },
     routing: { mode: "idle", summary: "", detail: "" },
     mic: { mode: "idle", enabled: false },
     activity: { userSpeaking: false, assistantSpeaking: false }
@@ -76,6 +80,17 @@ const EMPTY_UI_STATE = {
   inputState: { inFlight: false, queueSize: 0, activeText: null, lastError: null },
   runtimeError: null
 };
+
+function sameBooleanMap(left, right) {
+  const keys = new Set([...Object.keys(left ?? {}), ...Object.keys(right ?? {})]);
+  for (const key of keys) {
+    if (Boolean(left?.[key]) !== Boolean(right?.[key])) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 function arrayBufferToBase64(buffer) {
   let binary = "";
@@ -105,6 +120,10 @@ function base64ToFloat32AudioData(base64String) {
   }
 
   return samples;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function avatarStateForUi(summary, voiceState, inputState) {
@@ -146,9 +165,10 @@ export function useDesktopAppController() {
   const [uiState, setUiState] = useState(EMPTY_UI_STATE);
   const deferredUiState = useDeferredValue(uiState);
   const [runtimeError, setRuntimeError] = useState(null);
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [systemPrefersReducedMotion, setSystemPrefersReducedMotion] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [completedDrawerAutoOpenTick, setCompletedDrawerAutoOpenTick] = useState(0);
@@ -177,6 +197,7 @@ export function useDesktopAppController() {
   const recorderContextRef = useRef(null);
   const recorderSourceRef = useRef(null);
   const recorderStreamRef = useRef(null);
+  const recorderWorkletNodeRef = useRef(null);
   const recorderFallbackNodeRef = useRef(null);
   const recorderGainNodeRef = useRef(null);
   const recorderStartPromiseRef = useRef(null);
@@ -187,6 +208,11 @@ export function useDesktopAppController() {
   const liveActivitySequenceRef = useRef(0);
   const liveAudioChunkCountRef = useRef(0);
   const pendingSpeechChunksRef = useRef([]);
+  const liveVadConfigRef = useRef(createDefaultDesktopSettings().audio.liveVad);
+  const liveVadStateRef = useRef({
+    noiseFloor: createDefaultDesktopSettings().audio.liveVad.noiseFloor,
+    smoothedRms: 0
+  });
 
   useEffect(() => {
     uiStateRef.current = uiState;
@@ -199,7 +225,7 @@ export function useDesktopAppController() {
 
     const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     const update = () => {
-      setPrefersReducedMotion(mediaQuery.matches);
+      setSystemPrefersReducedMotion(mediaQuery.matches);
     };
 
     update();
@@ -213,14 +239,53 @@ export function useDesktopAppController() {
   const voiceState = deferredUiState.voiceControlState ?? EMPTY_UI_STATE.voiceControlState;
   const executorHealth = deferredUiState.executorHealth ?? EMPTY_UI_STATE.executorHealth;
   const summary = deferredUiState.taskSummary ?? EMPTY_UI_STATE.taskSummary;
+  const settings = deferredUiState.settings ?? EMPTY_UI_STATE.settings;
+  const systemStatus = deferredUiState.systemStatus ?? EMPTY_UI_STATE.systemStatus;
   const historySummary = deferredUiState.historySummary ?? EMPTY_UI_STATE.historySummary;
   const inputState = deferredUiState.inputState ?? EMPTY_UI_STATE.inputState;
   const debugInspector = deferredUiState.debugInspector ?? EMPTY_UI_STATE.debugInspector;
+  const liveVadConfig = settings.audio.liveVad ?? EMPTY_UI_STATE.settings.audio.liveVad;
+  const prefersReducedMotion =
+    settings.ui.motionPreference === "system"
+      ? systemPrefersReducedMotion
+      : settings.ui.motionPreference === "on";
 
   const voiceStateRef = useRef(voiceState);
   useEffect(() => {
     voiceStateRef.current = voiceState;
   }, [voiceState]);
+
+  useEffect(() => {
+    setDebugFilters((current) =>
+      sameBooleanMap(current, settings.debug.defaultFilters)
+        ? current
+        : settings.debug.defaultFilters
+    );
+  }, [settings.debug.defaultFilters]);
+
+  useEffect(() => {
+    liveVadConfigRef.current = liveVadConfig;
+    liveVadStateRef.current = {
+      noiseFloor: clamp(
+        liveVadStateRef.current.noiseFloor || liveVadConfig.noiseFloor,
+        liveVadConfig.noiseFloor * 0.5,
+        liveVadConfig.minSpeechThreshold
+      ),
+      smoothedRms: liveVadStateRef.current.smoothedRms || 0
+    };
+  }, [liveVadConfig]);
+
+  useEffect(() => {
+    const preferredDeviceId = settings.audio.defaultMicId?.trim() ?? "";
+    if (preferredDeviceId && microphones.some((device) => device.deviceId === preferredDeviceId)) {
+      setSelectedMicId((current) => (current === preferredDeviceId ? current : preferredDeviceId));
+      return;
+    }
+
+    if (!selectedMicId && microphones[0]?.deviceId) {
+      setSelectedMicId(microphones[0].deviceId);
+    }
+  }, [microphones, selectedMicId, settings.audio.defaultMicId]);
 
   const showRuntimeError = useCallback((error) => {
     setRuntimeError(error instanceof Error ? error.message : String(error));
@@ -371,10 +436,16 @@ export function useDesktopAppController() {
     }
   }, [audioEnergy, ensurePlaybackContext, mouthOpen, setRuntimeAssistantSpeaking]);
 
+  const usesManualServerActivityDetection = useCallback(
+    () => voiceStateRef.current.activityDetection?.mode === "manual",
+    []
+  );
+
   const handleAudioChunk = useCallback(
     async (chunk) => {
+      const usingManualServerActivityDetection = usesManualServerActivityDetection();
       if (
-        userSpeakingActiveRef.current ||
+        (usingManualServerActivityDetection && userSpeakingActiveRef.current) ||
         Date.now() < audioIgnoreUntilRef.current ||
         voiceStateRef.current.status === "interrupted"
       ) {
@@ -384,7 +455,7 @@ export function useDesktopAppController() {
       audioQueueRef.current.push(base64ToFloat32AudioData(chunk.data));
       await playQueuedAudio();
     },
-    [playQueuedAudio]
+    [playQueuedAudio, usesManualServerActivityDetection]
   );
 
   const startLiveActivity = useCallback(() => {
@@ -398,16 +469,19 @@ export function useDesktopAppController() {
     if (LIVE_INPUT_DEBUG_ENABLED) {
       console.info("[live-input][renderer] activity_start", {
         seq: liveActivitySequenceRef.current,
+        mode: usesManualServerActivityDetection() ? "manual" : "auto",
         preroll: pendingSpeechChunksRef.current.length
       });
     }
-    window.desktopLive?.startActivity?.();
-    for (const chunk of pendingSpeechChunksRef.current) {
-      window.desktopLive?.sendAudioChunk?.(chunk, "audio/pcm;rate=16000");
-      liveAudioChunkCountRef.current += 1;
+    if (usesManualServerActivityDetection()) {
+      window.desktopLive?.startActivity?.();
+      for (const chunk of pendingSpeechChunksRef.current) {
+        window.desktopLive?.sendAudioChunk?.(chunk, "audio/pcm;rate=16000");
+        liveAudioChunkCountRef.current += 1;
+      }
     }
     pendingSpeechChunksRef.current = [];
-  }, []);
+  }, [usesManualServerActivityDetection]);
 
   const endLiveActivity = useCallback(() => {
     if (!liveActivityActiveRef.current) {
@@ -421,8 +495,10 @@ export function useDesktopAppController() {
       });
     }
     liveActivityActiveRef.current = false;
-    window.desktopLive?.endActivity?.();
-  }, []);
+    if (usesManualServerActivityDetection()) {
+      window.desktopLive?.endActivity?.();
+    }
+  }, [usesManualServerActivityDetection]);
 
   const scheduleUserSpeakingReset = useCallback(() => {
     clearTimeout(userSpeakingTimerRef.current);
@@ -432,12 +508,12 @@ export function useDesktopAppController() {
       inputEnergy.set(0);
       endLiveActivity();
       void setRuntimeUserSpeaking(false).catch(showRuntimeError);
-    }, LIVE_SPEECH_IDLE_MS);
+    }, liveVadConfigRef.current.idleMs);
   }, [endLiveActivity, inputEnergy, setRuntimeUserSpeaking, showRuntimeError]);
 
   const handleLiveUserAudioActivity = useCallback(
-    (peak) => {
-      if (peak < LIVE_SPEECH_ACTIVITY_THRESHOLD) {
+    ({ activityLevel, threshold }) => {
+      if (activityLevel < threshold) {
         speechCandidateStartAtRef.current = 0;
         return;
       }
@@ -447,7 +523,7 @@ export function useDesktopAppController() {
         speechCandidateStartAtRef.current = now;
       }
 
-      if (now - speechCandidateStartAtRef.current < LIVE_BARGE_IN_CONFIRM_MS) {
+      if (now - speechCandidateStartAtRef.current < liveVadConfigRef.current.confirmMs) {
         return;
       }
 
@@ -463,6 +539,87 @@ export function useDesktopAppController() {
     [scheduleUserSpeakingReset, setRuntimeUserSpeaking, showRuntimeError, startLiveActivity, stopPlayback]
   );
 
+  const handleLiveInputFrame = useCallback(
+    ({ pcm16, peak, rms }) => {
+      const manualServerActivityDetection = usesManualServerActivityDetection();
+      const config = liveVadConfigRef.current;
+      const previousState = liveVadStateRef.current;
+      const smoothedRms =
+        previousState.smoothedRms +
+        (rms - previousState.smoothedRms) * config.rmsSmoothing;
+      let noiseFloor = previousState.noiseFloor || config.noiseFloor;
+
+      if (!liveActivityActiveRef.current && !userSpeakingActiveRef.current) {
+        const clampedNoiseSample = Math.min(smoothedRms, config.minSpeechThreshold);
+        noiseFloor =
+          noiseFloor + (clampedNoiseSample - noiseFloor) * config.noiseAdaptation;
+        noiseFloor = clamp(
+          noiseFloor,
+          config.noiseFloor * 0.5,
+          config.minSpeechThreshold
+        );
+      }
+
+      const threshold = Math.max(
+        config.minSpeechThreshold,
+        noiseFloor * config.noiseGateMultiplier
+      );
+      const boostedRms = smoothedRms * config.rmsBoost;
+      const activityLevel = Math.max(peak, boostedRms);
+      const looksLikeTransientNoise =
+        peak >= threshold && smoothedRms < threshold * config.transientRmsRatio;
+
+      liveVadStateRef.current = {
+        noiseFloor,
+        smoothedRms
+      };
+
+      inputEnergy.set(Math.min(1, activityLevel / Math.max(threshold * 3, 0.18)));
+      handleLiveUserAudioActivity({
+        activityLevel: looksLikeTransientNoise ? 0 : activityLevel,
+        threshold
+      });
+
+      const encodedChunk = arrayBufferToBase64(pcm16.buffer);
+      if (manualServerActivityDetection && !liveActivityActiveRef.current) {
+        pendingSpeechChunksRef.current.push(encodedChunk);
+        if (pendingSpeechChunksRef.current.length > config.prerollChunks) {
+          pendingSpeechChunksRef.current.shift();
+        }
+        if (LIVE_INPUT_DEBUG_ENABLED && pendingSpeechChunksRef.current.length === 1) {
+          console.info("[live-input][renderer] buffer_preroll", {
+            seq: liveActivitySequenceRef.current + 1,
+            peak: Number(peak.toFixed(4)),
+            rms: Number(rms.toFixed(4)),
+            threshold: Number(threshold.toFixed(4)),
+            transientRejected: looksLikeTransientNoise
+          });
+        }
+        return;
+      }
+
+      liveAudioChunkCountRef.current += 1;
+      if (
+        LIVE_INPUT_DEBUG_ENABLED &&
+        (liveAudioChunkCountRef.current <= 3 ||
+          liveAudioChunkCountRef.current % 20 === 0)
+      ) {
+        console.info("[live-input][renderer] audio_chunk", {
+          seq: liveActivitySequenceRef.current,
+          chunk: liveAudioChunkCountRef.current,
+          samples: pcm16.length,
+          peak: Number(peak.toFixed(4)),
+          rms: Number(rms.toFixed(4)),
+          threshold: Number(threshold.toFixed(4)),
+          transientRejected: looksLikeTransientNoise,
+          activityActive: liveActivityActiveRef.current
+        });
+      }
+      window.desktopLive.sendAudioChunk(encodedChunk, "audio/pcm;rate=16000");
+    },
+    [handleLiveUserAudioActivity, inputEnergy, usesManualServerActivityDetection]
+  );
+
   const populateMicrophones = useCallback(async () => {
     if (!navigator.mediaDevices?.enumerateDevices) {
       return;
@@ -471,7 +628,18 @@ export function useDesktopAppController() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const inputs = devices.filter((device) => device.kind === "audioinput");
     setMicrophones(inputs);
-    setSelectedMicId((current) => current || inputs[0]?.deviceId || "");
+    setSelectedMicId((current) => {
+      if (current && inputs.some((device) => device.deviceId === current)) {
+        return current;
+      }
+
+      const preferredDeviceId = uiStateRef.current.settings?.audio?.defaultMicId?.trim() ?? "";
+      if (preferredDeviceId && inputs.some((device) => device.deviceId === preferredDeviceId)) {
+        return preferredDeviceId;
+      }
+
+      return inputs[0]?.deviceId || "";
+    });
   }, []);
 
   const stopVoiceCapture = useCallback(async () => {
@@ -480,12 +648,18 @@ export function useDesktopAppController() {
     userSpeakingActiveRef.current = false;
     speechCandidateStartAtRef.current = 0;
     pendingSpeechChunksRef.current = [];
+    liveVadStateRef.current = {
+      noiseFloor: liveVadConfigRef.current.noiseFloor,
+      smoothedRms: 0
+    };
     endLiveActivity();
     inputEnergy.set(0);
+    recorderWorkletNodeRef.current?.disconnect();
     recorderFallbackNodeRef.current?.disconnect();
     recorderGainNodeRef.current?.disconnect();
     recorderSourceRef.current?.disconnect();
     recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+    recorderWorkletNodeRef.current = null;
     recorderFallbackNodeRef.current = null;
     recorderGainNodeRef.current = null;
     recorderSourceRef.current = null;
@@ -515,8 +689,15 @@ export function useDesktopAppController() {
     recorderStartPromiseRef.current = (async () => {
       pendingSpeechChunksRef.current = [];
 
+      const audioConstraints = {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        ...(selectedMicId ? { deviceId: { exact: selectedMicId } } : {})
+      };
       const constraints = {
-        audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : true
+        audio: audioConstraints
       };
 
       recorderStreamRef.current = await navigator.mediaDevices.getUserMedia(constraints);
@@ -532,61 +713,87 @@ export function useDesktopAppController() {
 
       recorderSourceRef.current =
         recorderContextRef.current.createMediaStreamSource(recorderStreamRef.current);
-      recorderFallbackNodeRef.current = recorderContextRef.current.createScriptProcessor(
-        LIVE_INPUT_BUFFER_SIZE,
-        1,
-        1
-      );
-      recorderFallbackNodeRef.current.onaudioprocess = (event) => {
-        const inputData = event.inputBuffer.getChannelData(0);
-        const pcm16 = new Int16Array(inputData.length);
-        let peak = 0;
-
-        for (let index = 0; index < inputData.length; index += 1) {
-          const value = Math.max(-1, Math.min(1, inputData[index]));
-          peak = Math.max(peak, Math.abs(value));
-          pcm16[index] = value * 32768;
-        }
-
-        inputEnergy.set(Math.min(1, peak / 0.18));
-        handleLiveUserAudioActivity(peak);
-        const encodedChunk = arrayBufferToBase64(pcm16.buffer);
-
-        if (!liveActivityActiveRef.current) {
-          pendingSpeechChunksRef.current.push(encodedChunk);
-          if (pendingSpeechChunksRef.current.length > LIVE_INPUT_PREROLL_CHUNKS) {
-            pendingSpeechChunksRef.current.shift();
-          }
-          if (LIVE_INPUT_DEBUG_ENABLED && pendingSpeechChunksRef.current.length === 1) {
-            console.info("[live-input][renderer] buffer_preroll", {
-              seq: liveActivitySequenceRef.current + 1,
-              peak: Number(peak.toFixed(4))
-            });
-          }
-          return;
-        }
-
-        liveAudioChunkCountRef.current += 1;
-        if (
-          LIVE_INPUT_DEBUG_ENABLED &&
-          (liveAudioChunkCountRef.current <= 3 ||
-            liveAudioChunkCountRef.current % 20 === 0)
-        ) {
-          console.info("[live-input][renderer] audio_chunk", {
-            seq: liveActivitySequenceRef.current,
-            chunk: liveAudioChunkCountRef.current,
-            samples: inputData.length,
-            peak: Number(peak.toFixed(4)),
-            activityActive: liveActivityActiveRef.current
-          });
-        }
-        window.desktopLive.sendAudioChunk(encodedChunk, "audio/pcm;rate=16000");
-      };
-
       recorderGainNodeRef.current = recorderContextRef.current.createGain();
       recorderGainNodeRef.current.gain.value = 0;
-      recorderSourceRef.current.connect(recorderFallbackNodeRef.current);
-      recorderFallbackNodeRef.current.connect(recorderGainNodeRef.current);
+      liveVadStateRef.current = {
+        noiseFloor: liveVadConfigRef.current.noiseFloor,
+        smoothedRms: 0
+      };
+
+      const audioWorkletSupported =
+        typeof AudioWorkletNode !== "undefined" &&
+        recorderContextRef.current.audioWorklet &&
+        typeof recorderContextRef.current.audioWorklet.addModule === "function";
+
+      if (audioWorkletSupported) {
+        try {
+          await recorderContextRef.current.audioWorklet.addModule(
+            liveInputMeterWorkletUrl
+          );
+          recorderWorkletNodeRef.current = new AudioWorkletNode(
+            recorderContextRef.current,
+            LIVE_INPUT_WORKLET_NAME,
+            {
+              numberOfInputs: 1,
+              numberOfOutputs: 1,
+              outputChannelCount: [1]
+            }
+          );
+          recorderWorkletNodeRef.current.port.onmessage = (event) => {
+            const pcm16 =
+              event.data?.pcm16 instanceof Int16Array
+                ? event.data.pcm16
+                : new Int16Array(event.data?.pcm16 ?? []);
+            if (pcm16.length === 0) {
+              return;
+            }
+
+            handleLiveInputFrame({
+              pcm16,
+              peak: Number(event.data?.peak ?? 0),
+              rms: Number(event.data?.rms ?? 0)
+            });
+          };
+          recorderSourceRef.current.connect(recorderWorkletNodeRef.current);
+          recorderWorkletNodeRef.current.connect(recorderGainNodeRef.current);
+        } catch (error) {
+          if (LIVE_INPUT_DEBUG_ENABLED) {
+            console.warn("[live-input][renderer] falling back to ScriptProcessorNode", error);
+          }
+          recorderWorkletNodeRef.current?.disconnect();
+          recorderWorkletNodeRef.current = null;
+        }
+      }
+
+      if (!recorderWorkletNodeRef.current) {
+        recorderFallbackNodeRef.current = recorderContextRef.current.createScriptProcessor(
+          LIVE_INPUT_BUFFER_SIZE,
+          1,
+          1
+        );
+        recorderFallbackNodeRef.current.onaudioprocess = (event) => {
+          const inputData = event.inputBuffer.getChannelData(0);
+          let peak = 0;
+          let sumSquares = 0;
+          const pcm16 = new Int16Array(inputData.length);
+
+          for (let index = 0; index < inputData.length; index += 1) {
+            const value = Math.max(-1, Math.min(1, inputData[index]));
+            peak = Math.max(peak, Math.abs(value));
+            sumSquares += value * value;
+            pcm16[index] = value * 32768;
+          }
+
+          handleLiveInputFrame({
+            pcm16,
+            peak,
+            rms: Math.sqrt(sumSquares / inputData.length)
+          });
+        };
+        recorderSourceRef.current.connect(recorderFallbackNodeRef.current);
+        recorderFallbackNodeRef.current.connect(recorderGainNodeRef.current);
+      }
+
       recorderGainNodeRef.current.connect(recorderContextRef.current.destination);
     })();
 
@@ -595,7 +802,7 @@ export function useDesktopAppController() {
     } finally {
       recorderStartPromiseRef.current = null;
     }
-  }, [handleLiveUserAudioActivity, inputEnergy, populateMicrophones, selectedMicId]);
+  }, [handleLiveInputFrame, populateMicrophones, selectedMicId]);
 
   useEffect(() => {
     let unsubscribeState = () => {};
@@ -699,10 +906,10 @@ export function useDesktopAppController() {
       setSelectedTaskId(resolution.nextSelectedTaskId);
     }
 
-    if (resolution.shouldAutoOpenCompleted) {
+    if (settings.ui.autoOpenCompletedTasks && resolution.shouldAutoOpenCompleted) {
       setCompletedDrawerAutoOpenTick((current) => current + 1);
     }
-  }, [archivedEntries, selectedTaskId, taskRunners]);
+  }, [archivedEntries, selectedTaskId, settings.ui.autoOpenCompletedTasks, taskRunners]);
 
   const historyEntries = useMemo(() => buildHistoryEntries(historySummary), [historySummary]);
   const displayConversationTimeline = useMemo(
@@ -720,6 +927,30 @@ export function useDesktopAppController() {
   );
 
   const avatarState = avatarStateForUi(summary, voiceState, inputState);
+  const selectedMicrophoneLabel = useMemo(() => {
+    if (!selectedMicId) {
+      return microphones[0]?.label || "Default input";
+    }
+
+    return (
+      microphones.find((device) => device.deviceId === selectedMicId)?.label ||
+      "Selected input"
+    );
+  }, [microphones, selectedMicId]);
+
+  const updateDesktopSettings = useCallback(
+    async (patch) => {
+      const nextSettings = await window.desktopUi.updateSettings(patch);
+      startTransition(() => {
+        setUiState((current) => ({
+          ...current,
+          settings: nextSettings
+        }));
+      });
+      return nextSettings;
+    },
+    []
+  );
 
   const handlePromptSubmit = useCallback(
     async (event) => {
@@ -763,43 +994,60 @@ export function useDesktopAppController() {
     }
   }, [hideRuntimeError, showRuntimeError]);
 
+  const applyMutedState = useCallback(
+    async (muted) => {
+      if (recorderStreamRef.current) {
+        for (const track of recorderStreamRef.current.getAudioTracks()) {
+          track.enabled = !muted;
+        }
+      }
+
+      if (muted) {
+        userSpeakingActiveRef.current = false;
+        speechCandidateStartAtRef.current = 0;
+        clearTimeout(userSpeakingTimerRef.current);
+        endLiveActivity();
+      }
+
+      await setRuntimeUserSpeaking(!muted && userSpeakingActiveRef.current);
+      await window.desktopLive.setMuted(muted);
+    },
+    [endLiveActivity, setRuntimeUserSpeaking]
+  );
+
   const handleConnect = useCallback(async () => {
     return connectHostedSession({
       passcode,
+      startMuted: settings.audio.startMuted,
       hideRuntimeError,
       showRuntimeError,
       stopPlayback,
       connect: (judgePasscode) => window.desktopLive.connect(judgePasscode),
+      setMuted: applyMutedState,
       requestMicrophoneAccess: () => window.desktopSystem?.requestMicrophoneAccess?.() ?? true,
       startVoiceCapture,
       stopVoiceCapture,
       disconnect: () => window.desktopLive.disconnect()
     });
-  }, [hideRuntimeError, passcode, showRuntimeError, startVoiceCapture, stopPlayback, stopVoiceCapture]);
+  }, [
+    applyMutedState,
+    hideRuntimeError,
+    passcode,
+    settings.audio.startMuted,
+    showRuntimeError,
+    startVoiceCapture,
+    stopPlayback,
+    stopVoiceCapture
+  ]);
 
   const handleMuteToggle = useCallback(async () => {
     try {
       hideRuntimeError();
-      const nextMuted = !voiceStateRef.current.muted;
-      if (recorderStreamRef.current) {
-        for (const track of recorderStreamRef.current.getAudioTracks()) {
-          track.enabled = !nextMuted;
-        }
-        if (nextMuted) {
-          userSpeakingActiveRef.current = false;
-          speechCandidateStartAtRef.current = 0;
-          clearTimeout(userSpeakingTimerRef.current);
-          endLiveActivity();
-        }
-
-        await setRuntimeUserSpeaking(!nextMuted && userSpeakingActiveRef.current);
-      }
-
-      await window.desktopLive.setMuted(nextMuted);
+      await applyMutedState(!voiceStateRef.current.muted);
     } catch (error) {
       showRuntimeError(error);
     }
-  }, [endLiveActivity, hideRuntimeError, setRuntimeUserSpeaking, showRuntimeError]);
+  }, [applyMutedState, hideRuntimeError, showRuntimeError]);
 
   const handleHangup = useCallback(async () => {
     try {
@@ -831,6 +1079,168 @@ export function useDesktopAppController() {
     }
   }, [hideRuntimeError, showRuntimeError]);
 
+  const handleRefreshMicrophones = useCallback(async () => {
+    try {
+      hideRuntimeError();
+      await populateMicrophones();
+    } catch (error) {
+      showRuntimeError(error);
+    }
+  }, [hideRuntimeError, populateMicrophones, showRuntimeError]);
+
+  const handleSelectMicrophone = useCallback(
+    async (deviceId) => {
+      const nextDeviceId = typeof deviceId === "string" ? deviceId : "";
+      setSelectedMicId(nextDeviceId);
+      try {
+        hideRuntimeError();
+        await updateDesktopSettings({
+          audio: {
+            defaultMicId: nextDeviceId
+          }
+        });
+      } catch (error) {
+        showRuntimeError(error);
+      }
+    },
+    [hideRuntimeError, showRuntimeError, updateDesktopSettings]
+  );
+
+  const handleStartMutedChange = useCallback(
+    async (startMuted) => {
+      try {
+        hideRuntimeError();
+        await updateDesktopSettings({
+          audio: {
+            startMuted: Boolean(startMuted)
+          }
+        });
+      } catch (error) {
+        showRuntimeError(error);
+      }
+    },
+    [hideRuntimeError, showRuntimeError, updateDesktopSettings]
+  );
+
+  const handleExecutorEnabledChange = useCallback(
+    async (enabled) => {
+      try {
+        hideRuntimeError();
+        await updateDesktopSettings({
+          executor: {
+            enabled: Boolean(enabled)
+          }
+        });
+      } catch (error) {
+        showRuntimeError(error);
+      }
+    },
+    [hideRuntimeError, showRuntimeError, updateDesktopSettings]
+  );
+
+  const handleMotionPreferenceChange = useCallback(
+    async (motionPreference) => {
+      try {
+        hideRuntimeError();
+        await updateDesktopSettings({
+          ui: {
+            motionPreference
+          }
+        });
+      } catch (error) {
+        showRuntimeError(error);
+      }
+    },
+    [hideRuntimeError, showRuntimeError, updateDesktopSettings]
+  );
+
+  const handleHeaderHealthWarningsChange = useCallback(
+    async (showHeaderHealthWarnings) => {
+      try {
+        hideRuntimeError();
+        await updateDesktopSettings({
+          ui: {
+            showHeaderHealthWarnings: Boolean(showHeaderHealthWarnings)
+          }
+        });
+      } catch (error) {
+        showRuntimeError(error);
+      }
+    },
+    [hideRuntimeError, showRuntimeError, updateDesktopSettings]
+  );
+
+  const handleAutoOpenCompletedTasksChange = useCallback(
+    async (autoOpenCompletedTasks) => {
+      try {
+        hideRuntimeError();
+        await updateDesktopSettings({
+          ui: {
+            autoOpenCompletedTasks: Boolean(autoOpenCompletedTasks)
+          }
+        });
+      } catch (error) {
+        showRuntimeError(error);
+      }
+    },
+    [hideRuntimeError, showRuntimeError, updateDesktopSettings]
+  );
+
+  const handleToggleDebugFilter = useCallback(
+    async (source) => {
+      const nextFilters = {
+        ...debugFilters,
+        [source]: !debugFilters[source]
+      };
+      setDebugFilters(nextFilters);
+      try {
+        hideRuntimeError();
+        await updateDesktopSettings({
+          debug: {
+            defaultFilters: nextFilters
+          }
+        });
+      } catch (error) {
+        showRuntimeError(error);
+      }
+    },
+    [debugFilters, hideRuntimeError, showRuntimeError, updateDesktopSettings]
+  );
+
+  const handleOpenDeveloperConsole = useCallback(() => {
+    setDebugOpen(true);
+  }, []);
+
+  const handleCopyDiagnostics = useCallback(async () => {
+    try {
+      hideRuntimeError();
+      return await window.desktopUi.copyDiagnosticsSnapshot();
+    } catch (error) {
+      showRuntimeError(error);
+      return null;
+    }
+  }, [hideRuntimeError, showRuntimeError]);
+
+  const handleResetSettings = useCallback(async () => {
+    try {
+      hideRuntimeError();
+      await window.desktopUi.resetSettings();
+      await populateMicrophones();
+    } catch (error) {
+      showRuntimeError(error);
+    }
+  }, [hideRuntimeError, populateMicrophones, showRuntimeError]);
+
+  const handleRequestMicrophoneAccess = useCallback(async () => {
+    try {
+      hideRuntimeError();
+      return await window.desktopSystem.requestMicrophoneAccess();
+    } catch (error) {
+      showRuntimeError(error);
+      return false;
+    }
+  }, [hideRuntimeError, showRuntimeError]);
+
   return {
     archivedEntries,
     audioEnergy,
@@ -845,14 +1255,26 @@ export function useDesktopAppController() {
     deferredUiState,
     executorHealth,
     filteredDebugEvents,
+    handleAutoOpenCompletedTasksChange,
     handleConnect,
+    handleCopyDiagnostics,
+    handleExecutorEnabledChange,
     handleHangup,
+    handleHeaderHealthWarningsChange,
     handleMicToggle,
     handleMuteToggle,
+    handleMotionPreferenceChange,
+    handleOpenDeveloperConsole,
     handlePromptKeyDown,
     handlePromptSubmit,
     handleRefreshHistory,
+    handleRefreshMicrophones,
+    handleRequestMicrophoneAccess,
+    handleResetSettings,
     handleRetryExecutorHealthCheck,
+    handleSelectMicrophone,
+    handleStartMutedChange,
+    handleToggleDebugFilter,
     historyEntries,
     historyOpen,
     historySummary,
@@ -865,9 +1287,9 @@ export function useDesktopAppController() {
     promptComposing,
     runtimeError,
     selectedMicId,
+    selectedMicrophoneLabel,
     selectedTaskId,
     setChatOpen,
-    setDebugFilters,
     setDebugOpen,
     setDebugTaskFilter,
     setDebugTurnFilter,
@@ -875,9 +1297,12 @@ export function useDesktopAppController() {
     setPasscode,
     setPrompt,
     setPromptComposing,
-    setSelectedMicId,
+    setSettingsOpen,
     setSelectedTaskId,
+    settings,
+    settingsOpen,
     summary,
+    systemStatus,
     taskRunners,
     turnsById,
     voiceState

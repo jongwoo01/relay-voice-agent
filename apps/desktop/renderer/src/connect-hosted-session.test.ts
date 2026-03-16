@@ -71,6 +71,36 @@ describe("connectHostedSession", () => {
     expect(disconnect).not.toHaveBeenCalled();
   });
 
+  it("applies the configured initial muted state after voice capture starts", async () => {
+    const hideRuntimeError = vi.fn();
+    const showRuntimeError = vi.fn();
+    const stopPlayback = vi.fn(async () => undefined);
+    const connect = vi.fn(async () => undefined);
+    const requestMicrophoneAccess = vi.fn(async () => true);
+    const startVoiceCapture = vi.fn(async () => undefined);
+    const setMuted = vi.fn(async () => undefined);
+    const stopVoiceCapture = vi.fn(async () => undefined);
+    const disconnect = vi.fn(async () => undefined);
+
+    const connected = await connectHostedSession({
+      passcode: "judge-passcode",
+      startMuted: true,
+      hideRuntimeError,
+      showRuntimeError,
+      stopPlayback,
+      connect,
+      setMuted,
+      requestMicrophoneAccess,
+      startVoiceCapture,
+      stopVoiceCapture,
+      disconnect
+    });
+
+    expect(connected).toBe(true);
+    expect(startVoiceCapture).toHaveBeenCalledTimes(1);
+    expect(setMuted).toHaveBeenCalledWith(true);
+  });
+
   it("stops before connect when microphone access is denied", async () => {
     const hideRuntimeError = vi.fn();
     const showRuntimeError = vi.fn();

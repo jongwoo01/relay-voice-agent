@@ -4,10 +4,12 @@ export function normalizeJudgePasscode(passcode) {
 
 export async function connectHostedSession({
   passcode,
+  startMuted = false,
   hideRuntimeError,
   showRuntimeError,
   stopPlayback,
   connect,
+  setMuted,
   requestMicrophoneAccess,
   startVoiceCapture,
   stopVoiceCapture,
@@ -30,6 +32,9 @@ export async function connectHostedSession({
     }
     await connect(normalizedPasscode);
     await startVoiceCapture();
+    if (typeof setMuted === "function") {
+      await setMuted(Boolean(startMuted));
+    }
     return true;
   } catch (error) {
     showRuntimeError(error);

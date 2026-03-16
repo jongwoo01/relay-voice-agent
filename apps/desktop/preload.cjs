@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld("relayApp", {
 
 contextBridge.exposeInMainWorld("desktopUi", {
   init: () => ipcRenderer.invoke("desktop-ui:init"),
+  getSettings: () => ipcRenderer.invoke("desktop-ui:get-settings"),
+  updateSettings: (patch) => ipcRenderer.invoke("desktop-ui:update-settings", patch),
+  resetSettings: () => ipcRenderer.invoke("desktop-ui:reset-settings"),
+  copyDiagnosticsSnapshot: () => ipcRenderer.invoke("desktop-ui:copy-diagnostics"),
   refreshHistory: () => ipcRenderer.invoke("desktop-ui:refresh-history"),
   retryExecutorHealthCheck: () =>
     ipcRenderer.invoke("desktop-ui:retry-executor-health"),
@@ -54,6 +58,8 @@ contextBridge.exposeInMainWorld("desktopDebug", {
 
 contextBridge.exposeInMainWorld("desktopSystem", {
   platform: process.platform,
+  getMicrophoneAccessStatus: () =>
+    ipcRenderer.invoke("system:get-microphone-access-status"),
   requestMicrophoneAccess: () =>
     ipcRenderer.invoke("system:request-microphone-access"),
   openMacPrivacySettings: () =>

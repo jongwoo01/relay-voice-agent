@@ -74,6 +74,10 @@ describe("desktop-ui-state", () => {
       status: "listening",
       muted: false,
       error: null,
+      activityDetection: {
+        mode: "auto",
+        source: "server"
+      },
       routing: { mode: "idle", summary: "Waiting for the next request.", detail: "" },
       conversationTimeline: [
         {
@@ -127,6 +131,32 @@ describe("desktop-ui-state", () => {
       turnId: "turn-1",
       taskId: "task-1",
       createdAt: "2026-03-13T05:00:01.500Z"
+    });
+    store.setSettings({
+      audio: {
+        defaultMicId: "mic-1",
+        startMuted: true
+      },
+      executor: {
+        enabled: false
+      },
+      ui: {
+        motionPreference: "on",
+        showHeaderHealthWarnings: false,
+        autoOpenCompletedTasks: false
+      },
+      debug: {
+        defaultFilters: {
+          transport: true,
+          live: false,
+          bridge: true,
+          runtime: true,
+          executor: false
+        }
+      }
+    });
+    store.setSystemState({
+      microphonePermissionStatus: "granted"
     });
 
     const uiState = store.compose();
@@ -186,6 +216,24 @@ describe("desktop-ui-state", () => {
         canRunLocalTasks: false
       })
     );
+    expect(uiState.voiceControlState.activityDetection).toEqual({
+      mode: "auto",
+      source: "server"
+    });
+    expect(uiState.settings).toEqual(
+      expect.objectContaining({
+        audio: expect.objectContaining({
+          defaultMicId: "mic-1",
+          startMuted: true
+        }),
+        executor: expect.objectContaining({
+          enabled: false
+        })
+      })
+    );
+    expect(uiState.systemStatus).toEqual({
+      microphonePermissionStatus: "granted"
+    });
   });
 
   it("keeps bubble order stable inside a turn when timestamps collide", () => {

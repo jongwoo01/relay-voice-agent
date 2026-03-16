@@ -1,4 +1,11 @@
-import { app, BrowserWindow, ipcMain, shell, systemPreferences } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  ipcMain,
+  shell,
+  systemPreferences
+} from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadDotEnvFromRoot } from "./src/main/config/env-loader.js";
@@ -6,6 +13,11 @@ import { HostedSessionRuntime } from "./src/main/session/hosted-session-runtime.
 import { CloudSessionClient } from "./src/main/cloud/cloud-session-client.js";
 import { assertTrustedSenderUrl } from "./src/main/ipc/sender-guard.js";
 import { DesktopUiStateStore } from "./src/main/ui/desktop-ui-state.js";
+import {
+  createDefaultSystemStatus,
+  normalizeMicrophonePermissionStatus
+} from "./src/main/ui/desktop-settings.js";
+import { DesktopSettingsStore } from "./src/main/ui/desktop-settings-store.js";
 import {
   clearDesktopLog,
   logDesktop,
@@ -19,6 +31,7 @@ const relayIconPath = path.join(__dirname, "build", "icon.png");
 let mainWindow;
 let runtime;
 let cloudSession;
+let settingsStore;
 const desktopUiState = new DesktopUiStateStore();
 let historyRefreshTimer = null;
 
@@ -45,6 +58,62 @@ function broadcastToWindow(channel, payload) {
 
 function broadcastUiState() {
   broadcastToWindow("desktop-ui:state-updated", desktopUiState.compose());
+}
+
+async function applyDesktopSettings(settings) {
+  desktopUiState.setSettings(settings);
+  await cloudSession?.setLocalSettings?.(settings);
+  broadcastUiState();
+  return settings;
+}
+
+function getMicrophonePermissionStatus() {
+  if (process.platform !== "darwin") {
+    return "unknown";
+  }
+
+  return normalizeMicrophonePermissionStatus(
+    systemPreferences.getMediaAccessStatus("microphone")
+  );
+}
+
+async function refreshSystemStatus() {
+  const nextState = {
+    ...createDefaultSystemStatus(),
+    microphonePermissionStatus: getMicrophonePermissionStatus()
+  };
+  desktopUiState.setSystemState(nextState);
+  broadcastUiState();
+  return nextState;
+}
+
+function buildDiagnosticsSnapshot() {
+  const uiState = desktopUiState.compose();
+  return JSON.stringify(
+    {
+      generatedAt: new Date().toISOString(),
+      platform: process.platform,
+      brainSessionId: uiState.brainSessionId,
+      executionMode: uiState.executionMode,
+      runtimeError: uiState.runtimeError,
+      settings: uiState.settings,
+      systemStatus: uiState.systemStatus,
+      executorHealth: uiState.executorHealth,
+      historySummary: {
+        loading: uiState.historySummary.loading,
+        error: uiState.historySummary.error,
+        sessionCount: uiState.historySummary.sessions.length
+      },
+      taskSummary: {
+        activeTaskCount: uiState.taskSummary.activeTasks.length,
+        recentTaskCount: uiState.taskSummary.recentTasks.length,
+        pendingBriefingCount: uiState.taskSummary.pendingBriefingCount
+      },
+      recentDebugEvents: uiState.debugInspector.events.slice(-25)
+    },
+    null,
+    2
+  );
 }
 
 async function refreshHistoryNow() {
@@ -233,6 +302,7 @@ function createWindow() {
   });
 
   cloudSession = new CloudSessionClient({
+    localSettings: settingsStore?.get?.(),
     onConversationState: async (state, brainSessionId) => {
       const runtimeInstance = runtime;
 
@@ -296,6 +366,14 @@ function createWindow() {
     }
   });
 
+  if (settingsStore) {
+    desktopUiState.setSettings(settingsStore.get());
+  }
+  desktopUiState.setSystemState({
+    ...createDefaultSystemStatus(),
+    microphonePermissionStatus: getMicrophonePermissionStatus()
+  });
+
   void cloudSession.getExecutorHealth().then((health) =>
     runtime?.setExecutionContext({
       executionMode: cloudSession.execution.mode,
@@ -320,7 +398,20 @@ function createWindow() {
   mainWindow.loadFile(rendererEntry);
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  settingsStore = new DesktopSettingsStore({
+    directory: app.getPath("userData")
+  });
+  try {
+    await settingsStore.load();
+  } catch (error) {
+    logDesktopError("settings load failed", {
+      error: serializeUnknownError(error)
+    });
+  }
+  desktopUiState.setSettings(settingsStore.get());
+  await refreshSystemStatus();
+
   app.setName("Relay");
   if (process.platform === "darwin" && app.dock) {
     app.dock.setIcon(relayIconPath);
@@ -409,7 +500,15 @@ app.whenReady().then(() => {
 
   registerIpcHandle("system:request-microphone-access", async (event) => {
     assertTrustedSender(event);
-    return requestMacMicrophoneAccess();
+    const granted = await requestMacMicrophoneAccess();
+    await refreshSystemStatus();
+    return granted;
+  });
+
+  registerIpcHandle("system:get-microphone-access-status", async (event) => {
+    assertTrustedSender(event);
+    const state = await refreshSystemStatus();
+    return state.microphonePermissionStatus;
   });
 
   registerIpcHandle("live:init", async (event) => {
@@ -422,6 +521,7 @@ app.whenReady().then(() => {
 
   registerIpcHandle("desktop-ui:init", async (event) => {
     assertTrustedSender(event);
+    await refreshSystemStatus();
     const [sessionState, liveState, historyState] = await Promise.all([
       runtime.init(),
       cloudSession.getState(),
@@ -431,6 +531,32 @@ app.whenReady().then(() => {
     desktopUiState.setLiveState(liveState);
     desktopUiState.setHistoryState(historyState);
     return desktopUiState.compose();
+  });
+
+  registerIpcHandle("desktop-ui:get-settings", async (event) => {
+    assertTrustedSender(event);
+    return settingsStore?.get?.() ?? null;
+  });
+
+  registerIpcHandle("desktop-ui:update-settings", async (event, patch) => {
+    assertTrustedSender(event);
+    const nextSettings = await settingsStore.update(patch);
+    await applyDesktopSettings(nextSettings);
+    return nextSettings;
+  });
+
+  registerIpcHandle("desktop-ui:reset-settings", async (event) => {
+    assertTrustedSender(event);
+    const nextSettings = await settingsStore.reset();
+    await applyDesktopSettings(nextSettings);
+    return nextSettings;
+  });
+
+  registerIpcHandle("desktop-ui:copy-diagnostics", async (event) => {
+    assertTrustedSender(event);
+    const snapshot = buildDiagnosticsSnapshot();
+    clipboard.writeText(snapshot);
+    return snapshot;
   });
 
   registerIpcHandle("desktop-ui:retry-executor-health", async (event) => {

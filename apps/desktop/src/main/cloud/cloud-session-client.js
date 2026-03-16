@@ -1,4 +1,5 @@
 import { createLocalExecutionLayer } from "../execution/local-execution-layer.js";
+import { normalizeDesktopSettings } from "../ui/desktop-settings.js";
 
 function createInitialState() {
   return {
@@ -7,6 +8,10 @@ function createInitialState() {
     status: "idle",
     muted: false,
     error: null,
+    activityDetection: {
+      mode: "auto",
+      source: "server"
+    },
     routing: { mode: "idle", summary: "", detail: "" },
     conversationTimeline: [],
     conversationTurns: [],
@@ -56,8 +61,23 @@ function normalizeError(error) {
   return String(error);
 }
 
+function shouldKeepLocalExecutionAvailable(previousHealth, phase, nextHealth) {
+  if (phase !== "full") {
+    return false;
+  }
+
+  if (!previousHealth?.canRunLocalTasks) {
+    return false;
+  }
+
+  return (
+    nextHealth?.status === "unhealthy" &&
+    (nextHealth.code === "probe_timeout" || nextHealth.code === "probe_failed_unknown")
+  );
+}
+
 function isLiveInputDebugEnabled() {
-  return process.env.NODE_ENV !== "production";
+  return process.env.LIVE_INPUT_DEBUG?.trim() === "1";
 }
 
 async function waitForSocketClose(socket, timeoutMs = 250) {
@@ -108,6 +128,7 @@ export class CloudSessionClient {
       mode: process.env.DESKTOP_EXECUTOR,
       onRawEvent: options.onRawExecutorEvent
     });
+    this.localSettings = normalizeDesktopSettings(options.localSettings);
     this.onExecutorHealth = options.onExecutorHealth;
     this.seenConversationDebugIds = new Set();
     this.lastIntakeDebugKey = null;
@@ -129,6 +150,11 @@ export class CloudSessionClient {
 
   async getExecutorHealth() {
     return { ...this.executorHealth };
+  }
+
+  async setLocalSettings(settings) {
+    this.localSettings = normalizeDesktopSettings(settings);
+    return structuredClone(this.localSettings);
   }
 
   async publishExecutorHealth() {
@@ -167,13 +193,19 @@ export class CloudSessionClient {
     return "Gemini CLI is not ready on this machine yet.";
   }
 
+  formatLocalExecutionDisabledBlocker() {
+    return "Local task execution is turned off in Relay settings. Enable it in Settings > Local Executor to run Gemini-backed tasks on this machine.";
+  }
+
   async runExecutorHealthCheck(phase = "full") {
+    const previousHealth = this.executorHealth;
     await this.setExecutorHealth({
       status: "checking",
       code: null,
-      canRunLocalTasks: false,
-      checkedAt: this.executorHealth.checkedAt,
-      commandPath: this.executorHealth.commandPath,
+      canRunLocalTasks:
+        phase === "full" ? previousHealth.canRunLocalTasks : false,
+      checkedAt: previousHealth.checkedAt,
+      commandPath: previousHealth.commandPath,
       stderrSnippet: null,
       summary:
         phase === "binary"
@@ -197,20 +229,27 @@ export class CloudSessionClient {
         phase,
         now: () => new Date().toISOString()
       });
-      await this.setExecutorHealth(result);
+      const nextHealth = shouldKeepLocalExecutionAvailable(previousHealth, phase, result)
+        ? {
+            ...result,
+            canRunLocalTasks: true
+          }
+        : result;
+      await this.setExecutorHealth(nextHealth);
       await this.emitExecutorHealthDebugEvent(
         "health_check_result",
-        result.summary,
+        nextHealth.summary,
         JSON.stringify({
           phase,
-          status: result.status,
-          code: result.code,
-          commandPath: result.commandPath,
-          checkedAt: result.checkedAt,
-          stderrSnippet: result.stderrSnippet ?? null
+          status: nextHealth.status,
+          code: nextHealth.code,
+          commandPath: nextHealth.commandPath,
+          checkedAt: nextHealth.checkedAt,
+          stderrSnippet: nextHealth.stderrSnippet ?? null,
+          canRunLocalTasks: nextHealth.canRunLocalTasks
         })
       );
-      return result;
+      return nextHealth;
     } catch (error) {
       const message = normalizeError(error);
       const fallback = createExecutorHealthState({
@@ -287,7 +326,6 @@ export class CloudSessionClient {
     const wsUrl = String(payload.wsUrl);
     await this.openWebSocket(wsUrl);
     await this.refreshHistory();
-    void this.runExecutorHealthCheck("full");
     return this.getState();
   }
 
@@ -347,6 +385,10 @@ export class CloudSessionClient {
     return this.getState();
   }
 
+  getActivityDetectionMode() {
+    return this.state.activityDetection?.mode === "manual" ? "manual" : "auto";
+  }
+
   sendAudioChunk(audioData, mimeType = "audio/pcm;rate=16000") {
     const ready = this.isREADYForLiveInput();
     if (this.state.muted || !ready) {
@@ -371,6 +413,9 @@ export class CloudSessionClient {
   }
 
   startActivity() {
+    if (this.getActivityDetectionMode() !== "manual") {
+      return;
+    }
     const ready = this.isREADYForLiveInput();
     if (this.state.muted || !ready) {
       if (isLiveInputDebugEnabled()) {
@@ -393,6 +438,9 @@ export class CloudSessionClient {
   }
 
   endActivity() {
+    if (this.getActivityDetectionMode() !== "manual") {
+      return;
+    }
     const ready = this.isREADYForLiveInput();
     if (!ready) {
       if (isLiveInputDebugEnabled()) {
@@ -679,6 +727,26 @@ export class CloudSessionClient {
   }
 
   async handleExecutorRequest(request) {
+    if (this.localSettings.executor.enabled !== true) {
+      const error = this.formatLocalExecutionDisabledBlocker();
+      await this.emitExecutorHealthDebugEvent(
+        "local_execution_disabled",
+        "Blocked local task because local execution is disabled in settings.",
+        JSON.stringify({
+          taskId: request.taskId,
+          message: error
+        })
+      );
+      this.send({
+        type: "executor_terminal",
+        runId: request.runId,
+        taskId: request.taskId,
+        ok: false,
+        error
+      });
+      return;
+    }
+
     if (!this.executorHealth.canRunLocalTasks) {
       const error = this.formatExecutorHealthBlocker();
       await this.emitExecutorHealthDebugEvent(

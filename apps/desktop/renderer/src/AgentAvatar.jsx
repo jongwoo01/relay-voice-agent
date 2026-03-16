@@ -71,24 +71,24 @@ const TARGETS = {
   idle: {
     tiltX: -0.06,
     tiltY: 0.22,
-    scale: 1,
-    signalSpeed: 0.4,
+    scale: 1.05,
+    signalSpeed: 0.5,
     scanlineSize: 10.5,
-    brightness: 1.02,
+    brightness: 1.05,
     glitch: 0.02,
-    mediumRadius: 1.24,
-    outerRadius: 1.78
+    mediumRadius: 1.3,
+    outerRadius: 1.9
   },
   listening: {
     tiltX: -0.1,
     tiltY: 0.28,
-    scale: 1.05,
-    signalSpeed: 1.2,
+    scale: 1.25,
+    signalSpeed: 2.0,
     scanlineSize: 11.2,
-    brightness: 1.15,
+    brightness: 1.25,
     glitch: 0.04,
-    mediumRadius: 1.02,
-    outerRadius: 1.5
+    mediumRadius: 1.1,
+    outerRadius: 1.6
   },
   thinking: {
     tiltX: -0.18,
@@ -104,46 +104,46 @@ const TARGETS = {
   waiting_user: {
     tiltX: -0.08,
     tiltY: 0.08,
-    scale: 1.01,
+    scale: 1.05,
     signalSpeed: 0.82,
     scanlineSize: 11.6,
     brightness: 1.14,
     glitch: 0.05,
-    mediumRadius: 1.16,
-    outerRadius: 1.72
+    mediumRadius: 1.2,
+    outerRadius: 1.8
   },
   briefing: {
     tiltX: -0.02,
     tiltY: 0.2,
-    scale: 1.05,
-    signalSpeed: 1.1,
+    scale: 1.15,
+    signalSpeed: 1.8,
     scanlineSize: 12.4,
-    brightness: 1.22,
+    brightness: 1.25,
     glitch: 0.06,
-    mediumRadius: 1.36,
-    outerRadius: 2.04
+    mediumRadius: 1.45,
+    outerRadius: 2.2
   },
   speaking: {
     tiltX: -0.04,
     tiltY: 0.16,
-    scale: 1.08,
-    signalSpeed: 1.6,
+    scale: 1.3,
+    signalSpeed: 2.5,
     scanlineSize: 13.2,
-    brightness: 1.28,
-    glitch: 0.08,
-    mediumRadius: 1.48,
-    outerRadius: 2.32
+    brightness: 1.4,
+    glitch: 0.1,
+    mediumRadius: 1.6,
+    outerRadius: 2.8
   },
   interrupted: {
     tiltX: 0.12,
     tiltY: -0.12,
-    scale: 0.97,
-    signalSpeed: 0.8,
+    scale: 0.85,
+    signalSpeed: 0.5,
     scanlineSize: 8.4,
-    brightness: 0.98,
-    glitch: 0.22,
-    mediumRadius: 1.28,
-    outerRadius: 1.88
+    brightness: 0.9,
+    glitch: 0.4,
+    mediumRadius: 1.0,
+    outerRadius: 1.4
   }
 };
 
@@ -657,6 +657,7 @@ function ClusteredCubeAvatar({
   const tempColor = useMemo(() => new Color(), []);
   const baseColor = useMemo(() => new Color(palette.hologram), [palette.hologram]);
   const accentColor = useMemo(() => new Color(palette.accent), [palette.accent]);
+  const pureWhite = useMemo(() => new Color("#ffffff"), []);
   const tempVectorA = useMemo(() => new Vector3(), []);
   const tempVectorB = useMemo(() => new Vector3(), []);
 
@@ -859,7 +860,7 @@ function ClusteredCubeAvatar({
         tempObject.updateMatrix();
         frontLayerRef.current.setMatrixAt(index, tempObject.matrix);
 
-        tempColor.copy(baseColor).lerp(accentColor, 0.2 + config.tintMix * 0.44 + s.activity * 0.16);
+        tempColor.copy(pureWhite).lerp(baseColor, 0.1 + config.tintMix * 0.2 + s.activity * 0.1);
         frontLayerRef.current.setColorAt(index, tempColor);
       }
 
@@ -888,7 +889,7 @@ function ClusteredCubeAvatar({
         tempObject.updateMatrix();
         mediumLayerRef.current.setMatrixAt(index, tempObject.matrix);
 
-        tempColor.copy(baseColor).lerp(accentColor, config.tintMix * 0.52 + s.activity * 0.18);
+        tempColor.copy(pureWhite).lerp(baseColor, 0.1 + config.tintMix * 0.25 + s.activity * 0.1);
         mediumLayerRef.current.setColorAt(index, tempColor);
       }
 
@@ -926,7 +927,7 @@ function ClusteredCubeAvatar({
         tempObject.updateMatrix();
         outerLayerRef.current.setMatrixAt(index, tempObject.matrix);
 
-        tempColor.copy(accentColor).lerp(baseColor, config.tintMix * 0.72);
+        tempColor.copy(pureWhite).lerp(baseColor, 0.15 + config.tintMix * 0.3);
         outerLayerRef.current.setColorAt(index, tempColor);
       }
 
@@ -955,7 +956,7 @@ function ClusteredCubeAvatar({
         tempObject.updateMatrix();
         distantLayerRef.current.setMatrixAt(index, tempObject.matrix);
 
-        tempColor.copy(baseColor).lerp(accentColor, 0.24 + config.tintMix * 0.4);
+        tempColor.copy(pureWhite).lerp(baseColor, 0.2 + config.tintMix * 0.2);
         distantLayerRef.current.setColorAt(index, tempColor);
       }
 
@@ -977,7 +978,7 @@ function ClusteredCubeAvatar({
         tempObject.updateMatrix();
         distantLinkLayerRef.current.setMatrixAt(index, tempObject.matrix);
 
-        tempColor.copy(baseColor).lerp(accentColor, 0.36 + index * 0.04);
+        tempColor.copy(pureWhite).lerp(baseColor, 0.25 + index * 0.02);
         distantLinkLayerRef.current.setColorAt(index, tempColor);
       }
 
@@ -1032,7 +1033,6 @@ function ClusteredCubeAvatar({
           <boxGeometry args={[1, 1, 1]} />
           <meshBasicMaterial
             color="#ffffff"
-            vertexColors
             transparent
             opacity={0.08}
             depthWrite={false}
@@ -1050,7 +1050,6 @@ function ClusteredCubeAvatar({
           <boxGeometry args={[1, 1, 1]} />
           <meshBasicMaterial
             color="#ffffff"
-            vertexColors
             transparent
             opacity={0.04}
             depthWrite={false}
@@ -1063,7 +1062,6 @@ function ClusteredCubeAvatar({
           <boxGeometry args={[1, 1, 1]} />
           <meshBasicMaterial
             color="#ffffff"
-            vertexColors
             transparent
             opacity={0.16}
             depthWrite={false}
@@ -1076,7 +1074,6 @@ function ClusteredCubeAvatar({
           <boxGeometry args={[1, 1, 1]} />
           <meshBasicMaterial
             color="#ffffff"
-            vertexColors
             transparent
             opacity={0.26}
             depthWrite={false}
@@ -1089,7 +1086,6 @@ function ClusteredCubeAvatar({
           <boxGeometry args={[1, 1, 1]} />
           <meshBasicMaterial
             color="#ffffff"
-            vertexColors
             transparent
             opacity={0.3}
             depthTest={false}
@@ -1179,7 +1175,7 @@ export function AgentAvatar({
       className="relative flex items-center justify-center pointer-events-none"
       style={{ width: "min(700px, 76vh)", height: "min(700px, 76vh)" }}
     >
-      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.15)_0%,rgba(56,189,248,0.08)_34%,rgba(255,255,255,0)_76%)] blur-3xl" />
+      <div className="absolute inset-[-40px] rounded-full blur-3xl opacity-90" style={{ background: "radial-gradient(circle at center, rgba(30,58,138,1) 0%, rgba(15,23,42,0.8) 40%, rgba(0,0,0,0) 70%)" }} />
       <Canvas
         dpr={[1, 1.5]}
         gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}

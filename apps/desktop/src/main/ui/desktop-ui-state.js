@@ -1,3 +1,8 @@
+import {
+  createDefaultDesktopSettings,
+  createDefaultSystemStatus
+} from "./desktop-settings.js";
+
 function compareByTimestamp(left, right) {
   return new Date(left).getTime() - new Date(right).getTime();
 }
@@ -93,6 +98,8 @@ export class DesktopUiStateStore {
     this.sessionState = null;
     this.liveState = null;
     this.historyState = null;
+    this.settings = null;
+    this.systemState = null;
     this.debugEvents = [];
   }
 
@@ -106,6 +113,14 @@ export class DesktopUiStateStore {
 
   setHistoryState(state) {
     this.historyState = state;
+  }
+
+  setSettings(settings) {
+    this.settings = settings;
+  }
+
+  setSystemState(state) {
+    this.systemState = state;
   }
 
   appendDebugEvent(event) {
@@ -157,6 +172,10 @@ export class DesktopUiStateStore {
       status: "idle",
       muted: false,
       error: null,
+      activityDetection: {
+        mode: "auto",
+        source: "server"
+      },
       routing: { mode: "idle", summary: "", detail: "" },
       conversationTimeline: [],
       conversationTurns: [],
@@ -170,6 +189,8 @@ export class DesktopUiStateStore {
       error: null,
       sessions: []
     };
+    const settings = this.settings ?? createDefaultDesktopSettings();
+    const systemState = this.systemState ?? createDefaultSystemStatus();
 
     const conversationTurns = dedupeTurns(liveState.conversationTurns ?? []);
     const conversationTimeline = dedupeTimeline(
@@ -218,12 +239,18 @@ export class DesktopUiStateStore {
         error: historyState.error ?? null,
         sessions: historyState.sessions ?? []
       },
+      settings,
+      systemStatus: systemState,
       voiceControlState: {
         connected: liveState.connected,
         connecting: liveState.connecting,
         status: liveState.status,
         muted: liveState.muted,
         error: liveState.error,
+        activityDetection: liveState.activityDetection ?? {
+          mode: "auto",
+          source: "server"
+        },
         routing: liveState.routing,
         mic: sessionState.mic,
         activity: sessionState.activity
