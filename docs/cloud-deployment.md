@@ -4,6 +4,19 @@ This repository now includes a Cloud Run service entrypoint, Dockerfile, and dep
 
 Use this document to keep the public submission claims accurate and to collect the evidence judges will expect.
 
+## Code-Link Proof Already In Repo
+
+Devpost allows proof of Google Cloud deployment through a code file link that demonstrates use of Google Cloud services and APIs. This repository already contains that proof path even if screenshots or recordings are attached separately later.
+
+- `apps/agent-api/src/modules/config/genai-client-factory.ts`
+  - creates a `GoogleGenAI` Vertex AI client with `vertexai: true`, project, location, and API version
+- `apps/agent-api/src/modules/live/google-live-api-transport.ts`
+  - opens the Gemini Live session from the hosted agent service
+- `apps/agent-api/src/server.ts`
+  - fails fast unless the hosted runtime has Google Cloud and Postgres configuration
+- `scripts/deploy-agent-api-cloud-run.sh`
+  - builds the image, pushes through Cloud Build / Artifact Registry, and deploys to Cloud Run with Cloud SQL support
+
 ## What The Repo Already Supports
 
 - `apps/agent-api`
@@ -134,8 +147,8 @@ When writing the public submission:
 
 ## Current Gap
 
-The main remaining cloud-packaging gap is not agent behavior. It is operational proof:
+The main remaining cloud-packaging gap is not whether the repo shows Google Cloud usage. That proof already exists in code. The remaining gap is operational packaging:
 
 - judge-safe access details
-- screenshots or logs from the deployed environment
+- screenshots or recordings from the deployed environment
 - optional Terraform or broader infrastructure-as-code if you want bonus-point packaging depth

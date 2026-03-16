@@ -40,9 +40,16 @@ This repository contains the public submission package for the prototype:
 
 ## What Is Still Outside The Repo-Managed Submission Package
 
-- No committed Cloud deployment screenshots or public proof artifacts yet
+- No committed Cloud deployment screenshots or screen-recording proof artifacts yet
 - No Terraform or broader infrastructure-as-code stack yet
 - No judge credentials or private hosted-demo access details are stored in this repository
+
+The public repository does already contain code-level Google Cloud proof that can be linked in the submission:
+
+- Google GenAI SDK usage for Vertex AI and Gemini Live client creation in `apps/agent-api/src/modules/config/genai-client-factory.ts`
+- Gemini Live connection setup in `apps/agent-api/src/modules/live/google-live-api-transport.ts`
+- Cloud Run + Artifact Registry + Cloud SQL deployment automation in `scripts/deploy-agent-api-cloud-run.sh`
+- Hosted runtime startup guards for Google Cloud and Postgres in `apps/agent-api/src/server.ts`
 
 These gaps are documented on purpose so the public repository does not over-claim what has already been packaged.
 
@@ -304,7 +311,7 @@ The repository is intentionally organized so the core behavior can be verified w
 
 ## Known Limits
 
-- The public repo packages the hosted runtime and Relay desktop app, but final submission proof still depends on deployed-environment artifacts
-- Cloud deployment proof must be attached from the deployed environment; it cannot be inferred from this repo alone
+- The public repo packages the hosted runtime and Relay desktop app, and it also contains code-link proof for Google Cloud usage, but screenshot or recording proof still depends on deployed-environment artifacts
+- Cloud deployment proof can be satisfied either by deployed-environment artifacts or by linking the relevant Google Cloud integration files in this repository
 - Voice mode depends on local microphone/audio permissions and Gemini Live availability
 - Cloud SQL persistence exists at the repository and migration layer, but the hosted judge path is intentionally Postgres-only
