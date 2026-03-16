@@ -317,6 +317,54 @@ describe("google-live-api-transport", () => {
     expect(events).toContainEqual({ type: "turn_complete" });
   });
 
+  it("forwards interrupted and tool cancellation events from the same server message", async () => {
+    const events: unknown[] = [];
+    let onmessage: ((message: LiveServerMessage) => void) | undefined;
+    const connect = vi.fn(async (params) => {
+      onmessage = params.callbacks.onmessage;
+      return {
+        sendClientContent: vi.fn(),
+        sendToolResponse: vi.fn(),
+        sendRealtimeInput: vi.fn(),
+        close: vi.fn()
+      };
+    });
+
+    const transport = new GoogleLiveApiTransport(undefined, () => ({
+      live: { connect }
+    }));
+
+    await transport.connect({
+      brainSessionId: "brain-cancelled",
+      callbacks: {
+        onevent: async (event) => {
+          events.push(event);
+        }
+      }
+    });
+
+    onmessage?.({
+      serverContent: {
+        interrupted: true,
+        waitingForInput: true,
+        turnComplete: true
+      },
+      toolCallCancellation: {
+        ids: ["call-1"]
+      }
+    } as LiveServerMessage);
+
+    await flushAsyncWork();
+
+    expect(events).toContainEqual({ type: "interrupted" });
+    expect(events).toContainEqual({ type: "waiting_for_input" });
+    expect(events).toContainEqual({ type: "turn_complete" });
+    expect(events).toContainEqual({
+      type: "tool_call_cancellation",
+      ids: ["call-1"]
+    });
+  });
+
   it("forwards output audio chunks", async () => {
     const events: unknown[] = [];
     let onmessage: ((message: LiveServerMessage) => void) | undefined;

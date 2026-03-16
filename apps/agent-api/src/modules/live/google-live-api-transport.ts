@@ -27,7 +27,7 @@ export function resolveDefaultLiveModel(): string {
 export const DEFAULT_LIVE_MODEL = resolveDefaultLiveModel();
 
 function isLiveTransportDebugEnabled(): boolean {
-  return process.env.NODE_ENV !== "production";
+  return process.env.LIVE_INPUT_DEBUG?.trim() === "1";
 }
 
 export type GoogleLiveTransportEvent =

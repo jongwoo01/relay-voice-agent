@@ -54,12 +54,49 @@ function supportsExplicitVadSignal(): boolean {
   return false;
 }
 
-function usesManualActivityDetection(): boolean {
-  return true;
+type LiveActivityDetectionMode = "manual" | "auto";
+
+function resolveLiveActivityDetectionMode(
+  env: NodeJS.ProcessEnv = process.env
+): LiveActivityDetectionMode {
+  const raw = env.LIVE_ACTIVITY_DETECTION_MODE?.trim().toLowerCase();
+  // Default to client-driven activity boundaries because Gemini Live automatic
+  // VAD has been less reliable for transcript start detection in the desktop app.
+  return raw === "auto" ? "auto" : "manual";
+}
+
+function createLiveActivityDetectionSnapshot(mode: LiveActivityDetectionMode): {
+  mode: LiveActivityDetectionMode;
+  source: "server";
+} {
+  return {
+    mode,
+    source: "server"
+  };
+}
+
+function createRealtimeInputConfig(mode: LiveActivityDetectionMode) {
+  return {
+    activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+    turnCoverage: TurnCoverage.TURN_INCLUDES_ONLY_ACTIVITY,
+    automaticActivityDetection:
+      mode === "manual"
+        ? {
+            disabled: true
+          }
+        : {
+            disabled: false,
+            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
+            // Increase leading capture and end-of-turn patience to reduce clipped openings on Gemini API live.
+            prefixPaddingMs: 720,
+            silenceDurationMs: 260
+          }
+  };
 }
 
 function isLiveInputDebugEnabled(): boolean {
-  return process.env.NODE_ENV !== "production";
+  return process.env.LIVE_INPUT_DEBUG?.trim() === "1";
 }
 
 export interface CloudAgentSessionLoopLike {
@@ -505,6 +542,8 @@ export class CloudAgentSession {
   private readonly notifications: AssistantDeliveryPlan[] = [];
   private readonly pendingToolContinuations = new Map<string, string>();
   private readonly functionCallTaskBindings = new Map<string, string>();
+  private readonly cancelledToolCallIds = new Set<string>();
+  private readonly cancelledTaskIds = new Set<string>();
   private liveSessionGeneration = 0;
   private reconnectPromise: Promise<void> | null = null;
   private sessionMemoryUpdatePromise: Promise<void> | null = null;
@@ -516,12 +555,14 @@ export class CloudAgentSession {
   private closePromise: Promise<void> | null = null;
   private pendingVoiceTurnId: string | null = null;
   private pendingVoiceFinalTranscript: string | null = null;
+  private readonly liveActivityDetectionMode: LiveActivityDetectionMode;
   private readonly conversationState: HostedConversationStateSnapshot = {
     connected: false,
     connecting: false,
     status: "idle",
     muted: false,
     error: null,
+    activityDetection: createLiveActivityDetectionSnapshot("auto"),
     routing: {
       mode: "idle",
       summary: "No request is being reviewed yet.",
@@ -548,7 +589,11 @@ export class CloudAgentSession {
     },
     dependencies: CloudAgentSessionDependencies = {}
   ) {
+    this.liveActivityDetectionMode = resolveLiveActivityDetectionMode();
     this.now = dependencies.now ?? nowIso;
+    this.conversationState.activityDetection = createLiveActivityDetectionSnapshot(
+      this.liveActivityDetectionMode
+    );
     this.sessionMemoryService =
       dependencies.sessionMemoryService ??
       dependencies.profileMemoryService ??
@@ -655,22 +700,7 @@ export class CloudAgentSession {
         thinkingConfig: {
           thinkingBudget: 0
         },
-        realtimeInputConfig: {
-          activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
-          turnCoverage: TurnCoverage.TURN_INCLUDES_ONLY_ACTIVITY,
-          automaticActivityDetection: usesManualActivityDetection()
-            ? {
-                disabled: true
-              }
-            : {
-                disabled: false,
-                startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-                endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
-                // Increase leading capture and end-of-turn patience to reduce clipped openings on Gemini API live.
-                prefixPaddingMs: 720,
-                silenceDurationMs: 260
-              }
-        },
+        realtimeInputConfig: createRealtimeInputConfig(this.liveActivityDetectionMode),
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: {
@@ -809,7 +839,7 @@ export class CloudAgentSession {
         this.liveSession?.sendRealtimeAudio(event.data, event.mimeType);
         break;
       case "activity_start":
-        if (usesManualActivityDetection()) {
+        if (this.liveActivityDetectionMode === "manual") {
           this.incomingActivitySequence += 1;
           this.incomingAudioChunkCount = 0;
           if (isLiveInputDebugEnabled()) {
@@ -822,7 +852,7 @@ export class CloudAgentSession {
         }
         break;
       case "activity_end":
-        if (usesManualActivityDetection()) {
+        if (this.liveActivityDetectionMode === "manual") {
           if (isLiveInputDebugEnabled()) {
             console.log(
               `[live-input][session] recv activity_end session=${this.input.brainSessionId} seq=${this.incomingActivitySequence} chunks=${this.incomingAudioChunkCount}`
@@ -1044,6 +1074,11 @@ export class CloudAgentSession {
           Array.isArray(event.functionCalls) ? event.functionCalls : []
         );
         return;
+      case "tool_call_cancellation":
+        this.handleToolCallCancellation(
+          Array.isArray(event.ids) ? event.ids : []
+        );
+        return;
       case "session_resumption_update":
         this.sessionResumptionHandle =
           typeof event.newHandle === "string" && event.newHandle.trim()
@@ -1135,9 +1170,16 @@ export class CloudAgentSession {
     const functionResponses = [];
 
     for (const functionCall of functionCalls) {
+      const callId =
+        typeof functionCall?.id === "string" && functionCall.id.trim()
+          ? functionCall.id
+          : undefined;
+      if (callId && this.cancelledToolCallIds.has(callId)) {
+        continue;
+      }
       if (functionCall?.name !== "delegate_to_gemini_cli") {
         functionResponses.push({
-          id: functionCall?.id,
+          id: callId,
           name: functionCall?.name ?? "unknown_tool",
           response: {
             error: `Unsupported live tool: ${functionCall?.name ?? "unknown"}`
@@ -1161,7 +1203,7 @@ export class CloudAgentSession {
 
       if (protocolResolution?.kind === "unresolved_internal_call") {
         functionResponses.push({
-          id: functionCall.id,
+          id: callId,
           name: "delegate_to_gemini_cli",
           response: {
             error: protocolResolution.message
@@ -1188,12 +1230,20 @@ export class CloudAgentSession {
         now: this.now()
       });
 
-      if (result.taskId) {
-        this.functionCallTaskBindings.set(functionCall.id, result.taskId);
+      if (callId && this.cancelledToolCallIds.has(callId)) {
+        if (result.taskId) {
+          this.cancelledTaskIds.add(result.taskId);
+          this.pendingToolContinuations.delete(result.taskId);
+        }
+        continue;
+      }
+
+      if (callId && result.taskId) {
+        this.functionCallTaskBindings.set(callId, result.taskId);
       }
 
       functionResponses.push({
-        id: functionCall.id,
+        id: callId,
         name: "delegate_to_gemini_cli",
         response: {
           output: result
@@ -1210,14 +1260,36 @@ export class CloudAgentSession {
 
     }
 
-    this.liveSession?.sendToolResponse({
-      functionResponses
-    });
+    if (functionResponses.length > 0) {
+      this.liveSession?.sendToolResponse({
+        functionResponses
+      });
+    }
     await this.broadcastTaskState();
     this.input.send({
       type: "conversation_state",
       state: this.getConversationState()
     });
+  }
+
+  private handleToolCallCancellation(ids: string[]): void {
+    for (const rawId of ids) {
+      const callId =
+        typeof rawId === "string" && rawId.trim() ? rawId.trim() : null;
+      if (!callId) {
+        continue;
+      }
+
+      this.cancelledToolCallIds.add(callId);
+      const taskId = this.functionCallTaskBindings.get(callId);
+      if (!taskId) {
+        continue;
+      }
+
+      this.cancelledTaskIds.add(taskId);
+      this.pendingToolContinuations.delete(taskId);
+      this.functionCallTaskBindings.delete(callId);
+    }
   }
 
   private async flushPendingToolContinuation(taskId: string): Promise<void> {
@@ -1227,6 +1299,12 @@ export class CloudAgentSession {
     }
 
     this.pendingToolContinuations.delete(taskId);
+    if (
+      this.cancelledTaskIds.has(taskId) ||
+      this.cancelledToolCallIds.has(callId)
+    ) {
+      return;
+    }
     const loop = await this.loopPromise;
     const result = await loop.handleDelegateToGeminiCli({
       brainSessionId: this.input.brainSessionId,

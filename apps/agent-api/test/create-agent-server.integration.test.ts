@@ -13,6 +13,10 @@ function createConversationState() {
     status: "listening",
     muted: false,
     error: null,
+    activityDetection: {
+      mode: "auto" as const,
+      source: "server" as const
+    },
     routing: {
       mode: "idle",
       summary: "ready",

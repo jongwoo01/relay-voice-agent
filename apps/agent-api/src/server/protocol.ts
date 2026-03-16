@@ -43,6 +43,10 @@ export interface HostedConversationStateSnapshot {
   status: string;
   muted: boolean;
   error: string | null;
+  activityDetection: {
+    mode: "manual" | "auto";
+    source: "server";
+  };
   routing: {
     mode: string;
     summary: string;
