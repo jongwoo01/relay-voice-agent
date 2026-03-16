@@ -32,6 +32,22 @@ function formatPermissionStatus(value) {
   return "Unknown";
 }
 
+function formatStatusLabel(value) {
+  if (value === "ready") {
+    return "Ready";
+  }
+
+  if (value === "warning") {
+    return "Needs Attention";
+  }
+
+  if (value === "error") {
+    return "Blocked";
+  }
+
+  return "Unknown";
+}
+
 function Section({ title, description, children }) {
   return (
     <section className="rounded-[28px] border border-gray-200/80 bg-white/85 px-5 py-5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.28)]">
@@ -112,6 +128,22 @@ function SecondaryButton({ children, onClick, disabled = false }) {
   );
 }
 
+function toneForStatus(status) {
+  if (status === "ready") {
+    return "success";
+  }
+
+  if (status === "warning") {
+    return "warning";
+  }
+
+  if (status === "error") {
+    return "error";
+  }
+
+  return "neutral";
+}
+
 function executorTone(executorHealth) {
   if (executorHealth.status === "healthy") {
     return "success";
@@ -128,6 +160,167 @@ function executorTone(executorHealth) {
   return "error";
 }
 
+function MetaChips({ items }) {
+  const visibleItems = items.filter(Boolean);
+  if (visibleItems.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {visibleItems.map((item) => (
+        <span
+          key={item}
+          className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[11px] text-gray-600"
+        >
+          {item}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function SetupStatusItem({ title, item, meta = [], actions = null, children = null }) {
+  return (
+    <div className="rounded-[24px] border border-gray-200 bg-white px-4 py-4 shadow-[0_14px_34px_-26px_rgba(15,23,42,0.28)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="m-0 text-sm font-semibold text-gray-800">{title}</p>
+            <Badge tone={toneForStatus(item.status)}>{formatStatusLabel(item.status)}</Badge>
+          </div>
+          <p className="m-0 mt-2 text-sm font-medium text-gray-700">{item.summary}</p>
+          <p className="m-0 mt-1 text-xs leading-relaxed text-gray-500">{item.detail}</p>
+        </div>
+        {actions ? <div className="flex shrink-0 flex-wrap justify-end gap-2">{actions}</div> : null}
+      </div>
+      <div className="mt-3 space-y-3">
+        <MetaChips items={meta} />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function MicrophoneLevelPreview({ open, selectedMicId, enabled }) {
+  const [level, setLevel] = useState(0);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!open || !enabled || !navigator.mediaDevices?.getUserMedia) {
+      setLevel(0);
+      return undefined;
+    }
+
+    let cancelled = false;
+    let stream;
+    let audioContext;
+    let analyser;
+    let source;
+    let animationFrame = 0;
+    const data = new Uint8Array(512);
+
+    const tick = () => {
+      if (!analyser || cancelled) {
+        return;
+      }
+
+      analyser.getByteTimeDomainData(data);
+      let sumSquares = 0;
+      for (let index = 0; index < data.length; index += 1) {
+        const normalized = (data[index] - 128) / 128;
+        sumSquares += normalized * normalized;
+      }
+      const rms = Math.sqrt(sumSquares / data.length);
+      setLevel(Math.min(1, rms * 5.5));
+      animationFrame = requestAnimationFrame(tick);
+    };
+
+    (async () => {
+      try {
+        setError(null);
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            ...(selectedMicId ? { deviceId: { exact: selectedMicId } } : {})
+          }
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        audioContext = new AudioContext();
+        source = audioContext.createMediaStreamSource(stream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 1024;
+        source.connect(analyser);
+        tick();
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Microphone preview failed.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+      }
+      setLevel(0);
+      source?.disconnect?.();
+      if (audioContext && audioContext.state !== "closed") {
+        void audioContext.close().catch(() => undefined);
+      }
+      stream?.getTracks?.().forEach((track) => track.stop());
+    };
+  }, [enabled, open, selectedMicId]);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-gray-400">
+          Live Input Level
+        </span>
+        <span className="text-[11px] text-gray-500">
+          {enabled ? `${Math.round(level * 100)}%` : "Unavailable"}
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-gray-200">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-sky-400 via-cyan-400 to-emerald-400 transition-[width] duration-100"
+          style={{ width: `${Math.max(4, Math.round(level * 100))}%` }}
+        />
+      </div>
+      {error ? <p className="m-0 text-[11px] text-rose-600">{error}</p> : null}
+    </div>
+  );
+}
+
+function DirectoryProbeList({ directories }) {
+  if (!Array.isArray(directories) || directories.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="grid gap-2">
+      {directories.map((directory) => (
+        <div
+          key={directory.key}
+          className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2"
+        >
+          <div className="min-w-0">
+            <p className="m-0 text-xs font-medium text-gray-700">{directory.label}</p>
+            <p className="m-0 mt-1 truncate text-[11px] text-gray-500">{directory.path || "Unavailable"}</p>
+          </div>
+          <Badge tone={directory.status === "granted" ? "success" : directory.status === "probe_failed" ? "warning" : "neutral"}>
+            {directory.status === "granted" ? "Readable" : directory.status === "probe_failed" ? "Probe Failed" : "Unavailable"}
+          </Badge>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function SettingsModal({
   open,
   onClose,
@@ -136,19 +329,24 @@ export function SettingsModal({
   microphones,
   selectedMicId,
   selectedMicrophoneLabel,
+  setupStatus,
+  setupStatusLoading,
   executionMode,
   executorHealth,
   historyLoading,
   onSelectMicrophone,
   onRefreshMicrophones,
+  onRefreshSetupStatus,
   onRequestMicrophoneAccess,
   onStartMutedChange,
   onExecutorEnabledChange,
   onRetryExecutorHealthCheck,
   onMotionPreferenceChange,
   onHeaderHealthWarningsChange,
-  onAutoOpenCompletedTasksChange,
+  onCopyText,
+  onOpenGeminiLoginTerminal,
   onOpenDeveloperConsole,
+  onOpenSupportTarget,
   debugFilters,
   onToggleDebugFilter,
   onCopyDiagnostics,
@@ -187,6 +385,8 @@ export function SettingsModal({
     return () => clearTimeout(timer);
   }, [copiedAt]);
 
+  const setup = setupStatus ?? {};
+
   return (
     <AnimatePresence>
       {open ? (
@@ -198,7 +398,7 @@ export function SettingsModal({
           onClick={onClose}
         >
           <motion.section
-            className="flex max-h-[88vh] w-full max-w-[980px] flex-col overflow-hidden rounded-[34px] border border-gray-200 bg-[#f8f9fb]/95 shadow-2xl"
+            className="flex max-h-[88vh] w-full max-w-[1040px] flex-col overflow-hidden rounded-[34px] border border-gray-200 bg-[#f8f9fb]/95 shadow-2xl"
             initial={{ y: 18, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 18, opacity: 0 }}
@@ -208,10 +408,10 @@ export function SettingsModal({
             <div className="flex items-start justify-between gap-4 border-b border-gray-200/80 px-7 py-6">
               <div>
                 <h2 className="m-0 text-xl font-semibold tracking-tight text-gray-900">
-                  Settings
+                  Setup & Settings
                 </h2>
                 <p className="m-0 mt-1 text-sm text-gray-500">
-                  Audio devices, local executor health, interface preferences, and diagnostics.
+                  Readiness checks first, then voice defaults, local executor controls, and diagnostics.
                 </p>
               </div>
               <button
@@ -224,6 +424,187 @@ export function SettingsModal({
               </button>
             </div>
             <div className="grid gap-5 overflow-y-auto px-7 py-6">
+              <Section
+                title="Setup Status"
+                description="Relay's critical readiness checks live here: voice permissions, hosted backend reachability, local Gemini CLI, file access, and trusted workspace coverage."
+              >
+                <div className="flex items-center justify-between gap-3 rounded-[22px] border border-blue-100 bg-blue-50/70 px-4 py-3">
+                  <div>
+                    <p className="m-0 text-sm font-medium text-blue-900">Readiness snapshot</p>
+                    <p className="m-0 mt-1 text-xs text-blue-700">
+                      Last checked: {formatCheckedAt(setup.checkedAt)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge tone={setupStatusLoading ? "warning" : "neutral"}>
+                      {setupStatusLoading ? "Refreshing…" : "On demand"}
+                    </Badge>
+                    <SecondaryButton
+                      onClick={() => void onRefreshSetupStatus({ refresh: true })}
+                      disabled={setupStatusLoading}
+                    >
+                      Retry checks
+                    </SecondaryButton>
+                  </div>
+                </div>
+
+                <SetupStatusItem
+                  title="Hosted backend"
+                  item={setup.hostedBackend}
+                  meta={[setup.hostedBackend?.baseUrl ? `Base URL: ${setup.hostedBackend.baseUrl}` : null]}
+                  actions={
+                    <SecondaryButton onClick={onRefreshHistory}>
+                      Refresh sessions
+                    </SecondaryButton>
+                  }
+                />
+
+                <SetupStatusItem
+                  title="Microphone"
+                  item={setup.microphone}
+                  meta={[
+                    `Permission: ${formatPermissionStatus(systemStatus.microphonePermissionStatus)}`,
+                    `Input: ${selectedMicText}`
+                  ]}
+                  actions={
+                    <>
+                      <SecondaryButton onClick={() => void onRequestMicrophoneAccess()}>
+                        Request access
+                      </SecondaryButton>
+                      {platform === "darwin" ? (
+                        <SecondaryButton
+                          onClick={() =>
+                            void globalThis.window?.desktopSystem?.openMacPrivacySettings?.("microphone")
+                          }
+                        >
+                          Open Privacy Settings
+                        </SecondaryButton>
+                      ) : null}
+                    </>
+                  }
+                >
+                  <MicrophoneLevelPreview
+                    open={open}
+                    selectedMicId={selectedMicId}
+                    enabled={systemStatus.microphonePermissionStatus === "granted"}
+                  />
+                </SetupStatusItem>
+
+                <SetupStatusItem
+                  title="Local executor binary"
+                  item={setup.localExecutorBinary}
+                  meta={[
+                    setup.localExecutorBinary?.commandPath
+                      ? `Path: ${setup.localExecutorBinary.commandPath}`
+                      : null,
+                    setup.localExecutorBinary?.version
+                      ? `Version: ${setup.localExecutorBinary.version}`
+                      : null,
+                    setup.localExecutorBinary?.commandSource
+                      ? `Source: ${setup.localExecutorBinary.commandSource}`
+                      : null
+                  ]}
+                  actions={
+                    <>
+                      <SecondaryButton onClick={() => void onCopyText("gemini --version")}>
+                        Copy setup command
+                      </SecondaryButton>
+                      <SecondaryButton
+                        onClick={() => void onOpenSupportTarget("gemini_install_docs")}
+                      >
+                        Open install docs
+                      </SecondaryButton>
+                    </>
+                  }
+                />
+
+                <SetupStatusItem
+                  title="Local executor auth"
+                  item={setup.localExecutorAuth}
+                  meta={[
+                    setup.localExecutorAuth?.selectedAuthType
+                      ? `Selected auth: ${setup.localExecutorAuth.selectedAuthType}`
+                      : "Selected auth: unknown",
+                    typeof setup.localExecutorAuth?.useExternal === "boolean"
+                      ? `External auth: ${setup.localExecutorAuth.useExternal ? "on" : "off"}`
+                      : null,
+                    typeof setup.localExecutorAuth?.envFilePresent === "boolean"
+                      ? `.gemini/.env: ${setup.localExecutorAuth.envFilePresent ? "present" : "missing"}`
+                      : null
+                  ]}
+                  actions={
+                    <>
+                      <SecondaryButton onClick={() => void onOpenGeminiLoginTerminal()}>
+                        Open Terminal for gemini login
+                      </SecondaryButton>
+                      <SecondaryButton
+                        onClick={() => void onOpenSupportTarget("gemini_auth_docs")}
+                      >
+                        Open auth docs
+                      </SecondaryButton>
+                      <SecondaryButton
+                        onClick={() => void onOpenSupportTarget("gemini_settings")}
+                      >
+                        Open ~/.gemini/settings.json
+                      </SecondaryButton>
+                    </>
+                  }
+                />
+
+                <SetupStatusItem
+                  title="Local file access"
+                  item={setup.localFileAccess}
+                  meta={[
+                    setup.localFileAccess?.probeSource
+                      ? `Probe source: ${setup.localFileAccess.probeSource}`
+                      : null
+                  ]}
+                  actions={
+                    platform === "darwin" ? (
+                      <SecondaryButton
+                        onClick={() =>
+                          void globalThis.window?.desktopSystem?.openMacPrivacySettings?.("files")
+                        }
+                      >
+                        Open Privacy Settings
+                      </SecondaryButton>
+                    ) : null
+                  }
+                >
+                  <DirectoryProbeList directories={setup.localFileAccess?.directories ?? []} />
+                </SetupStatusItem>
+
+                <SetupStatusItem
+                  title="Current workspace trust"
+                  item={setup.currentWorkspaceTrust}
+                  meta={[
+                    setup.currentWorkspaceTrust?.workspacePath
+                      ? `Workspace: ${setup.currentWorkspaceTrust.workspacePath}`
+                      : null,
+                    setup.currentWorkspaceTrust?.matchedTrustedPath
+                      ? `Matched rule: ${setup.currentWorkspaceTrust.matchedTrustedPath}`
+                      : null,
+                    setup.currentWorkspaceTrust?.trustEntriesCount >= 0
+                      ? `Trusted rules: ${setup.currentWorkspaceTrust.trustEntriesCount}`
+                      : null
+                  ]}
+                  actions={
+                    <>
+                      <SecondaryButton
+                        onClick={() => void onOpenSupportTarget("gemini_trusted_folders")}
+                      >
+                        Open trustedFolders.json
+                      </SecondaryButton>
+                      <SecondaryButton
+                        onClick={() => void onOpenSupportTarget("gemini_trusted_docs")}
+                      >
+                        Open trust docs
+                      </SecondaryButton>
+                    </>
+                  }
+                />
+              </Section>
+
               <Section
                 title="Audio & Voice"
                 description="Choose the default microphone and how voice capture should behave when a session starts."
@@ -273,7 +654,7 @@ export function SettingsModal({
                     {platform === "darwin" ? (
                       <SecondaryButton
                         onClick={() =>
-                          void globalThis.window?.desktopSystem?.openMacPrivacySettings?.()
+                          void globalThis.window?.desktopSystem?.openMacPrivacySettings?.("microphone")
                         }
                       >
                         Open Privacy Settings
@@ -304,30 +685,43 @@ export function SettingsModal({
                   description="Checks whether the CLI is installed, authenticated, and ready for local tasks."
                   action={<Badge tone={executorTone(executorHealth)}>{executorHealth.code ?? "unknown"}</Badge>}
                 >
-                  <div className="space-y-2">
-                    <p className="m-0 text-sm font-medium text-gray-800">
-                      {executorHealth.summary}
-                    </p>
-                    <p className="m-0 text-sm leading-relaxed text-gray-600">
-                      {executorHealth.detail}
-                    </p>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="m-0 text-sm font-medium text-gray-800">
+                        {executorHealth.summary}
+                      </p>
+                      <p className="m-0 mt-1 text-sm leading-relaxed text-gray-600">
+                        {executorHealth.detail}
+                      </p>
+                    </div>
+                    {executorHealth.stderrSnippet ? (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+                        <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                          Saved stderr snippet
+                        </p>
+                        <pre className="m-0 mt-2 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-amber-900">
+                          {executorHealth.stderrSnippet}
+                        </pre>
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap gap-2 text-xs text-gray-500">
                       <span>Last checked: {formatCheckedAt(executorHealth.checkedAt)}</span>
                       <span>Command: {executorHealth.commandPath ?? "unknown"}</span>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <SecondaryButton onClick={onRetryExecutorHealthCheck}>
-                        Retry health check
+                        Retry checks
                       </SecondaryButton>
-                      {platform === "darwin" ? (
-                        <SecondaryButton
-                          onClick={() =>
-                            void globalThis.window?.desktopSystem?.openMacPrivacySettings?.()
-                          }
-                        >
-                          Open Privacy Settings
-                        </SecondaryButton>
-                      ) : null}
+                      <SecondaryButton
+                        onClick={() => void onOpenSupportTarget("gemini_auth_docs")}
+                      >
+                        Open auth docs
+                      </SecondaryButton>
+                      <SecondaryButton
+                        onClick={() => void onOpenSupportTarget("gemini_settings")}
+                      >
+                        Open ~/.gemini/settings.json
+                      </SecondaryButton>
                     </div>
                   </div>
                 </SettingRow>
@@ -376,20 +770,6 @@ export function SettingsModal({
                 </SettingRow>
 
                 <SettingRow
-                  title="Auto-open completed tasks"
-                  description="Open the completed task drawer automatically when a running task finishes."
-                  action={
-                    <Toggle
-                      checked={settings.ui.autoOpenCompletedTasks}
-                      onChange={(nextValue) =>
-                        void onAutoOpenCompletedTasksChange(nextValue)
-                      }
-                      label="Auto-open completed tasks"
-                    />
-                  }
-                />
-
-                <SettingRow
                   title="Show header health warnings"
                   description="Keep the Gemini CLI warning banner visible in the main session header after unlock."
                   action={
@@ -413,7 +793,7 @@ export function SettingsModal({
 
               <Section
                 title="Advanced"
-                description="Read-only execution context, debug defaults, and one-shot troubleshooting tools."
+                description="Read-only execution context, debug defaults, and troubleshooting tools."
               >
                 <SettingRow
                   title="Execution mode"
@@ -444,7 +824,7 @@ export function SettingsModal({
 
                 <SettingRow
                   title="Diagnostics"
-                  description="Open the developer console, copy a diagnostics snapshot, or refresh recent sessions from the hosted service."
+                  description="Open the developer console, copy a diagnostics snapshot, refresh recent sessions, or reset all local settings."
                 >
                   <div className="flex flex-wrap gap-2">
                     <SecondaryButton onClick={onOpenDeveloperConsole}>
@@ -464,7 +844,7 @@ export function SettingsModal({
                       {historyLoading ? "Refreshing sessions…" : "Refresh recent sessions"}
                     </SecondaryButton>
                     <SecondaryButton onClick={onResetSettings}>
-                      Clear local UI preferences
+                      Reset all local settings
                     </SecondaryButton>
                   </div>
                 </SettingRow>

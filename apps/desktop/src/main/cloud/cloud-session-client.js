@@ -1,5 +1,6 @@
 import { createLocalExecutionLayer } from "../execution/local-execution-layer.js";
 import { normalizeDesktopSettings } from "../ui/desktop-settings.js";
+import { isExecutorCancelledError } from "@agent/gemini-cli-runner";
 
 function createInitialState() {
   return {
@@ -16,6 +17,7 @@ function createInitialState() {
     conversationTimeline: [],
     conversationTurns: [],
     activeTurnId: null,
+    rawInputPartial: "",
     inputPartial: "",
     lastUserTranscript: "",
     outputTranscript: ""
@@ -135,6 +137,7 @@ export class CloudSessionClient {
     this.liveAudioChunkCount = 0;
     this.liveActivitySequence = 0;
     this.executorHealth = createExecutorHealthState();
+    this.lastExecutorWorkingDirectory = null;
   }
 
   async getState() {
@@ -150,6 +153,15 @@ export class CloudSessionClient {
 
   async getExecutorHealth() {
     return { ...this.executorHealth };
+  }
+
+  getSetupContext() {
+    return {
+      baseUrl: this.baseUrl,
+      sessionToken: this.sessionToken,
+      connected: this.state.connected === true,
+      lastExecutorWorkingDirectory: this.lastExecutorWorkingDirectory
+    };
   }
 
   async setLocalSettings(settings) {
@@ -727,6 +739,12 @@ export class CloudSessionClient {
   }
 
   async handleExecutorRequest(request) {
+    this.lastExecutorWorkingDirectory =
+      typeof request?.request?.workingDirectory === "string" &&
+      request.request.workingDirectory.trim()
+        ? request.request.workingDirectory.trim()
+        : this.lastExecutorWorkingDirectory;
+
     if (this.localSettings.executor.enabled !== true) {
       const error = this.formatLocalExecutionDisabledBlocker();
       await this.emitExecutorHealthDebugEvent(
@@ -787,6 +805,10 @@ export class CloudSessionClient {
         result
       });
     } catch (error) {
+      if (isExecutorCancelledError(error)) {
+        return;
+      }
+
       this.send({
         type: "executor_terminal",
         runId: request.runId,
@@ -795,6 +817,21 @@ export class CloudSessionClient {
         error: normalizeError(error)
       });
     }
+  }
+
+  async cancelTask(taskId) {
+    const normalizedTaskId =
+      typeof taskId === "string" && taskId.trim() ? taskId.trim() : "";
+    if (!normalizedTaskId) {
+      return false;
+    }
+
+    await this.execution.executor.cancel(normalizedTaskId);
+    this.send({
+      type: "cancel_task",
+      taskId: normalizedTaskId
+    });
+    return true;
   }
 
   send(payload) {

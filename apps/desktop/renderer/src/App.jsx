@@ -159,7 +159,6 @@ export default function App() {
     audioEnergy,
     avatarState,
     chatOpen,
-    completedDrawerAutoOpenTick,
     debugFilters,
     debugOpen,
     debugTaskFilter,
@@ -168,21 +167,25 @@ export default function App() {
     deferredUiState,
     executorHealth,
     filteredDebugEvents,
-    handleAutoOpenCompletedTasksChange,
+    handleCancelTask,
     handleConnect,
     handleCopyDiagnostics,
+    handleCopyText,
     handleExecutorEnabledChange,
     handleHangup,
     handleHeaderHealthWarningsChange,
     handleMuteToggle,
     handleMotionPreferenceChange,
+    handleOpenGeminiLoginTerminal,
     handleOpenDeveloperConsole,
+    handleOpenSupportTarget,
     handlePromptKeyDown,
     handlePromptSubmit,
     handleRefreshHistory,
     handleRefreshMicrophones,
     handleRequestMicrophoneAccess,
     handleResetSettings,
+    refreshSetupStatus,
     handleRetryExecutorHealthCheck,
     handleSelectMicrophone,
     handleStartMutedChange,
@@ -201,6 +204,10 @@ export default function App() {
     selectedMicId,
     selectedMicrophoneLabel,
     selectedTaskId,
+    setupStatus,
+    setupStatusLoading,
+    taskCancelUiState,
+    taskSelectionDismissed,
     setChatOpen,
     setDebugOpen,
     setDebugTaskFilter,
@@ -210,7 +217,7 @@ export default function App() {
     setPrompt,
     setPromptComposing,
     setSettingsOpen,
-    setSelectedTaskId,
+    handleSelectTask,
     settings,
     settingsOpen,
     summary,
@@ -285,13 +292,13 @@ export default function App() {
                 <div className="flex items-center gap-2.5">
                   {!voiceState.connected ? (
                     <>
-                      <div className="rounded-full border border-gray-200/80 bg-white/80 px-4 py-2 text-[12px] font-medium text-gray-700 shadow-sm backdrop-blur-md">
+                      <div className="flex h-9 items-center rounded-full border border-gray-200/80 bg-white/80 px-4 text-[12px] font-medium text-gray-700 shadow-sm backdrop-blur-md">
                         Mic · {selectedMicrophoneLabel}
                       </div>
                       <button
                         onClick={handleConnect}
                         disabled={voiceState.connecting}
-                        className="flex items-center gap-1.5 rounded-full bg-blue-600 px-4 py-1.5 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-500 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex h-9 items-center gap-1.5 rounded-full bg-blue-600 px-4 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-500 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {voiceState.connecting ? "Connecting…" : "Start Session"}
                       </button>
@@ -300,7 +307,7 @@ export default function App() {
                     <>
                       <button
                         onClick={handleMuteToggle}
-                        className={`group flex whitespace-nowrap items-center justify-center gap-1.5 rounded-full px-4 py-1.5 text-[12px] font-semibold transition-all duration-200 border shadow-sm ${
+                        className={`group flex h-9 whitespace-nowrap items-center justify-center gap-1.5 rounded-full px-4 text-[12px] font-semibold transition-all duration-200 border shadow-sm ${
                           voiceState.muted
                             ? "bg-red-50 text-red-600 border-red-200/80 hover:bg-red-100"
                             : "bg-white/90 text-gray-700 border-gray-200/80 hover:bg-white"
@@ -315,7 +322,7 @@ export default function App() {
                       </button>
                       <button
                         onClick={handleHangup}
-                        className="group flex whitespace-nowrap items-center gap-1.5 rounded-full bg-red-500 px-4 py-1.5 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:bg-red-400 hover:shadow-md"
+                        className="group flex h-9 whitespace-nowrap items-center gap-1.5 rounded-full bg-red-500 px-4 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:bg-red-400 hover:shadow-md"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-hover:scale-110"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="22" y1="2" x2="2" y2="22"/></svg>
                         End Session
@@ -395,7 +402,7 @@ export default function App() {
             <LiveSpeechHud
               sessionActive={sessionActive}
               voiceState={voiceState}
-              inputPartial={deferredUiState.inputPartial}
+              inputPartial={deferredUiState.rawInputPartial || deferredUiState.inputPartial}
               outputTranscript={deferredUiState.outputTranscript}
             />
 
@@ -420,9 +427,11 @@ export default function App() {
           <AgentActivityPanel
             taskRunners={taskRunners}
             archivedEntries={archivedEntries}
-            completedDrawerAutoOpenTick={completedDrawerAutoOpenTick}
             selectedTaskId={selectedTaskId}
-            onSelectTask={setSelectedTaskId}
+            selectionDismissed={taskSelectionDismissed}
+            onSelectTask={handleSelectTask}
+            onCancelTask={handleCancelTask}
+            taskCancelUiState={taskCancelUiState}
             summary={summary}
             debugEvents={filteredDebugEvents}
             voiceConnected={voiceState.connected}
@@ -453,19 +462,24 @@ export default function App() {
             microphones={microphones}
             selectedMicId={selectedMicId}
             selectedMicrophoneLabel={selectedMicrophoneLabel}
+            setupStatus={setupStatus}
+            setupStatusLoading={setupStatusLoading}
             executionMode={deferredUiState.executionMode}
             executorHealth={executorHealth}
             historyLoading={historySummary.loading}
             onSelectMicrophone={handleSelectMicrophone}
             onRefreshMicrophones={handleRefreshMicrophones}
+            onRefreshSetupStatus={refreshSetupStatus}
             onRequestMicrophoneAccess={handleRequestMicrophoneAccess}
             onStartMutedChange={handleStartMutedChange}
             onExecutorEnabledChange={handleExecutorEnabledChange}
             onRetryExecutorHealthCheck={handleRetryExecutorHealthCheck}
             onMotionPreferenceChange={handleMotionPreferenceChange}
             onHeaderHealthWarningsChange={handleHeaderHealthWarningsChange}
-            onAutoOpenCompletedTasksChange={handleAutoOpenCompletedTasksChange}
+            onCopyText={handleCopyText}
+            onOpenGeminiLoginTerminal={handleOpenGeminiLoginTerminal}
             onOpenDeveloperConsole={handleOpenDeveloperConsole}
+            onOpenSupportTarget={handleOpenSupportTarget}
             debugFilters={debugFilters}
             onToggleDebugFilter={handleToggleDebugFilter}
             onCopyDiagnostics={handleCopyDiagnostics}

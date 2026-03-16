@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { runMock, probeHealthMock } = vi.hoisted(() => ({
+const { cancelMock, runMock, probeHealthMock } = vi.hoisted(() => ({
+  cancelMock: vi.fn(),
   runMock: vi.fn(),
   probeHealthMock: vi.fn()
 }));
@@ -13,7 +14,8 @@ vi.mock("../execution/local-execution-layer.js", () => ({
       rawEvents: []
     },
     executor: {
-      run: runMock
+      run: runMock,
+      cancel: cancelMock
     },
     probeHealth: probeHealthMock
   }))
@@ -40,6 +42,7 @@ function createConversationState(overrides: Record<string, unknown> = {}) {
     conversationTimeline: [],
     conversationTurns: [],
     activeTurnId: null,
+    rawInputPartial: "",
     inputPartial: "",
     lastUserTranscript: "",
     outputTranscript: "",
@@ -154,8 +157,10 @@ async function waitFor(predicate: () => boolean, attempts = 20): Promise<void> {
 }
 
 describe("CloudSessionClient", () => {
-  beforeEach(() => {
-    runMock.mockReset();
+beforeEach(() => {
+  cancelMock.mockReset();
+  cancelMock.mockResolvedValue(false);
+  runMock.mockReset();
     probeHealthMock.mockReset();
     probeHealthMock.mockResolvedValue({
       status: "healthy",
@@ -362,6 +367,56 @@ describe("CloudSessionClient", () => {
 
     expect(probeHealthMock).not.toHaveBeenCalled();
     expect(executorHealthUpdates).toEqual([]);
+  });
+
+  it("cancels a local task and forwards the cancel request to the server", async () => {
+    cancelMock.mockResolvedValue(true);
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host"
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState(),
+      tasks: createTaskState()
+    });
+    await connectPromise;
+
+    await expect(client.cancelTask("task-1")).resolves.toBe(true);
+    expect(cancelMock).toHaveBeenCalledWith("task-1");
+    expect(socket.sent).toContainEqual({
+      type: "cancel_task",
+      taskId: "task-1"
+    });
+  });
+
+  it("treats a forwarded cancel request as accepted even when no local run is tracked", async () => {
+    cancelMock.mockResolvedValue(false);
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host"
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState(),
+      tasks: createTaskState()
+    });
+    await connectPromise;
+
+    await expect(client.cancelTask("task-1")).resolves.toBe(true);
+    expect(cancelMock).toHaveBeenCalledWith("task-1");
+    expect(socket.sent).toContainEqual({
+      type: "cancel_task",
+      taskId: "task-1"
+    });
   });
 
   it("blocks executor requests early when the health state is unhealthy", async () => {

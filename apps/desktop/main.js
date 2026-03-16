@@ -6,6 +6,7 @@ import {
   shell,
   systemPreferences
 } from "electron";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadDotEnvFromRoot } from "./src/main/config/env-loader.js";
@@ -23,6 +24,12 @@ import {
   logDesktop,
   subscribeDesktopLog
 } from "./src/main/debug/desktop-log.js";
+import {
+  collectSetupStatus,
+  createEmptySetupStatus,
+  getSupportTargetDirectory,
+  getSupportTargetPath
+} from "./src/main/setup/setup-status.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,6 +41,7 @@ let cloudSession;
 let settingsStore;
 const desktopUiState = new DesktopUiStateStore();
 let historyRefreshTimer = null;
+let setupStatusCache = createEmptySetupStatus();
 
 loadDotEnvFromRoot(path.resolve(__dirname, "..", ".."));
 clearDesktopLog();
@@ -99,6 +107,7 @@ function buildDiagnosticsSnapshot() {
       settings: uiState.settings,
       systemStatus: uiState.systemStatus,
       executorHealth: uiState.executorHealth,
+      setupStatus: setupStatusCache,
       historySummary: {
         loading: uiState.historySummary.loading,
         error: uiState.historySummary.error,
@@ -114,6 +123,106 @@ function buildDiagnosticsSnapshot() {
     null,
     2
   );
+}
+
+async function refreshSetupStatusNow(options = {}) {
+  const shouldRefresh = options.refresh === true;
+  if (shouldRefresh) {
+    await refreshSystemStatus();
+    if (cloudSession) {
+      await cloudSession.runExecutorHealthCheck("full");
+    }
+  }
+
+  if (!cloudSession) {
+    setupStatusCache = createEmptySetupStatus();
+    return setupStatusCache;
+  }
+
+  const setupContext = cloudSession.getSetupContext();
+  const executorHealth = await cloudSession.getExecutorHealth();
+  setupStatusCache = await collectSetupStatus({
+    baseUrl: setupContext.baseUrl,
+    sessionToken: setupContext.sessionToken,
+    executorHealth,
+    microphonePermissionStatus: getMicrophonePermissionStatus(),
+    lastExecutorWorkingDirectory: setupContext.lastExecutorWorkingDirectory,
+    desktopPath: app.getPath("desktop"),
+    documentsPath: app.getPath("documents"),
+    downloadsPath: app.getPath("downloads")
+  });
+  return setupStatusCache;
+}
+
+function openMacPrivacyShortcut(section = "files") {
+  if (process.platform !== "darwin") {
+    return false;
+  }
+
+  const target =
+    section === "microphone"
+      ? "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+      : "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
+
+  return shell.openExternal(target);
+}
+
+async function openSupportTarget(target) {
+  const urlTargets = {
+    gemini_install_docs: "https://github.com/google-gemini/gemini-cli",
+    gemini_auth_docs:
+      "https://google-gemini.github.io/gemini-cli/docs/get-started/authentication.html",
+    gemini_config_docs:
+      "https://google-gemini.github.io/gemini-cli/docs/get-started/configuration.html",
+    gemini_trusted_docs:
+      "https://google-gemini.github.io/gemini-cli/docs/cli/trusted-folders.html"
+  };
+
+  if (urlTargets[target]) {
+    await shell.openExternal(urlTargets[target]);
+    return true;
+  }
+
+  const targetPath = getSupportTargetPath(target);
+  if (!targetPath) {
+    return false;
+  }
+
+  const result = await shell.openPath(targetPath);
+  if (!result) {
+    return true;
+  }
+
+  const directory = getSupportTargetDirectory(targetPath);
+  if (!directory) {
+    return false;
+  }
+
+  const fallback = await shell.openPath(directory);
+  return !fallback;
+}
+
+async function openTerminalForGeminiLogin() {
+  if (process.platform === "darwin") {
+    await new Promise((resolve, reject) => {
+      const command = 'tell application "Terminal" to do script "gemini"\ntell application "Terminal" to activate';
+      const child = spawn("osascript", ["-e", command], {
+        stdio: "ignore"
+      });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) {
+          resolve();
+          return;
+        }
+
+        reject(new Error(`osascript exited with ${code}`));
+      });
+    });
+    return true;
+  }
+
+  return false;
 }
 
 async function refreshHistoryNow() {
@@ -538,6 +647,11 @@ app.whenReady().then(async () => {
     return settingsStore?.get?.() ?? null;
   });
 
+  registerIpcHandle("desktop-ui:get-setup-status", async (event, options) => {
+    assertTrustedSender(event);
+    return refreshSetupStatusNow(options);
+  });
+
   registerIpcHandle("desktop-ui:update-settings", async (event, patch) => {
     assertTrustedSender(event);
     const nextSettings = await settingsStore.update(patch);
@@ -559,6 +673,18 @@ app.whenReady().then(async () => {
     return snapshot;
   });
 
+  registerIpcHandle("desktop-ui:copy-text", async (event, text) => {
+    assertTrustedSender(event);
+    const value = typeof text === "string" ? text : String(text ?? "");
+    clipboard.writeText(value);
+    return value;
+  });
+
+  registerIpcHandle("desktop-ui:cancel-task", async (event, taskId) => {
+    assertTrustedSender(event);
+    return cloudSession.cancelTask(taskId);
+  });
+
   registerIpcHandle("desktop-ui:retry-executor-health", async (event) => {
     assertTrustedSender(event);
     return cloudSession.runExecutorHealthCheck("full");
@@ -570,16 +696,20 @@ app.whenReady().then(async () => {
     return desktopUiState.compose();
   });
 
-  registerIpcHandle("system:open-mac-privacy-settings", async (event) => {
+  registerIpcHandle("desktop-ui:open-support-target", async (event, target) => {
     assertTrustedSender(event);
-    if (process.platform !== "darwin") {
-      return false;
-    }
+    return openSupportTarget(target);
+  });
 
-    await shell.openExternal(
-      "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
-    );
-    return true;
+  registerIpcHandle("desktop-ui:open-gemini-login-terminal", async (event) => {
+    assertTrustedSender(event);
+    return openTerminalForGeminiLogin();
+  });
+
+  registerIpcHandle("system:open-mac-privacy-settings", async (event, section) => {
+    assertTrustedSender(event);
+    await openMacPrivacyShortcut(section);
+    return process.platform === "darwin";
   });
 
   registerIpcHandle("live:connect", async (event, passcode) => {

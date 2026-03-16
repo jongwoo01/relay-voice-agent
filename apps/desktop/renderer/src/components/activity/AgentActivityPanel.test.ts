@@ -32,6 +32,8 @@ function entry(taskId: string, status: string) {
 
 const baseProps = {
   onSelectTask: vi.fn(),
+  onCancelTask: vi.fn(),
+  taskCancelUiState: {},
   summary: {
     notifications: {
       delivered: [],
@@ -40,8 +42,7 @@ const baseProps = {
   },
   debugEvents: [],
   voiceConnected: true,
-  pendingBriefingCount: 0,
-  completedDrawerAutoOpenTick: 0
+  pendingBriefingCount: 0
 };
 
 describe("AgentActivityPanel", () => {
@@ -74,7 +75,64 @@ describe("AgentActivityPanel", () => {
 
     expect(markup).toContain("Completed (1)");
     expect(markup).toContain("Finished tasks stay openable here");
-    expect(markup).toContain("Completed Task");
+    expect(markup).not.toContain("Detailed result");
     expect(markup).not.toContain("Running (");
+    expect(markup).not.toContain("<details open");
+  });
+
+  it("renders a compact stop task action only for active task details", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentActivityPanel, {
+        ...baseProps,
+        taskRunners: [entry("task-1", "running")],
+        archivedEntries: [entry("task-2", "completed")],
+        selectedTaskId: "task-1"
+      })
+    );
+
+    expect(markup).toContain("Stop task");
+    expect(markup).not.toContain("Task task-1");
+  });
+
+  it("shows cancelling feedback in the active card without the stop task action", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentActivityPanel, {
+        ...baseProps,
+        taskRunners: [entry("task-1", "running")],
+        archivedEntries: [],
+        selectedTaskId: "task-1",
+        taskCancelUiState: {
+          "task-1": {
+            phase: "cancelling"
+          }
+        }
+      })
+    );
+
+    expect(markup).toContain("Cancelling…");
+    expect(markup).toContain(
+      "Stopping the local runner and waiting for cancellation confirmation."
+    );
+    expect(markup).not.toContain("Stop task");
+  });
+
+  it("keeps a cancelled task visible in Running during the confirmation dwell", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentActivityPanel, {
+        ...baseProps,
+        taskRunners: [],
+        archivedEntries: [entry("task-1", "cancelled")],
+        selectedTaskId: "task-1",
+        taskCancelUiState: {
+          "task-1": {
+            phase: "cancelled_confirmed"
+          }
+        }
+      })
+    );
+
+    expect(markup).toContain("Running (1)");
+    expect(markup).toContain("The task was cancelled and will move to Completed in a moment.");
+    expect(markup).not.toContain("Completed (1)");
   });
 });

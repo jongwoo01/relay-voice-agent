@@ -4,6 +4,8 @@ const timeFormatter = new Intl.DateTimeFormat("en-US", {
   second: "2-digit"
 });
 
+export const TASK_CANCEL_CONFIRMATION_DWELL_MS = 1200;
+
 export function formatTime(iso) {
   if (!iso) {
     return "";
@@ -127,17 +129,19 @@ export function pickDefaultTaskSelection(taskRunners, archivedEntries) {
     return preparingRunner.taskId;
   }
 
-  return archivedEntries[0]?.taskId ?? taskRunners[0]?.taskId ?? null;
+  return taskRunners[0]?.taskId ?? null;
 }
 
 export function resolveTaskPanelSelection({
   selectedTaskId,
+  selectionDismissed = false,
   taskRunners,
   archivedEntries,
   previousTaskRunners = [],
   previousArchivedEntries = []
 }) {
   const allEntries = [...taskRunners, ...archivedEntries];
+  const activeTaskIds = new Set(taskRunners.map((runner) => runner.taskId));
   if (allEntries.length === 0) {
     return {
       nextSelectedTaskId: null,
@@ -151,9 +155,10 @@ export function resolveTaskPanelSelection({
     archivedEntries.some((runner) => runner.taskId === selectedTaskId);
 
   if (selectedMovedToCompleted) {
+    const fallbackTaskId = pickDefaultTaskSelection(taskRunners, archivedEntries);
     return {
-      nextSelectedTaskId: selectedTaskId,
-      shouldAutoOpenCompleted: true
+      nextSelectedTaskId: fallbackTaskId,
+      shouldAutoOpenCompleted: false
     };
   }
 
@@ -179,7 +184,29 @@ export function resolveTaskPanelSelection({
     };
   }
 
-  if (selectedTaskId !== null && allEntries.some((runner) => runner.taskId === selectedTaskId)) {
+  const hasNewActiveTask = taskRunners.some(
+    (runner) =>
+      !previousTaskRunners.some((previousRunner) => previousRunner.taskId === runner.taskId)
+  );
+
+  if (selectionDismissed && selectedTaskId === null && !hasNewActiveTask) {
+    return {
+      nextSelectedTaskId: null,
+      shouldAutoOpenCompleted: false
+    };
+  }
+
+  if (selectedTaskId !== null && activeTaskIds.has(selectedTaskId)) {
+    return {
+      nextSelectedTaskId: selectedTaskId,
+      shouldAutoOpenCompleted: false
+    };
+  }
+
+  if (
+    selectedTaskId !== null &&
+    archivedEntries.some((runner) => runner.taskId === selectedTaskId)
+  ) {
     return {
       nextSelectedTaskId: selectedTaskId,
       shouldAutoOpenCompleted: false
@@ -189,9 +216,7 @@ export function resolveTaskPanelSelection({
   const fallbackTaskId = pickDefaultTaskSelection(taskRunners, archivedEntries);
   return {
     nextSelectedTaskId: fallbackTaskId,
-    shouldAutoOpenCompleted:
-      fallbackTaskId !== null &&
-      archivedEntries.some((runner) => runner.taskId === fallbackTaskId)
+    shouldAutoOpenCompleted: false
   };
 }
 
@@ -200,7 +225,7 @@ export function getTaskRunnerAccent(status) {
     return "waiting";
   }
 
-  if (status === "failed") {
+  if (status === "failed" || status === "cancelled") {
     return "failed";
   }
 
@@ -330,6 +355,75 @@ export function buildArchivedTaskEntries(summary) {
       const rightTime = right.lastUpdatedAt ? new Date(right.lastUpdatedAt).getTime() : 0;
       return rightTime - leftTime;
     });
+}
+
+function applyTaskCancelEntryState(runner, taskCancelUiState) {
+  const cancelUi = taskCancelUiState?.[runner.taskId];
+  if (!cancelUi) {
+    return runner;
+  }
+
+  if (cancelUi.phase === "cancelling") {
+    return {
+      ...runner,
+      cancelUiPhase: "cancelling",
+      statusLabel: "Cancelling…"
+    };
+  }
+
+  if (cancelUi.phase === "cancelled_confirmed") {
+    return {
+      ...runner,
+      cancelUiPhase: "cancelled_confirmed",
+      status: "cancelled",
+      statusLabel: "Cancelled"
+    };
+  }
+
+  if (cancelUi.phase === "cancel_failed") {
+    return {
+      ...runner,
+      cancelUiPhase: "cancel_failed"
+    };
+  }
+
+  return runner;
+}
+
+export function buildTaskRunnerPresentation({
+  taskRunners,
+  archivedEntries,
+  taskCancelUiState
+}) {
+  const heldCancelledTaskIds = new Set();
+  const activeEntries = taskRunners.map((runner) =>
+    applyTaskCancelEntryState(runner, taskCancelUiState)
+  );
+
+  for (const [taskId, uiState] of Object.entries(taskCancelUiState ?? {})) {
+    if (uiState?.phase !== "cancelled_confirmed") {
+      continue;
+    }
+
+    if (activeEntries.some((runner) => runner.taskId === taskId)) {
+      continue;
+    }
+
+    const archivedRunner = archivedEntries.find((runner) => runner.taskId === taskId);
+    if (!archivedRunner) {
+      continue;
+    }
+
+    heldCancelledTaskIds.add(taskId);
+    activeEntries.unshift(applyTaskCancelEntryState(archivedRunner, taskCancelUiState));
+  }
+
+  return {
+    activeEntries,
+    archivedEntries: archivedEntries
+      .filter((runner) => !heldCancelledTaskIds.has(runner.taskId))
+      .map((runner) => applyTaskCancelEntryState(runner, taskCancelUiState))
+  };
 }
 
 export function buildTaskRunnerDisplayTimeline(summary, debugEvents, selectedRunner) {
@@ -516,8 +610,14 @@ export function buildHistoryEntries(historySummary) {
 }
 
 export function buildConversationRoleLabel(item) {
+  if (item.speaker === "user") {
+    return "you";
+  }
+
   return item.kind === "task_event"
     ? "task event"
+    : item.speaker === "system"
+      ? "system"
     : item.responseSource
         ? `assistant · ${item.responseSource}`
         : "assistant";

@@ -56,6 +56,7 @@
       "src/main/debug/**/*",
       "src/main/execution/**/*",
       "src/main/ipc/**/*",
+      "src/main/setup/**/*",
       "src/main/session/hosted-session-runtime.js",
       "src/main/ui/**/*",
       "package.json"
@@ -63,6 +64,9 @@
     "mac": {
       "identity": null,
       "icon": "build/icon.icns",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Relay needs microphone access to capture your voice and open a live session."
+      },
       "target": [
         {
           "target": "dmg",

@@ -180,6 +180,7 @@ export class DesktopUiStateStore {
       conversationTimeline: [],
       conversationTurns: [],
       activeTurnId: null,
+      rawInputPartial: "",
       inputPartial: "",
       lastUserTranscript: "",
       outputTranscript: ""
@@ -215,6 +216,7 @@ export class DesktopUiStateStore {
       conversationTimeline,
       conversationTurns,
       activeTurnId: liveState.activeTurnId ?? null,
+      rawInputPartial: liveState.rawInputPartial ?? "",
       inputPartial: liveState.inputPartial ?? "",
       lastUserTranscript: liveState.lastUserTranscript ?? "",
       outputTranscript: liveState.outputTranscript ?? "",

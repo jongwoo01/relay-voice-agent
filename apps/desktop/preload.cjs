@@ -29,12 +29,18 @@ contextBridge.exposeInMainWorld("relayApp", {
 contextBridge.exposeInMainWorld("desktopUi", {
   init: () => ipcRenderer.invoke("desktop-ui:init"),
   getSettings: () => ipcRenderer.invoke("desktop-ui:get-settings"),
+  getSetupStatus: (options) => ipcRenderer.invoke("desktop-ui:get-setup-status", options),
   updateSettings: (patch) => ipcRenderer.invoke("desktop-ui:update-settings", patch),
   resetSettings: () => ipcRenderer.invoke("desktop-ui:reset-settings"),
+  copyText: (text) => ipcRenderer.invoke("desktop-ui:copy-text", text),
+  cancelTask: (taskId) => ipcRenderer.invoke("desktop-ui:cancel-task", taskId),
   copyDiagnosticsSnapshot: () => ipcRenderer.invoke("desktop-ui:copy-diagnostics"),
   refreshHistory: () => ipcRenderer.invoke("desktop-ui:refresh-history"),
   retryExecutorHealthCheck: () =>
     ipcRenderer.invoke("desktop-ui:retry-executor-health"),
+  openSupportTarget: (target) => ipcRenderer.invoke("desktop-ui:open-support-target", target),
+  openGeminiLoginTerminal: () =>
+    ipcRenderer.invoke("desktop-ui:open-gemini-login-terminal"),
   onStateUpdated: (listener) => {
     const wrapped = (_event, state) => listener(state);
     ipcRenderer.on("desktop-ui:state-updated", wrapped);
@@ -62,8 +68,8 @@ contextBridge.exposeInMainWorld("desktopSystem", {
     ipcRenderer.invoke("system:get-microphone-access-status"),
   requestMicrophoneAccess: () =>
     ipcRenderer.invoke("system:request-microphone-access"),
-  openMacPrivacySettings: () =>
-    ipcRenderer.invoke("system:open-mac-privacy-settings")
+  openMacPrivacySettings: (section) =>
+    ipcRenderer.invoke("system:open-mac-privacy-settings", section)
 });
 
 contextBridge.exposeInMainWorld("desktopLive", {

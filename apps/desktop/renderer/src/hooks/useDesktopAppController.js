@@ -17,7 +17,8 @@ import {
   buildHistoryEntries,
   buildTaskRunnerEntries,
   filterDebugEvents,
-  resolveTaskPanelSelection
+  resolveTaskPanelSelection,
+  TASK_CANCEL_CONFIRMATION_DWELL_MS
 } from "../ui-utils.js";
 
 const LIVE_INPUT_BUFFER_SIZE = 512;
@@ -47,6 +48,7 @@ const EMPTY_UI_STATE = {
   conversationTimeline: [],
   conversationTurns: [],
   activeTurnId: null,
+  rawInputPartial: "",
   inputPartial: "",
   lastUserTranscript: "",
   outputTranscript: "",
@@ -79,6 +81,41 @@ const EMPTY_UI_STATE = {
   },
   inputState: { inFlight: false, queueSize: 0, activeText: null, lastError: null },
   runtimeError: null
+};
+
+const EMPTY_SETUP_STATUS = {
+  checkedAt: null,
+  hostedBackend: {
+    status: "unknown",
+    summary: "Hosted backend has not been checked yet.",
+    detail: "Relay will probe the backend when setup status is refreshed."
+  },
+  microphone: {
+    status: "unknown",
+    summary: "Microphone access has not been checked yet.",
+    detail: "Grant microphone access before starting a live voice session."
+  },
+  localExecutorBinary: {
+    status: "unknown",
+    summary: "Gemini CLI binary has not been checked yet.",
+    detail: "Relay will probe the local Gemini CLI binary when setup status is refreshed."
+  },
+  localExecutorAuth: {
+    status: "unknown",
+    summary: "Gemini auth has not been checked yet.",
+    detail: "Relay will verify whether a cached Google login is available for headless Gemini CLI use."
+  },
+  localFileAccess: {
+    status: "unknown",
+    summary: "Local file access has not been checked yet.",
+    detail: "Relay will probe common local folders when setup status is refreshed.",
+    directories: []
+  },
+  currentWorkspaceTrust: {
+    status: "unknown",
+    summary: "Workspace trust has not been checked yet.",
+    detail: "Relay will inspect Gemini trusted folder coverage when setup status is refreshed."
+  }
 };
 
 function sameBooleanMap(left, right) {
@@ -171,12 +208,15 @@ export function useDesktopAppController() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
-  const [completedDrawerAutoOpenTick, setCompletedDrawerAutoOpenTick] = useState(0);
+  const [taskSelectionDismissed, setTaskSelectionDismissed] = useState(false);
+  const [taskCancelUiState, setTaskCancelUiState] = useState({});
   const [prompt, setPrompt] = useState("");
   const [promptComposing, setPromptComposing] = useState(false);
   const [passcode, setPasscode] = useState("");
   const [microphones, setMicrophones] = useState([]);
   const [selectedMicId, setSelectedMicId] = useState("");
+  const [setupStatus, setSetupStatus] = useState(EMPTY_SETUP_STATUS);
+  const [setupStatusLoading, setSetupStatusLoading] = useState(false);
   const [debugFilters, setDebugFilters] = useState(DEBUG_FILTER_DEFAULTS);
   const [debugTurnFilter, setDebugTurnFilter] = useState("");
   const [debugTaskFilter, setDebugTaskFilter] = useState("");
@@ -185,6 +225,8 @@ export function useDesktopAppController() {
   const inputEnergy = useMotionValue(0);
 
   const uiStateRef = useRef(uiState);
+  const selectedTaskIdRef = useRef(selectedTaskId);
+  const taskCancelTimeoutsRef = useRef(new Map());
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const analyserDataRef = useRef(null);
@@ -217,6 +259,10 @@ export function useDesktopAppController() {
   useEffect(() => {
     uiStateRef.current = uiState;
   }, [uiState]);
+
+  useEffect(() => {
+    selectedTaskIdRef.current = selectedTaskId;
+  }, [selectedTaskId]);
 
   useEffect(() => {
     if (!window.matchMedia) {
@@ -294,6 +340,27 @@ export function useDesktopAppController() {
   const hideRuntimeError = useCallback(() => {
     setRuntimeError(null);
   }, []);
+
+  const refreshSetupStatus = useCallback(
+    async (options = {}) => {
+      if (!window.desktopUi?.getSetupStatus) {
+        return EMPTY_SETUP_STATUS;
+      }
+
+      setSetupStatusLoading(true);
+      try {
+        const nextStatus = await window.desktopUi.getSetupStatus(options);
+        setSetupStatus(nextStatus ?? EMPTY_SETUP_STATUS);
+        return nextStatus ?? EMPTY_SETUP_STATUS;
+      } catch (error) {
+        showRuntimeError(error);
+        return EMPTY_SETUP_STATUS;
+      } finally {
+        setSetupStatusLoading(false);
+      }
+    },
+    [showRuntimeError]
+  );
 
   const setRuntimeUserSpeaking = useCallback(async (speaking) => {
     if (voiceStateRef.current.activity?.userSpeaking === speaking) {
@@ -835,6 +902,7 @@ export function useDesktopAppController() {
       });
 
       await populateMicrophones();
+      await refreshSetupStatus({ refresh: false });
     }
 
     bootstrap().catch(showRuntimeError);
@@ -867,10 +935,19 @@ export function useDesktopAppController() {
     handleAudioChunk,
     hideRuntimeError,
     populateMicrophones,
+    refreshSetupStatus,
     showRuntimeError,
     stopPlayback,
     stopVoiceCapture
   ]);
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      return;
+    }
+
+    void refreshSetupStatus({ refresh: true });
+  }, [refreshSetupStatus, settingsOpen]);
 
   useEffect(() => {
     const shouldStop = voiceState.status === "interrupted" || !voiceState.connected;
@@ -891,6 +968,7 @@ export function useDesktopAppController() {
     const previousTaskPanel = previousTaskPanelRef.current;
     const resolution = resolveTaskPanelSelection({
       selectedTaskId,
+      selectionDismissed: taskSelectionDismissed,
       taskRunners,
       archivedEntries,
       previousTaskRunners: previousTaskPanel.taskRunners,
@@ -904,12 +982,118 @@ export function useDesktopAppController() {
 
     if (resolution.nextSelectedTaskId !== selectedTaskId) {
       setSelectedTaskId(resolution.nextSelectedTaskId);
+      if (resolution.nextSelectedTaskId !== null) {
+        setTaskSelectionDismissed(false);
+      }
+    }
+  }, [archivedEntries, selectedTaskId, taskRunners, taskSelectionDismissed]);
+
+  useEffect(() => {
+    const activeTaskIds = new Set(taskRunners.map((runner) => runner.taskId));
+    const archivedEntriesByTaskId = new Map(
+      archivedEntries.map((runner) => [runner.taskId, runner])
+    );
+
+    setTaskCancelUiState((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const [taskId, state] of Object.entries(current)) {
+        const archivedRunner = archivedEntriesByTaskId.get(taskId);
+
+        if (
+          (state.phase === "cancelling" || state.phase === "cancel_failed") &&
+          archivedRunner?.status === "cancelled"
+        ) {
+          next[taskId] = {
+            phase: "cancelled_confirmed"
+          };
+          changed = true;
+          continue;
+        }
+
+        if (
+          state.phase === "cancelling" &&
+          archivedRunner &&
+          archivedRunner.status !== "cancelled"
+        ) {
+          delete next[taskId];
+          changed = true;
+          continue;
+        }
+
+        if (
+          state.phase === "cancel_failed" &&
+          !activeTaskIds.has(taskId) &&
+          archivedRunner
+        ) {
+          delete next[taskId];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [archivedEntries, taskRunners]);
+
+  useEffect(() => {
+    const timeoutHandles = taskCancelTimeoutsRef.current;
+
+    for (const [taskId, timeoutHandle] of timeoutHandles.entries()) {
+      if (taskCancelUiState[taskId]?.phase === "cancelled_confirmed") {
+        continue;
+      }
+      clearTimeout(timeoutHandle);
+      timeoutHandles.delete(taskId);
     }
 
-    if (settings.ui.autoOpenCompletedTasks && resolution.shouldAutoOpenCompleted) {
-      setCompletedDrawerAutoOpenTick((current) => current + 1);
+    for (const [taskId, state] of Object.entries(taskCancelUiState)) {
+      if (state.phase !== "cancelled_confirmed" || timeoutHandles.has(taskId)) {
+        continue;
+      }
+
+      const timeoutHandle = window.setTimeout(() => {
+        taskCancelTimeoutsRef.current.delete(taskId);
+        setTaskCancelUiState((current) => {
+          if (current[taskId]?.phase !== "cancelled_confirmed") {
+            return current;
+          }
+
+          const next = { ...current };
+          delete next[taskId];
+          return next;
+        });
+
+        if (selectedTaskIdRef.current === taskId) {
+          setSelectedTaskId(null);
+          setTaskSelectionDismissed(true);
+        }
+      }, TASK_CANCEL_CONFIRMATION_DWELL_MS);
+
+      timeoutHandles.set(taskId, timeoutHandle);
     }
-  }, [archivedEntries, selectedTaskId, settings.ui.autoOpenCompletedTasks, taskRunners]);
+  }, [taskCancelUiState]);
+
+  useEffect(
+    () => () => {
+      for (const timeoutHandle of taskCancelTimeoutsRef.current.values()) {
+        clearTimeout(timeoutHandle);
+      }
+      taskCancelTimeoutsRef.current.clear();
+    },
+    []
+  );
+
+  const handleSelectTask = useCallback((taskId) => {
+    if (typeof taskId === "string" && taskId.trim()) {
+      setSelectedTaskId(taskId);
+      setTaskSelectionDismissed(false);
+      return;
+    }
+
+    setSelectedTaskId(null);
+    setTaskSelectionDismissed(true);
+  }, []);
 
   const historyEntries = useMemo(() => buildHistoryEntries(historySummary), [historySummary]);
   const displayConversationTimeline = useMemo(
@@ -1070,14 +1254,64 @@ export function useDesktopAppController() {
     }
   }, [hideRuntimeError, showRuntimeError]);
 
+  const handleCancelTask = useCallback(
+    async (taskId) => {
+      if (
+        typeof taskId !== "string" ||
+        !taskId.trim() ||
+        taskCancelUiState[taskId]?.phase === "cancelling"
+      ) {
+        return false;
+      }
+
+      const confirmed = window.confirm(
+        "Force stop this task? Relay will cancel the task and stop the local executor immediately."
+      );
+      if (!confirmed) {
+        return false;
+      }
+
+      try {
+        hideRuntimeError();
+        setTaskCancelUiState((current) => ({
+          ...current,
+          [taskId]: {
+            phase: "cancelling"
+          }
+        }));
+        const accepted = await window.desktopUi.cancelTask(taskId);
+        if (!accepted) {
+          setTaskCancelUiState((current) => ({
+            ...current,
+            [taskId]: {
+              phase: "cancel_failed"
+            }
+          }));
+          return false;
+        }
+        return true;
+      } catch {
+        setTaskCancelUiState((current) => ({
+          ...current,
+          [taskId]: {
+            phase: "cancel_failed"
+          }
+        }));
+        return false;
+      }
+    },
+    [hideRuntimeError, taskCancelUiState]
+  );
+
   const handleRetryExecutorHealthCheck = useCallback(async () => {
     try {
       hideRuntimeError();
       await window.desktopUi.retryExecutorHealthCheck();
+      await refreshSetupStatus({ refresh: false });
     } catch (error) {
       showRuntimeError(error);
     }
-  }, [hideRuntimeError, showRuntimeError]);
+  }, [hideRuntimeError, refreshSetupStatus, showRuntimeError]);
 
   const handleRefreshMicrophones = useCallback(async () => {
     try {
@@ -1170,22 +1404,6 @@ export function useDesktopAppController() {
     [hideRuntimeError, showRuntimeError, updateDesktopSettings]
   );
 
-  const handleAutoOpenCompletedTasksChange = useCallback(
-    async (autoOpenCompletedTasks) => {
-      try {
-        hideRuntimeError();
-        await updateDesktopSettings({
-          ui: {
-            autoOpenCompletedTasks: Boolean(autoOpenCompletedTasks)
-          }
-        });
-      } catch (error) {
-        showRuntimeError(error);
-      }
-    },
-    [hideRuntimeError, showRuntimeError, updateDesktopSettings]
-  );
-
   const handleToggleDebugFilter = useCallback(
     async (source) => {
       const nextFilters = {
@@ -1226,15 +1444,55 @@ export function useDesktopAppController() {
       hideRuntimeError();
       await window.desktopUi.resetSettings();
       await populateMicrophones();
+      await refreshSetupStatus({ refresh: false });
     } catch (error) {
       showRuntimeError(error);
     }
-  }, [hideRuntimeError, populateMicrophones, showRuntimeError]);
+  }, [hideRuntimeError, populateMicrophones, refreshSetupStatus, showRuntimeError]);
 
   const handleRequestMicrophoneAccess = useCallback(async () => {
     try {
       hideRuntimeError();
-      return await window.desktopSystem.requestMicrophoneAccess();
+      const granted = await window.desktopSystem.requestMicrophoneAccess();
+      await populateMicrophones().catch(() => undefined);
+      await refreshSetupStatus({ refresh: false });
+      return granted;
+    } catch (error) {
+      showRuntimeError(error);
+      return false;
+    }
+  }, [hideRuntimeError, populateMicrophones, refreshSetupStatus, showRuntimeError]);
+
+  const handleCopyText = useCallback(
+    async (text) => {
+      try {
+        hideRuntimeError();
+        return await window.desktopUi.copyText(text);
+      } catch (error) {
+        showRuntimeError(error);
+        return null;
+      }
+    },
+    [hideRuntimeError, showRuntimeError]
+  );
+
+  const handleOpenSupportTarget = useCallback(
+    async (target) => {
+      try {
+        hideRuntimeError();
+        return await window.desktopUi.openSupportTarget(target);
+      } catch (error) {
+        showRuntimeError(error);
+        return false;
+      }
+    },
+    [hideRuntimeError, showRuntimeError]
+  );
+
+  const handleOpenGeminiLoginTerminal = useCallback(async () => {
+    try {
+      hideRuntimeError();
+      return await window.desktopUi.openGeminiLoginTerminal();
     } catch (error) {
       showRuntimeError(error);
       return false;
@@ -1246,7 +1504,6 @@ export function useDesktopAppController() {
     audioEnergy,
     avatarState,
     chatOpen,
-    completedDrawerAutoOpenTick,
     debugFilters,
     debugOpen,
     debugTaskFilter,
@@ -1255,22 +1512,26 @@ export function useDesktopAppController() {
     deferredUiState,
     executorHealth,
     filteredDebugEvents,
-    handleAutoOpenCompletedTasksChange,
+    handleCancelTask,
     handleConnect,
     handleCopyDiagnostics,
+    handleCopyText,
     handleExecutorEnabledChange,
     handleHangup,
     handleHeaderHealthWarningsChange,
     handleMicToggle,
     handleMuteToggle,
     handleMotionPreferenceChange,
+    handleOpenGeminiLoginTerminal,
     handleOpenDeveloperConsole,
+    handleOpenSupportTarget,
     handlePromptKeyDown,
     handlePromptSubmit,
     handleRefreshHistory,
     handleRefreshMicrophones,
     handleRequestMicrophoneAccess,
     handleResetSettings,
+    refreshSetupStatus,
     handleRetryExecutorHealthCheck,
     handleSelectMicrophone,
     handleStartMutedChange,
@@ -1288,7 +1549,11 @@ export function useDesktopAppController() {
     runtimeError,
     selectedMicId,
     selectedMicrophoneLabel,
+    setupStatus,
+    setupStatusLoading,
+    taskCancelUiState,
     selectedTaskId,
+    taskSelectionDismissed,
     setChatOpen,
     setDebugOpen,
     setDebugTaskFilter,
@@ -1298,7 +1563,7 @@ export function useDesktopAppController() {
     setPrompt,
     setPromptComposing,
     setSettingsOpen,
-    setSelectedTaskId,
+    handleSelectTask,
     settings,
     settingsOpen,
     summary,

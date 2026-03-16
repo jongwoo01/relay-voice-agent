@@ -54,6 +54,57 @@ describe("SettingsModal", () => {
         systemStatus: {
           microphonePermissionStatus: "granted"
         },
+        setupStatus: {
+          checkedAt: "2026-03-16T00:00:00.000Z",
+          hostedBackend: {
+            status: "warning",
+            summary: "Hosted backend is reachable but not authenticated.",
+            detail: "A judge passcode is still required before the live session can start.",
+            baseUrl: "https://example.com"
+          },
+          microphone: {
+            status: "ready",
+            summary: "Microphone permission is granted.",
+            detail: "Relay can request live voice capture on this machine."
+          },
+          localExecutorBinary: {
+            status: "ready",
+            summary: "Gemini CLI binary is available.",
+            detail: "Relay can invoke the local Gemini CLI binary.",
+            commandPath: "/usr/local/bin/gemini",
+            commandSource: "path_lookup",
+            version: "gemini 1.2.3"
+          },
+          localExecutorAuth: {
+            status: "error",
+            summary: "Google login is missing.",
+            detail: "Relay found Gemini CLI but the cached Google login required for headless use is not ready.",
+            selectedAuthType: "oauth-personal",
+            envFilePresent: false
+          },
+          localFileAccess: {
+            status: "warning",
+            summary: "Some local folders are not readable by the app process.",
+            detail: "Relay should be able to inspect local files, but one or more common folders failed a direct access probe.",
+            probeSource: "app_process",
+            directories: [
+              {
+                key: "desktop",
+                label: "Desktop",
+                path: "/Users/jongwoo/Desktop",
+                status: "granted"
+              }
+            ]
+          },
+          currentWorkspaceTrust: {
+            status: "ready",
+            summary: "Current workspace is covered by Gemini trusted folders.",
+            detail: "Gemini CLI should treat the current task workspace as trusted for local operations.",
+            workspacePath: "/Users/jongwoo/Desktop/projects/gemini_live_agent",
+            matchedTrustedPath: "/Users/jongwoo"
+          }
+        },
+        setupStatusLoading: false,
         microphones: [
           {
             deviceId: "mic-1",
@@ -74,14 +125,17 @@ describe("SettingsModal", () => {
         historyLoading: false,
         onSelectMicrophone: vi.fn(),
         onRefreshMicrophones: vi.fn(),
+        onRefreshSetupStatus: vi.fn(),
         onRequestMicrophoneAccess: vi.fn(),
         onStartMutedChange: vi.fn(),
         onExecutorEnabledChange: vi.fn(),
         onRetryExecutorHealthCheck: vi.fn(),
         onMotionPreferenceChange: vi.fn(),
         onHeaderHealthWarningsChange: vi.fn(),
-        onAutoOpenCompletedTasksChange: vi.fn(),
+        onCopyText: vi.fn(async () => "gemini --version"),
+        onOpenGeminiLoginTerminal: vi.fn(),
         onOpenDeveloperConsole: vi.fn(),
+        onOpenSupportTarget: vi.fn(),
         debugFilters: {
           transport: true,
           live: true,
@@ -96,12 +150,15 @@ describe("SettingsModal", () => {
       })
     );
 
+    expect(markup).toContain("Setup Status");
     expect(markup).toContain("Audio &amp; Voice");
     expect(markup).toContain("Local Executor");
     expect(markup).toContain("Interface");
     expect(markup).toContain("Advanced");
     expect(markup).toContain("Gemini CLI needs authentication.");
     expect(markup).toContain("/usr/local/bin/gemini");
+    expect(markup).toContain("Open Terminal for gemini login");
+    expect(markup).toContain("Reset all local settings");
     expect(markup).toContain("Copy diagnostics");
     expect(markup).toContain("Cmd/Ctrl + Shift + D opens Developer Console");
   });

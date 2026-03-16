@@ -1,5 +1,6 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import {
+  buildTaskRunnerPresentation,
   buildAdvancedTraceEntries,
   buildTaskRunnerDisplayTimeline,
   formatTaskRunnerStatus,
@@ -60,6 +61,16 @@ function isAttentionStatus(status) {
     status === "waiting_input" ||
     status === "approval_required" ||
     status === "failed"
+  );
+}
+
+function isCancellableStatus(status) {
+  return (
+    status === "created" ||
+    status === "queued" ||
+    status === "running" ||
+    status === "waiting_input" ||
+    status === "approval_required"
   );
 }
 
@@ -149,7 +160,12 @@ function TimelineList({ entries }) {
   );
 }
 
-function TaskRunnerDetail({ runner, summary, debugEvents }) {
+function TaskRunnerDetail({
+  runner,
+  summary,
+  debugEvents,
+  onCancelTask
+}) {
   const timelineEntries = useMemo(
     () => buildTaskRunnerDisplayTimeline(summary, debugEvents, runner),
     [summary, debugEvents, runner]
@@ -160,21 +176,38 @@ function TaskRunnerDetail({ runner, summary, debugEvents }) {
   );
   const updatedAtText = runner.lastUpdatedAt ? `Last updated · ${formatTime(runner.lastUpdatedAt)}` : "";
   const accent = accentTheme(runner.status);
+  const canCancel = isCancellableStatus(runner.status);
+  const cancelFeedbackCopy =
+    runner.cancelUiPhase === "cancelling"
+      ? {
+          tone: "border-sky-200/80 bg-sky-50/80 text-sky-900",
+          label: "Cancelling",
+          body: "Stopping the local runner and waiting for cancellation confirmation."
+        }
+      : runner.cancelUiPhase === "cancelled_confirmed"
+        ? {
+            tone: "border-emerald-200/80 bg-emerald-50/80 text-emerald-900",
+            label: "Cancelled",
+            body: "The task was cancelled and will move to Completed in a moment."
+          }
+        : runner.cancelUiPhase === "cancel_failed"
+          ? {
+              tone: "border-rose-200/80 bg-rose-50/80 text-rose-900",
+              label: "Cancel failed",
+              body: "Couldn't stop the task. Try again."
+            }
+          : null;
 
   return (
     <div className="flex min-h-0 flex-col gap-4">
-      <div className={`rounded-[28px] bg-gradient-to-br ${accent.glow} px-5 py-5 shadow-[0_20px_60px_-40px_rgba(59,130,246,0.45)] ring-1 ring-inset ring-white/70`}>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">{runner.label}</p>
-            <h4 className="m-0 mt-2 text-lg font-semibold text-gray-800">{runner.headline}</h4>
-            <p className="m-0 mt-2 text-sm leading-relaxed text-gray-600">{runner.heroSummary}</p>
-          </div>
-          <span className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold ${accent.pill}`}>
-            {runner.statusLabel ?? formatTaskRunnerStatus(runner.status)}
-          </span>
-        </div>
-      </div>
+      {cancelFeedbackCopy ? (
+        <section className={`rounded-[24px] border px-4 py-4 ${cancelFeedbackCopy.tone}`}>
+          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.16em]">
+            {cancelFeedbackCopy.label}
+          </p>
+          <p className="m-0 mt-2 text-sm leading-relaxed">{cancelFeedbackCopy.body}</p>
+        </section>
+      ) : null}
 
       {runner.needsUserAction ? (
         <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-4">
@@ -184,7 +217,7 @@ function TaskRunnerDetail({ runner, summary, debugEvents }) {
       ) : null}
 
       <section className="rounded-[28px] border border-white/70 bg-white/80 px-4 py-4 shadow-[0_18px_45px_-30px_rgba(15,23,42,0.28)] backdrop-blur-xl">
-        <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">
               {runner.status === "completed" ? "Completed Task" : "Live Task"}
@@ -196,8 +229,21 @@ function TaskRunnerDetail({ runner, summary, debugEvents }) {
                   : "Live progress updates appear here.")}
             </p>
           </div>
-          <div className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-white/80 shadow-inner ring-1 ${accent.ring}`}>
-            <span className={`h-2.5 w-2.5 rounded-full ${accent.dot}`} />
+          <div className="flex items-center gap-2">
+            {canCancel &&
+            runner.cancelUiPhase !== "cancelling" &&
+            runner.cancelUiPhase !== "cancelled_confirmed" ? (
+              <button
+                type="button"
+                onClick={() => void onCancelTask?.(runner.taskId)}
+                className="rounded-full border border-gray-200/90 bg-white/85 px-3 py-1.5 text-[11px] font-semibold text-gray-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+              >
+                Stop task
+              </button>
+            ) : null}
+            <div className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-white/80 shadow-inner ring-1 ${accent.ring}`}>
+              <span className={`h-2.5 w-2.5 rounded-full ${accent.dot}`} />
+            </div>
           </div>
         </div>
         <TimelineList entries={timelineEntries} />
@@ -239,7 +285,8 @@ function TaskRunnerDetail({ runner, summary, debugEvents }) {
         </section>
       ) : null}
 
-      {Boolean(runner.resultSummary) || Boolean(runner.verification) || (runner.changes?.length ?? 0) > 0 ? (
+      {runner.status !== "cancelled" &&
+      (Boolean(runner.resultSummary) || Boolean(runner.verification) || (runner.changes?.length ?? 0) > 0) ? (
         <section className="rounded-[28px] border border-white/70 bg-white/80 px-4 py-4 shadow-[0_18px_45px_-30px_rgba(15,23,42,0.28)] backdrop-blur-xl">
           <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">Result</p>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -304,7 +351,15 @@ function TaskRunnerDetail({ runner, summary, debugEvents }) {
   );
 }
 
-function TaskRunnerCards({ entries, emptyText, selectedTaskId, onSelect, summary, debugEvents }) {
+function TaskRunnerCards({
+  entries,
+  emptyText,
+  selectedTaskId,
+  onSelect,
+  summary,
+  debugEvents,
+  onCancelTask
+}) {
   if (!entries.length) {
     return <p className="rounded-[24px] border border-dashed border-gray-200 px-4 py-8 text-center text-sm text-gray-400">{emptyText}</p>;
   }
@@ -314,8 +369,20 @@ function TaskRunnerCards({ entries, emptyText, selectedTaskId, onSelect, summary
     const accent = accentTheme(runner.status);
     const isRunning = runner.status === "running";
     const isCompleted = runner.status === "completed";
-    const needsAttention = isAttentionStatus(runner.status);
-    const heroUpdate = runner.latestHumanUpdate ?? runner.heroSummary;
+    const needsAttention =
+      isAttentionStatus(runner.status) || runner.cancelUiPhase === "cancel_failed";
+    const heroUpdate =
+      runner.cancelUiPhase === "cancelling"
+        ? "Stopping the local runner and waiting for cancellation confirmation."
+        : runner.cancelUiPhase === "cancel_failed"
+          ? "Couldn't stop the task. Try again."
+          : runner.cancelUiPhase === "cancelled_confirmed"
+            ? "The task was cancelled and will move to Completed in a moment."
+            : runner.latestHumanUpdate ?? runner.heroSummary;
+    const statusLabel =
+      runner.cancelUiPhase === "cancelling"
+        ? "Cancelling…"
+        : runner.statusLabel ?? formatTaskRunnerStatus(runner.status);
     const supportingParts = [
       runner.latestExecutionTraceTitle
         ? `${runner.latestExecutionTraceTitle}${runner.latestExecutionTraceBody ? ` · ${runner.latestExecutionTraceBody}` : ""}`
@@ -328,30 +395,31 @@ function TaskRunnerCards({ entries, emptyText, selectedTaskId, onSelect, summary
 
     return (
       <article className="space-y-3" key={runner.taskId}>
-        <button
-          type="button"
-          className={`w-full group relative overflow-hidden rounded-[24px] border px-4 py-4 text-left backdrop-blur-3xl transition-all duration-500 ${
+        <div
+          role="button"
+          tabIndex={0}
+          className={`w-full group relative overflow-hidden rounded-[24px] border px-4 py-4 text-left backdrop-blur-3xl transition-all duration-400 cursor-pointer ${
             selected
-              ? "border-blue-300/60 bg-white/85 ring-4 ring-blue-500/10 shadow-[0_22px_45px_-12px_rgba(59,130,246,0.2)] scale-[1.01] z-10"
+              ? "border-blue-300/60 bg-white/95 ring-4 ring-blue-500/15 shadow-[0_22px_45px_-12px_rgba(59,130,246,0.25)] scale-[1.01] z-10"
               : isRunning
-                ? "border-sky-200/80 bg-white/78 shadow-[0_18px_36px_-16px_rgba(14,165,233,0.24)] hover:-translate-y-0.5 hover:border-sky-300/90 hover:bg-white/88"
+                ? "border-sky-200/80 bg-white/85 shadow-[0_18px_36px_-16px_rgba(14,165,233,0.2)] hover:-translate-y-0.5 hover:border-sky-300/90 hover:bg-white/95"
                 : needsAttention
-                  ? "border-amber-200/80 bg-white/76 shadow-[0_18px_36px_-18px_rgba(245,158,11,0.18)] hover:-translate-y-0.5 hover:bg-white/86"
+                  ? "border-amber-200/80 bg-white/80 shadow-[0_18px_36px_-18px_rgba(245,158,11,0.18)] hover:-translate-y-0.5 hover:bg-white/95"
                   : isCompleted
-                    ? "border-white/30 bg-white/34 hover:border-emerald-200/70 hover:bg-white/58 hover:shadow-[0_12px_32px_rgba(16,185,129,0.08)]"
-                    : "border-white/40 bg-white/40 hover:border-white/60 hover:bg-white/60 hover:shadow-[0_12px_32px_rgba(0,0,0,0.06)] hover:-translate-y-0.5"
+                    ? "border-white/40 bg-white/50 hover:border-emerald-200/80 hover:bg-white/70 hover:shadow-[0_12px_32px_rgba(16,185,129,0.08)]"
+                    : "border-white/50 bg-white/50 hover:border-white/80 hover:bg-white/70 hover:shadow-[0_12px_32px_rgba(0,0,0,0.06)] hover:-translate-y-0.5"
           }`}
           aria-expanded={selected ? "true" : "false"}
           onClick={() => onSelect(runner.taskId)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onSelect(runner.taskId);
+            }
+          }}
         >
-          {isRunning ? (
-            <span
-              aria-hidden="true"
-              className={`pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r ${accent.liveLine}`}
-            />
-          ) : null}
-          <span className="flex items-center gap-4">
-            <span
+          <div className="flex items-center gap-4">
+            <div
               className={`relative flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[18px] bg-gradient-to-br ${accent.glow} ring-1 ${accent.ring} shadow-[inset_0_2px_12px_rgba(255,255,255,0.8)] overflow-hidden transition-transform duration-500 ${
                 selected ? "scale-105" : "group-hover:scale-105"
               }`}
@@ -383,9 +451,9 @@ function TaskRunnerCards({ entries, emptyText, selectedTaskId, onSelect, summary
               >
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
               </svg>
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex flex-wrap items-center gap-2">
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
                 {isRunning ? (
                   <span className="rounded-full border border-sky-200/80 bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-sky-700">
                     Live Runner
@@ -396,19 +464,19 @@ function TaskRunnerCards({ entries, emptyText, selectedTaskId, onSelect, summary
                     Needs Review
                   </span>
                 ) : null}
-              </span>
-              <span className={`mt-2 block text-[15px] font-bold leading-snug transition-colors duration-300 ${selected ? "text-gray-900" : "text-gray-700 group-hover:text-gray-900"}`}>{runner.headline}</span>
-              <span className="mt-1.5 flex flex-wrap items-center gap-2">
+              </div>
+              <div className={`mt-1.5 block text-[15px] font-bold leading-snug transition-colors duration-300 ${selected ? "text-gray-900" : "text-gray-700 group-hover:text-gray-900"}`}>{runner.headline}</div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide shadow-sm backdrop-blur-md border shrink-0 ${accent.pill}`}>
-                  {runner.statusLabel ?? formatTaskRunnerStatus(runner.status)}
+                  {statusLabel}
                 </span>
                 {runner.lastUpdatedAt ? (
                   <span className="text-[11px] font-medium text-gray-400">
                     Updated {formatTime(runner.lastUpdatedAt)}
                   </span>
                 ) : null}
-              </span>
-              <span
+              </div>
+              <div
                 className={`mt-2 block rounded-[18px] bg-gradient-to-r px-3 py-2 text-[12px] leading-relaxed ${
                   isRunning
                     ? "from-sky-50 to-cyan-50 text-sky-800 ring-1 ring-inset ring-sky-100"
@@ -420,16 +488,21 @@ function TaskRunnerCards({ entries, emptyText, selectedTaskId, onSelect, summary
                 }`}
               >
                 {heroUpdate}
-              </span>
+              </div>
               {!selected && supportingParts.length > 0 ? (
-                <span className="mt-2 block text-[11px] leading-relaxed text-gray-500/80 tracking-wide font-medium break-words">{supportingParts.join(" · ")}</span>
+                <div className="mt-2 block text-[11px] leading-relaxed text-gray-500/80 tracking-wide font-medium break-words">{supportingParts.join(" · ")}</div>
               ) : null}
-            </span>
-          </span>
-        </button>
+            </div>
+          </div>
+        </div>
         {selected ? (
           <div className="animate-[fade-in_0.3s_ease-out]">
-            <TaskRunnerDetail runner={runner} summary={summary} debugEvents={debugEvents} />
+            <TaskRunnerDetail
+              runner={runner}
+              summary={summary}
+              debugEvents={debugEvents}
+              onCancelTask={onCancelTask}
+            />
           </div>
         ) : null}
       </article>
@@ -440,43 +513,33 @@ function TaskRunnerCards({ entries, emptyText, selectedTaskId, onSelect, summary
 export function AgentActivityPanel({
   taskRunners,
   archivedEntries,
-  completedDrawerAutoOpenTick,
   selectedTaskId,
+  selectionDismissed = false,
   onSelectTask,
+  onCancelTask,
+  taskCancelUiState = {},
   summary,
   debugEvents,
   voiceConnected,
   pendingBriefingCount
 }) {
-  const [completedOpen, setCompletedOpen] = useState(
-    archivedEntries.length > 0 && taskRunners.length === 0
+  const [completedOpen, setCompletedOpen] = useState(false);
+  const { activeEntries, archivedEntries: visibleArchivedEntries } = useMemo(
+    () =>
+      buildTaskRunnerPresentation({
+        taskRunners,
+        archivedEntries,
+        taskCancelUiState
+      }),
+    [archivedEntries, taskCancelUiState, taskRunners]
   );
   const effectiveSelectedTaskId =
-    selectedTaskId ?? pickDefaultTaskSelection(taskRunners, archivedEntries);
-  const anyTasksExist = taskRunners.length > 0 || archivedEntries.length > 0;
-  const showRunningSection = taskRunners.length > 0;
-  const completedIsPrimary = taskRunners.length === 0 && archivedEntries.length > 0;
-
-  useEffect(() => {
-    const isSelectedArchived = archivedEntries.some(
-      (entry) => entry.taskId === effectiveSelectedTaskId
-    );
-    if (isSelectedArchived) {
-      setCompletedOpen(true);
-    }
-  }, [archivedEntries, effectiveSelectedTaskId]);
-
-  useEffect(() => {
-    if (archivedEntries.length > 0 && taskRunners.length === 0) {
-      setCompletedOpen(true);
-    }
-  }, [archivedEntries.length, taskRunners.length]);
-
-  useEffect(() => {
-    if (completedDrawerAutoOpenTick > 0) {
-      setCompletedOpen(true);
-    }
-  }, [completedDrawerAutoOpenTick]);
+    selectionDismissed
+      ? null
+      : selectedTaskId ?? pickDefaultTaskSelection(activeEntries, visibleArchivedEntries);
+  const anyTasksExist = activeEntries.length > 0 || visibleArchivedEntries.length > 0;
+  const showRunningSection = activeEntries.length > 0;
+  const completedIsPrimary = activeEntries.length === 0 && visibleArchivedEntries.length > 0;
 
   return (
     <aside className="relative z-10 flex h-full min-h-0 flex-col rounded-[40px] border border-white/60 bg-gradient-to-b from-white/60 to-white/40 p-6 shadow-[0_30px_120px_-50px_rgba(15,23,42,0.15)] backdrop-blur-3xl overflow-hidden">
@@ -506,7 +569,7 @@ export function AgentActivityPanel({
             <div className="flex items-end justify-between gap-3 px-1">
               <div>
                 <p className="m-0 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400/90">
-                  Running ({taskRunners.length})
+                  Running ({activeEntries.length})
                 </p>
                 <p className="m-0 mt-1 text-sm text-gray-500">
                   Active runners stay pinned here while their progress keeps updating.
@@ -518,23 +581,26 @@ export function AgentActivityPanel({
             </div>
             <div className="space-y-3">
               <TaskRunnerCards
-                entries={taskRunners}
+                entries={activeEntries}
                 emptyText=""
                 selectedTaskId={effectiveSelectedTaskId}
-                onSelect={onSelectTask}
+                onSelect={(taskId) =>
+                  onSelectTask(taskId === effectiveSelectedTaskId ? null : taskId)
+                }
                 summary={summary}
                 debugEvents={debugEvents}
+                onCancelTask={onCancelTask}
               />
             </div>
           </section>
         ) : null}
 
-        {archivedEntries.length > 0 && (
+        {visibleArchivedEntries.length > 0 && (
           <section className="space-y-3">
             {completedIsPrimary ? (
               <div className="px-1">
                 <p className="m-0 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400/90">
-                  Completed ({archivedEntries.length})
+                  Completed ({visibleArchivedEntries.length})
                 </p>
                 <p className="m-0 mt-1 text-sm text-gray-500">
                   Finished tasks stay openable here with their full result and execution history.
@@ -551,17 +617,20 @@ export function AgentActivityPanel({
                   ? "border-emerald-200/60 bg-white/62 shadow-[0_14px_35px_-24px_rgba(16,185,129,0.28)]"
                   : "border-white/40 bg-white/30 hover:bg-white/50 hover:shadow-sm"
               }`}>
-                <span>Completed ({archivedEntries.length})</span>
+                <span>Completed ({visibleArchivedEntries.length})</span>
                 <span className="text-[10px] text-gray-400 group-open:rotate-180 transition-transform duration-300">▼</span>
               </summary>
               <div className="mt-3 space-y-3">
                 <TaskRunnerCards
-                  entries={archivedEntries}
+                  entries={visibleArchivedEntries}
                   emptyText="Completed work will be archived here."
                   selectedTaskId={effectiveSelectedTaskId}
-                  onSelect={onSelectTask}
+                  onSelect={(taskId) =>
+                    onSelectTask(taskId === effectiveSelectedTaskId ? null : taskId)
+                  }
                   summary={summary}
                   debugEvents={debugEvents}
+                  onCancelTask={onCancelTask}
                 />
               </div>
             </details>
