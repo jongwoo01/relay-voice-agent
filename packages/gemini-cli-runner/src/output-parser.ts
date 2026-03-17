@@ -26,7 +26,6 @@ export interface ParsedGeminiCliOutput {
   events: GeminiCliHeadlessEvent[];
 }
 
-const HANGUL_REGEX = /[\u3131-\u318e\uac00-\ud7a3]/;
 // Keep this marker aligned with the local executor prompt contract in prompts.ts.
 const REPORT_JSON_MARKER = "REPORT_JSON:";
 
@@ -129,9 +128,9 @@ function extractCompletionResponse(
     markerIndex >= 0 ? null : findFirstJsonObject(trimmedValue);
   const naturalAnswer =
     markerIndex >= 0
-      ? englishOnlyValue(value.slice(0, markerIndex))
+      ? normalizedTextValue(value.slice(0, markerIndex))
       : embeddedObject && embeddedObject !== trimmedValue
-        ? englishOnlyValue(trimmedValue.replace(embeddedObject, "").trim())
+        ? normalizedTextValue(trimmedValue.replace(embeddedObject, "").trim())
         : undefined;
   const reportCandidate =
     markerIndex >= 0
@@ -140,11 +139,11 @@ function extractCompletionResponse(
   const parsed = parseJsonObjectString(reportCandidate);
   if (!parsed) {
     return {
-      naturalAnswer: englishOnlyValue(value)
+      naturalAnswer: normalizedTextValue(value)
     };
   }
 
-  const summary = englishOnlyValue(firstNonEmptyString([parsed.summary]));
+  const summary = normalizedTextValue(firstNonEmptyString([parsed.summary]));
   const verification =
     parsed.verification === "verified" || parsed.verification === "uncertain"
       ? parsed.verification
@@ -152,7 +151,7 @@ function extractCompletionResponse(
 
   if (!summary || !verification) {
     return {
-      naturalAnswer: englishOnlyValue(value)
+      naturalAnswer: normalizedTextValue(value)
     };
   }
 
@@ -161,7 +160,7 @@ function extractCompletionResponse(
         .filter(
           (item): item is string => typeof item === "string" && item.trim().length > 0
         )
-        .map((item) => englishOnlyValue(item))
+        .map((item) => normalizedTextValue(item))
         .filter((item): item is string => typeof item === "string")
     : [];
 
@@ -170,11 +169,11 @@ function extractCompletionResponse(
         .filter(
           (item): item is string => typeof item === "string" && item.trim().length > 0
         )
-        .map((item) => englishOnlyValue(item))
+        .map((item) => normalizedTextValue(item))
         .filter((item): item is string => typeof item === "string")
     : [];
 
-  const question = englishOnlyValue(firstNonEmptyString([parsed.question]));
+  const question = normalizedTextValue(firstNonEmptyString([parsed.question]));
 
   return {
     naturalAnswer,
@@ -203,13 +202,13 @@ function firstNonEmptyString(values: Array<unknown>): string | undefined {
   return undefined;
 }
 
-function englishOnlyValue(value: string | undefined): string | undefined {
+function normalizedTextValue(value: string | undefined): string | undefined {
   if (!value) {
     return undefined;
   }
 
   const trimmed = value.trim();
-  if (!trimmed || HANGUL_REGEX.test(trimmed)) {
+  if (!trimmed) {
     return undefined;
   }
 
@@ -429,7 +428,7 @@ function buildTaskExecutionArtifact(
         kind: "result",
         createdAt,
         title: status ? `Final result: ${status}` : "Final result",
-        body: extractResultResponse(event),
+        body: extractResultResponse(event) ?? extractErrorMessage(event),
         status,
         payloadJson
       };
@@ -570,11 +569,18 @@ export async function buildExecutorResultFromGeminiCliOutput(
 
     if (event.type === "result") {
       sawResult = true;
+      const status = extractResultStatus(event);
+      if (status === "error") {
+        const resultError =
+          extractErrorMessage(event) ??
+          extractResultResponse(event) ??
+          "Gemini CLI reported a final error.";
+        throw new Error(`Gemini CLI final result error: ${resultError}`);
+      }
       completionMessage = extractResultResponse(event);
       const parsedCompletion = extractCompletionResponse(completionMessage);
       naturalFinalAnswer = parsedCompletion.naturalAnswer;
       completionReport = parsedCompletion.report;
-      const status = extractResultStatus(event);
       if (status === "waiting_input") {
         outcome = "waiting_input";
       } else if (status === "approval_required") {
@@ -613,8 +619,8 @@ export async function buildExecutorResultFromGeminiCliOutput(
         naturalFinalAnswer ??
         (assistantTranscript &&
         !assistantTranscriptStructured &&
-        englishOnlyValue(assistantTranscript) !== completionReport.summary
-          ? englishOnlyValue(assistantTranscript)
+        normalizedTextValue(assistantTranscript) !== completionReport.summary
+          ? normalizedTextValue(assistantTranscript)
           : undefined)
     };
   }
@@ -623,7 +629,7 @@ export async function buildExecutorResultFromGeminiCliOutput(
     outcome === "waiting_input" || outcome === "approval_required"
       ? completionReport?.question ??
         completionReport?.summary ??
-        englishOnlyValue(completionMessage) ??
+        normalizedTextValue(completionMessage) ??
         "I need one more answer before I can continue."
       : completionReport
         ? completionReport.verification === "verified"

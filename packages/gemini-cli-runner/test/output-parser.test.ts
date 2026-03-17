@@ -292,4 +292,63 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
     );
     expect(result.report?.detailedAnswer).toBeUndefined();
   });
+
+  it("preserves multilingual structured reports", async () => {
+    const parsed = parseGeminiCliOutput(
+      [
+        JSON.stringify({
+          type: "result",
+          response:
+            '파일을 만들었습니다.\nREPORT_JSON: {"summary":"데스크톱에 타고있는내맘.txt 파일을 만들었습니다.","keyFindings":["파일 이름: 타고있는내맘.txt","위치: /Users/jongwoo/Desktop/타고있는내맘.txt"],"verification":"verified","changes":["사랑 편지 5줄을 파일에 작성했습니다."],"question":""}'
+        })
+      ].join("\n")
+    );
+
+    const result = await buildExecutorResultFromGeminiCliOutput({
+      taskId: "task-ko",
+      now: "2026-03-08T00:00:00.000Z",
+      output: parsed
+    });
+
+    expect(result.completionEvent.message).toBe(
+      "데스크톱에 타고있는내맘.txt 파일을 만들었습니다."
+    );
+    expect(result.report).toEqual(
+      expect.objectContaining({
+        summary: "데스크톱에 타고있는내맘.txt 파일을 만들었습니다.",
+        detailedAnswer: "파일을 만들었습니다.",
+        keyFindings: [
+          "파일 이름: 타고있는내맘.txt",
+          "위치: /Users/jongwoo/Desktop/타고있는내맘.txt"
+        ],
+        verification: "verified",
+        changes: ["사랑 편지 5줄을 파일에 작성했습니다."],
+        question: undefined
+      })
+    );
+  });
+
+  it("throws when the final result reports error status", async () => {
+    const parsed = parseGeminiCliOutput(
+      [
+        JSON.stringify({
+          type: "result",
+          status: "error",
+          error: {
+            message: "Failed to write the requested file."
+          }
+        })
+      ].join("\n")
+    );
+
+    await expect(
+      buildExecutorResultFromGeminiCliOutput({
+        taskId: "task-final-error",
+        now: "2026-03-08T00:00:00.000Z",
+        output: parsed
+      })
+    ).rejects.toThrow(
+      "Gemini CLI final result error: Failed to write the requested file."
+    );
+  });
 });

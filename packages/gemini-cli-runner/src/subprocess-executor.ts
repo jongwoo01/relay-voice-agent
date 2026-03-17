@@ -12,6 +12,7 @@ import type {
   LocalExecutor
 } from "@agent/local-executor-protocol";
 import { buildGeminiCliCommand } from "./command-builder.js";
+import { resolvePlatformSpawnCommand } from "./windows-spawn.js";
 import {
   buildExecutorResultFromGeminiCliOutput,
   parseGeminiCliEventLine,
@@ -90,10 +91,16 @@ export function createSpawnRunner(
     options?: RunCommandOptions
   ): Promise<ExecResult> =>
     await new Promise<ExecResult>((resolve, reject) => {
-      const child = spawnCommand(file, args, {
+      const platformCommand = resolvePlatformSpawnCommand({
+        file,
+        args,
+        env: options?.env
+      });
+      const child = spawnCommand(platformCommand.file, platformCommand.args, {
         cwd: options?.cwd,
         env: options?.env,
-        stdio: "pipe"
+        stdio: "pipe",
+        windowsHide: platformCommand.windowsHide
       });
 
       let stdout = "";
@@ -207,18 +214,8 @@ export function buildGeminiCliEnvironment(
   const dedupedPath = [...new Set(mergedPath)];
   const nextEnv: NodeJS.ProcessEnv = {
     ...env,
-    // Force the CLI toward cached Google OAuth auth instead of inheriting
-    // live-session API key / Vertex configuration from the desktop process.
-    GOOGLE_GENAI_USE_GCA: "true",
     PATH: dedupedPath.join(delimiter)
   };
-
-  delete nextEnv.GEMINI_API_KEY;
-  delete nextEnv.GOOGLE_API_KEY;
-  delete nextEnv.GOOGLE_GENAI_USE_VERTEXAI;
-  delete nextEnv.GOOGLE_CLOUD_PROJECT;
-  delete nextEnv.GOOGLE_CLOUD_PROJECT_ID;
-  delete nextEnv.GOOGLE_CLOUD_LOCATION;
 
   return nextEnv;
 }

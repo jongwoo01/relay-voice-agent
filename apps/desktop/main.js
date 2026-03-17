@@ -372,6 +372,12 @@ function buildRawExecutorEventSummary(event) {
 
     const nestedResult =
       payload.result && typeof payload.result === "object" ? payload.result : null;
+    const payloadError =
+      payload.error && typeof payload.error === "object" ? payload.error : null;
+    const nestedResultError =
+      nestedResult?.error && typeof nestedResult.error === "object"
+        ? nestedResult.error
+        : null;
 
     const response = firstString([
       payload.response,
@@ -384,12 +390,31 @@ function buildRawExecutorEventSummary(event) {
       nestedResult?.output,
       nestedResult?.content
     ]);
+    const errorText = firstString([
+      typeof payload.error === "string" ? payload.error : null,
+      payloadError?.message,
+      nestedResultError?.message,
+      typeof nestedResult?.error === "string" ? nestedResult.error : null
+    ]);
 
     if (response) {
+      summary.responseLength = response.length;
+      summary.hasReportJsonMarker = response.includes("REPORT_JSON:");
       summary.responseSnippet =
         redactSensitiveText(
           response.length > 160 ? `${response.slice(0, 160)}...` : response
         );
+      if (response.length > 160) {
+        summary.responseTailSnippet = redactSensitiveText(
+          `...${response.slice(-160)}`
+        );
+      }
+    }
+
+    if (errorText) {
+      summary.errorSnippet = redactSensitiveText(
+        errorText.length > 200 ? `${errorText.slice(0, 200)}...` : errorText
+      );
     }
   }
 
