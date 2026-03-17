@@ -164,7 +164,7 @@ The packaged builds are unsigned judge-style artifacts. macOS may show Gatekeepe
 
 ## Cloud Deployment
 
-Relay’s hosted submission topology is Cloud Run plus Cloud SQL for Postgres. Runtime should prefer Cloud SQL socket mode, while migrations should use a separate direct database URL secret.
+Relay’s hosted submission topology is Cloud Run plus Cloud SQL for Postgres. Runtime should prefer Cloud SQL socket mode, and the deployment helper now defaults to running migrations inside GCP with a Cloud Run Job in that same socket mode. A direct migration URL remains available as a fallback for local migration runs.
 
 Recommended deploy command:
 
@@ -178,14 +178,13 @@ CLOUD_SQL_CONNECTION_NAME=<project:region:instance> \
 CLOUD_SQL_DATABASE_NAME=gemini_live_agent \
 CLOUD_SQL_DATABASE_USER=<db-user> \
 CLOUD_SQL_DATABASE_PASSWORD_SECRET=<secret-name> \
-MIGRATION_DATABASE_URL_SECRET=<direct-db-url-secret-name> \
 JUDGE_PASSCODE_SECRET=<secret-name> \
 JUDGE_TOKEN_SECRET_SECRET=<secret-name> \
 GEMINI_API_KEY_SECRET=<secret-name> \
 npm run deploy:agent-api:cloud-run
 ```
 
-The deployment helper applies migrations, builds the monorepo image, pushes it to Artifact Registry, and deploys the hosted agent to Cloud Run with the required runtime configuration.
+The deployment helper builds the monorepo image, runs migrations, pushes the image to Artifact Registry, and deploys the hosted agent to Cloud Run with the required runtime configuration.
 
 For the expanded deployment and proof notes, see [docs/cloud-deployment.md](docs/cloud-deployment.md).
 

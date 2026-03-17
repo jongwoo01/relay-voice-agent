@@ -24,7 +24,7 @@ The public repository already contains code-level proof for the Google Cloud sub
 - `apps/agent-api/src/server.ts`
   - validates hosted runtime requirements for Google Cloud and Postgres
 - `scripts/deploy-agent-api-cloud-run.sh`
-  - applies migrations, builds the image, and deploys the hosted core to Cloud Run with Cloud SQL support
+  - builds the image, runs migrations, and deploys the hosted core to Cloud Run with Cloud SQL support
 
 ## Recommended runtime shape
 
@@ -35,7 +35,8 @@ For the hosted deployment path:
   - `PGUSER`
   - `PGDATABASE`
   - `PGPASSWORD`
-- keep migrations on a separate direct database URL secret
+- prefer running migrations inside GCP with a Cloud Run Job in socket mode
+- keep direct migration URLs only as a fallback for local migration runs
   - `MIGRATION_DATABASE_URL_SECRET`
 - keep judge credentials private and outside the public repo
 
@@ -53,7 +54,6 @@ CLOUD_SQL_CONNECTION_NAME=<project:region:instance> \
 CLOUD_SQL_DATABASE_NAME=gemini_live_agent \
 CLOUD_SQL_DATABASE_USER=<db-user> \
 CLOUD_SQL_DATABASE_PASSWORD_SECRET=<secret-name> \
-MIGRATION_DATABASE_URL_SECRET=<direct-db-url-secret-name> \
 JUDGE_PASSCODE_SECRET=<secret-name> \
 JUDGE_TOKEN_SECRET_SECRET=<secret-name> \
 GEMINI_API_KEY_SECRET=<secret-name> \
@@ -62,7 +62,9 @@ npm run deploy:agent-api:cloud-run
 
 The deployment helper:
 
-- runs the ordered SQL migrations before deploy
+- builds the image
+- runs the ordered SQL migrations before service deploy
+- by default, executes migrations via a Cloud Run Job when Cloud SQL socket mode is enabled
 - builds from the monorepo root using `apps/agent-api/Dockerfile`
 - pushes through Artifact Registry
 - deploys the Cloud Run service with hosted runtime configuration
