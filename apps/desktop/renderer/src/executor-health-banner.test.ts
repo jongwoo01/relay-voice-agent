@@ -19,8 +19,7 @@ describe("executor-health-banner", () => {
           status: "unknown",
           code: null,
           summary: "Gemini CLI health has not been checked yet.",
-          detail:
-            "Relay will check the local executor before running Gemini-backed tasks.",
+          detail: "Relay can run a lightweight Gemini CLI probe and show the result here.",
           checkedAt: null
         },
         "darwin"
@@ -71,7 +70,8 @@ describe("executor-health-banner", () => {
       )
     ).toEqual(
       expect.objectContaining({
-        showPrivacyShortcut: true
+        showPrivacyShortcut: true,
+        privacySection: "files"
       })
     );
   });

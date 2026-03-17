@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { AgentActivityPanel } from "./components/activity/AgentActivityPanel.jsx";
 import { HistoryIcon, SettingsIcon } from "./components/icons.jsx";
 import { LiveSpeechHud } from "./components/overlays/LiveSpeechHud.jsx";
@@ -84,7 +84,7 @@ function classifyRuntimeIssue(errorText, platform) {
   return null;
 }
 
-function ExecutorHealthBanner({ model, onRetry }) {
+function ExecutorHealthBanner({ model, onRetry, onOpenPrivacySettings, onDismiss }) {
   if (!model) {
     return null;
   }
@@ -129,11 +129,23 @@ function ExecutorHealthBanner({ model, onRetry }) {
       {checkedAtText ? (
         <p className={`mt-2 text-[11px] ${accent.secondary}`}>Last checked · {checkedAtText}</p>
       ) : null}
-      <div className="mt-3 flex flex-wrap justify-end gap-2">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        {onDismiss ? (
+          <button
+            type="button"
+            onClick={() => void onDismiss()}
+            className={`rounded-full border px-4 py-2 text-[12px] font-semibold transition-colors ${accent.button}`}
+          >
+            Dismiss
+          </button>
+        ) : (
+          <span />
+        )}
+        <div className="flex flex-wrap justify-end gap-2">
         {model.showPrivacyShortcut ? (
           <button
             type="button"
-            onClick={() => void window.desktopSystem.openMicrophonePrivacySettings?.()}
+            onClick={() => void onOpenPrivacySettings?.(model)}
             className={`rounded-full border px-4 py-2 text-[12px] font-semibold transition-colors ${accent.button}`}
           >
             Open Privacy Settings
@@ -148,6 +160,7 @@ function ExecutorHealthBanner({ model, onRetry }) {
             Retry Health Check
           </button>
         ) : null}
+        </div>
       </div>
     </div>
   );
@@ -240,6 +253,39 @@ export default function App() {
     executorHealth,
     window.desktopSystem?.platform ?? "unknown"
   );
+  const [dismissedExecutorHealthKey, setDismissedExecutorHealthKey] = useState(null);
+  const executorHealthBannerKey = executorHealthBanner
+    ? [
+        executorHealth.status,
+        executorHealth.code ?? "",
+        executorHealth.summary ?? "",
+        executorHealth.detail ?? "",
+        executorHealth.checkedAt ?? ""
+      ].join("::")
+    : null;
+
+  useEffect(() => {
+    if (!executorHealthBannerKey) {
+      setDismissedExecutorHealthKey(null);
+      return;
+    }
+
+    setDismissedExecutorHealthKey((current) =>
+      current === executorHealthBannerKey ? current : null
+    );
+  }, [executorHealthBannerKey]);
+
+  const showExecutorHealthBanner =
+    executorHealthBanner && dismissedExecutorHealthKey !== executorHealthBannerKey;
+
+  const handleOpenExecutorPrivacySettings = useCallback(async (model) => {
+    if (model?.privacySection === "files") {
+      await window.desktopSystem?.openMacPrivacySettings?.("files");
+      return;
+    }
+
+    await window.desktopSystem?.openMicrophonePrivacySettings?.();
+  }, []);
 
   useEffect(() => {
     if (voiceState.connected) {
@@ -391,11 +437,13 @@ export default function App() {
             {isUnlocked &&
             settings.ui.showHeaderHealthWarnings &&
             !resolvedRuntimeError &&
-            executorHealthBanner ? (
+            showExecutorHealthBanner ? (
               <div className="absolute left-1/2 top-28 z-40 w-[min(92vw,680px)] -translate-x-1/2">
                 <ExecutorHealthBanner
                   model={executorHealthBanner}
                   onRetry={handleRetryExecutorHealthCheck}
+                  onOpenPrivacySettings={handleOpenExecutorPrivacySettings}
+                  onDismiss={() => setDismissedExecutorHealthKey(executorHealthBannerKey)}
                 />
               </div>
             ) : null}
@@ -532,10 +580,12 @@ export default function App() {
                 setIsUnlocked(true);
               }}
             >
-              {executorHealthBanner ? (
+              {showExecutorHealthBanner ? (
                 <ExecutorHealthBanner
                   model={executorHealthBanner}
                   onRetry={handleRetryExecutorHealthCheck}
+                  onOpenPrivacySettings={handleOpenExecutorPrivacySettings}
+                  onDismiss={() => setDismissedExecutorHealthKey(executorHealthBannerKey)}
                 />
               ) : null}
               <div className="relative flex w-full items-center">

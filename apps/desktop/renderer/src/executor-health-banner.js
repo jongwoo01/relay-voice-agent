@@ -20,13 +20,15 @@ export function buildExecutorHealthBannerModel(executorHealth, platform) {
     return null;
   }
 
+  const permissionDenied = executorHealth.code === "permission_denied";
+
   return {
     tone,
     title: executorHealth.summary,
     detail: executorHealth.detail,
     checkedAt: executorHealth.checkedAt ?? null,
-    showPrivacyShortcut:
-      executorHealth.code === "permission_denied" && platform === "darwin",
+    showPrivacyShortcut: permissionDenied && platform === "darwin",
+    privacySection: permissionDenied ? "files" : null,
     showRetry: true
   };
 }
