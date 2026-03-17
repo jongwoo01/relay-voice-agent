@@ -39,10 +39,14 @@ const EMPTY_UI_STATE = {
     status: "unknown",
     code: null,
     summary: "Gemini CLI health has not been checked yet.",
-    detail: "Relay will check the local executor before running Gemini-backed tasks.",
+    detail: "Relay can run a lightweight Gemini CLI probe and show the result here.",
     checkedAt: null,
     canRunLocalTasks: false,
     commandPath: null,
+    authStrategy: "unknown",
+    exitCode: null,
+    probeWorkingDirectory: null,
+    stdoutSnippet: null,
     stderrSnippet: null
   },
   conversationTimeline: [],
@@ -100,21 +104,11 @@ const EMPTY_SETUP_STATUS = {
     summary: "Gemini CLI binary has not been checked yet.",
     detail: "Relay will probe the local Gemini CLI binary when setup status is refreshed."
   },
-  localExecutorAuth: {
-    status: "unknown",
-    summary: "Gemini auth has not been checked yet.",
-    detail: "Relay will verify whether a cached Google login is available for headless Gemini CLI use."
-  },
   localFileAccess: {
     status: "unknown",
     summary: "Local file access has not been checked yet.",
     detail: "Relay will probe common local folders when setup status is refreshed.",
     directories: []
-  },
-  currentWorkspaceTrust: {
-    status: "unknown",
-    summary: "Workspace trust has not been checked yet.",
-    detail: "Relay will inspect Gemini trusted folder coverage when setup status is refreshed."
   }
 };
 
@@ -250,6 +244,7 @@ export function useDesktopAppController() {
   const liveActivitySequenceRef = useRef(0);
   const liveAudioChunkCountRef = useRef(0);
   const pendingSpeechChunksRef = useRef([]);
+  const pendingExecutorHealthRefreshRef = useRef(false);
   const liveVadConfigRef = useRef(createDefaultDesktopSettings().audio.liveVad);
   const liveVadStateRef = useRef({
     noiseFloor: createDefaultDesktopSettings().audio.liveVad.noiseFloor,
@@ -361,6 +356,18 @@ export function useDesktopAppController() {
     },
     [showRuntimeError]
   );
+
+  const runExecutorHealthRefresh = useCallback(async () => {
+    try {
+      hideRuntimeError();
+      await window.desktopUi.retryExecutorHealthCheck();
+      await refreshSetupStatus({ refresh: false });
+      return true;
+    } catch (error) {
+      showRuntimeError(error);
+      return false;
+    }
+  }, [hideRuntimeError, refreshSetupStatus, showRuntimeError]);
 
   const setRuntimeUserSpeaking = useCallback(async (speaking) => {
     if (voiceStateRef.current.activity?.userSpeaking === speaking) {
@@ -910,6 +917,21 @@ export function useDesktopAppController() {
     const onDeviceChange = () => {
       void populateMicrophones().catch(showRuntimeError);
     };
+    const onWindowFocus = () => {
+      if (!pendingExecutorHealthRefreshRef.current) {
+        return;
+      }
+
+      pendingExecutorHealthRefreshRef.current = false;
+      void runExecutorHealthRefresh();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      onWindowFocus();
+    };
     const onKeyDown = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "d") {
         setDebugOpen((current) => !current);
@@ -917,6 +939,8 @@ export function useDesktopAppController() {
     };
 
     navigator.mediaDevices?.addEventListener?.("devicechange", onDeviceChange);
+    window.addEventListener("focus", onWindowFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("keydown", onKeyDown);
 
     return () => {
@@ -924,6 +948,8 @@ export function useDesktopAppController() {
       unsubscribeState();
       unsubscribeAudio();
       navigator.mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
+      window.removeEventListener("focus", onWindowFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("keydown", onKeyDown);
       if (faceAnimationRef.current) {
         cancelAnimationFrame(faceAnimationRef.current);
@@ -936,6 +962,7 @@ export function useDesktopAppController() {
     hideRuntimeError,
     populateMicrophones,
     refreshSetupStatus,
+    runExecutorHealthRefresh,
     showRuntimeError,
     stopPlayback,
     stopVoiceCapture
@@ -1306,14 +1333,8 @@ export function useDesktopAppController() {
   );
 
   const handleRetryExecutorHealthCheck = useCallback(async () => {
-    try {
-      hideRuntimeError();
-      await window.desktopUi.retryExecutorHealthCheck();
-      await refreshSetupStatus({ refresh: false });
-    } catch (error) {
-      showRuntimeError(error);
-    }
-  }, [hideRuntimeError, refreshSetupStatus, showRuntimeError]);
+    await runExecutorHealthRefresh();
+  }, [runExecutorHealthRefresh]);
 
   const handleRefreshMicrophones = useCallback(async () => {
     try {
@@ -1566,7 +1587,11 @@ export function useDesktopAppController() {
   const handleOpenGeminiLoginTerminal = useCallback(async () => {
     try {
       hideRuntimeError();
-      return await window.desktopUi.openGeminiLoginTerminal();
+      const opened = await window.desktopUi.openGeminiLoginTerminal();
+      if (opened) {
+        pendingExecutorHealthRefreshRef.current = true;
+      }
+      return opened;
     } catch (error) {
       showRuntimeError(error);
       return false;

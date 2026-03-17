@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildGeminiCliCommand,
+  buildGeminiCliHealthCommand,
   resolveDefaultWorkingDirectory,
   resolveGeminiCliCommand
 } from "../src/command-builder.js";
@@ -187,5 +188,20 @@ describe("buildGeminiCliCommand", () => {
     );
 
     expect(command.command).toBe("/tmp/custom-gemini");
+  });
+
+  it("builds a dedicated minimal health-check command", () => {
+    const command = buildGeminiCliHealthCommand({
+      workingDirectory: "/tmp"
+    });
+
+    expect(command.command).toBe(resolveGeminiCliCommand());
+    expect(command.args).toEqual([
+      "-p",
+      "Reply exactly READY.",
+      "--output-format",
+      "json"
+    ]);
+    expect(command.cwd).toBe("/tmp");
   });
 });

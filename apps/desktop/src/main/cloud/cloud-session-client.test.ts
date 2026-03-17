@@ -165,11 +165,15 @@ beforeEach(() => {
     probeHealthMock.mockResolvedValue({
       status: "healthy",
       code: "healthy",
-      summary: "Gemini CLI is ready on this machine.",
-      detail: "Local Gemini-backed tasks can run.",
+      summary: "Gemini CLI readiness check passed.",
+      detail: "Gemini CLI answered a minimal non-interactive probe in this environment.",
       checkedAt: "2026-03-16T00:00:00.000Z",
       canRunLocalTasks: true,
-      commandPath: "mock"
+      commandPath: "mock",
+      authStrategy: "cached_google",
+      probeWorkingDirectory: "/Users/jongwoo",
+      exitCode: 0,
+      stdoutSnippet: "{\"response\":\"READY\"}"
     });
     MockWebSocket.instances.length = 0;
     delete process.env.JUDGE_PASSCODE;
@@ -246,11 +250,14 @@ beforeEach(() => {
     await client.setExecutorHealth({
       status: "healthy",
       code: "healthy",
-      summary: "Gemini CLI is ready on this machine.",
-      detail: "Local Gemini-backed tasks can run.",
+      summary: "Gemini CLI readiness check passed.",
+      detail: "Gemini CLI answered a minimal non-interactive probe in this environment.",
       checkedAt: "2026-03-16T00:00:00.000Z",
       canRunLocalTasks: true,
-      commandPath: "mock"
+      commandPath: "mock",
+      authStrategy: "cached_google",
+      probeWorkingDirectory: "/Users/jongwoo",
+      exitCode: 0
     });
 
     const connectPromise = client.connect("judge-passcode");
@@ -419,7 +426,7 @@ beforeEach(() => {
     });
   });
 
-  it("blocks executor requests early when the health state is unhealthy", async () => {
+  it("still runs executor requests when the health state is unhealthy", async () => {
     probeHealthMock.mockResolvedValue({
       status: "unhealthy",
       code: "missing_binary",
@@ -427,7 +434,19 @@ beforeEach(() => {
       detail: "Install Gemini CLI, then retry the health check.",
       checkedAt: "2026-03-16T00:00:00.000Z",
       canRunLocalTasks: false,
-      commandPath: "/usr/local/bin/gemini"
+      commandPath: "/usr/local/bin/gemini",
+      authStrategy: "cached_google"
+    });
+
+    runMock.mockResolvedValue({
+      progressEvents: [],
+      completionEvent: {
+        taskId: "task-blocked",
+        type: "executor_completed",
+        message: "Completed despite health warning",
+        createdAt: "2026-03-14T00:00:00.000Z"
+      },
+      outcome: "completed"
     });
 
     const client = new CloudSessionClient({
@@ -475,13 +494,12 @@ beforeEach(() => {
       )
     );
 
-    expect(runMock).not.toHaveBeenCalled();
+    expect(runMock).toHaveBeenCalled();
     expect(socket.sent).toContainEqual(
       expect.objectContaining({
         type: "executor_terminal",
         runId: "run-blocked",
-        ok: false,
-        error: expect.stringContaining("Gemini CLI is not available locally.")
+        ok: true
       })
     );
   });
@@ -494,11 +512,14 @@ beforeEach(() => {
     await client.setExecutorHealth({
       status: "healthy",
       code: "healthy",
-      summary: "Gemini CLI is ready on this machine.",
-      detail: "Local Gemini-backed tasks can run.",
+      summary: "Gemini CLI readiness check passed.",
+      detail: "Gemini CLI answered a minimal non-interactive probe in this environment.",
       checkedAt: "2026-03-16T00:00:00.000Z",
       canRunLocalTasks: true,
-      commandPath: "mock"
+      commandPath: "mock",
+      authStrategy: "cached_google",
+      probeWorkingDirectory: "/Users/jongwoo",
+      exitCode: 0
     });
 
     probeHealthMock.mockResolvedValueOnce({
@@ -506,10 +527,11 @@ beforeEach(() => {
       code: "probe_timeout",
       summary: "Gemini CLI health check timed out.",
       detail:
-        "The CLI did not finish its startup/auth probe in time. Check local auth or connectivity, then retry.",
+        "The CLI did not complete the minimal readiness probe in time. Check local auth, connectivity, or CLI startup behavior, then retry.",
       checkedAt: "2026-03-16T00:10:00.000Z",
       canRunLocalTasks: false,
-      commandPath: "mock"
+      commandPath: "mock",
+      authStrategy: "cached_google"
     });
 
     const health = await client.runExecutorHealthCheck("full");
@@ -517,8 +539,7 @@ beforeEach(() => {
     expect(health).toEqual(
       expect.objectContaining({
         status: "unhealthy",
-        code: "probe_timeout",
-        canRunLocalTasks: true
+        code: "probe_timeout"
       })
     );
 

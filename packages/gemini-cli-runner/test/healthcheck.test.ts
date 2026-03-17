@@ -1,6 +1,6 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { probeGeminiCliHealth } from "../src/healthcheck.js";
 
@@ -88,12 +88,12 @@ describe("probeGeminiCliHealth", () => {
     expect(result.canRunLocalTasks).toBe(false);
   });
 
-  it("reports healthy when the probe returns stream-json output", async () => {
+  it("reports healthy when the probe returns structured json with READY", async () => {
     const result = await probeGeminiCliHealth({
       phase: "full",
       now: () => "2026-03-16T00:00:00.000Z",
       probeRunner: async () => ({
-        stdout: '{"type":"result","status":"success","response":"READY"}',
+        stdout: '{"response":"READY"}',
         stderr: "",
         exitCode: 0
       })
@@ -103,9 +103,55 @@ describe("probeGeminiCliHealth", () => {
       expect.objectContaining({
         status: "healthy",
         code: "healthy",
-        canRunLocalTasks: true
+        canRunLocalTasks: true,
+        authStrategy: "cached_google",
+        stdoutSnippet: '{"response":"READY"}'
       })
     );
+  });
+
+  it("accepts READY with trailing punctuation from the probe response", async () => {
+    const result = await probeGeminiCliHealth({
+      phase: "full",
+      now: () => "2026-03-16T00:00:00.000Z",
+      probeRunner: async () => ({
+        stdout: '{"response":"READY."}',
+        stderr: "",
+        exitCode: 0
+      })
+    });
+
+    expect(result.code).toBe("healthy");
+  });
+
+  it("fails when the probe response does not match READY exactly", async () => {
+    const result = await probeGeminiCliHealth({
+      phase: "full",
+      now: () => "2026-03-16T00:00:00.000Z",
+      probeRunner: async () => ({
+        stdout: '{"response":"READY NOW"}',
+        stderr: "",
+        exitCode: 0
+      })
+    });
+
+    expect(result.code).toBe("probe_failed_unknown");
+    expect(result.stdoutSnippet).toContain("READY NOW");
+  });
+
+  it("fails when the probe output is not valid json", async () => {
+    const result = await probeGeminiCliHealth({
+      phase: "full",
+      now: () => "2026-03-16T00:00:00.000Z",
+      probeRunner: async () => ({
+        stdout: "READY",
+        stderr: "",
+        exitCode: 0
+      })
+    });
+
+    expect(result.code).toBe("probe_failed_unknown");
+    expect(result.stdoutSnippet).toBe("READY");
   });
 
   it("runs the full probe with the same GEMINI_CLI_PATH override it validates", async () => {
@@ -126,7 +172,7 @@ describe("probeGeminiCliHealth", () => {
         probeRunner: async (file) => {
           commandUsed = file;
           return {
-            stdout: '{"type":"result","status":"success","response":"READY"}',
+            stdout: '{"response":"READY"}',
             stderr: "",
             exitCode: 0
           };
@@ -138,5 +184,63 @@ describe("probeGeminiCliHealth", () => {
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("uses the home directory for the health probe working directory", async () => {
+    let cwdUsed = "";
+
+    const result = await probeGeminiCliHealth({
+      phase: "full",
+      now: () => "2026-03-16T00:00:00.000Z",
+      probeRunner: async (_file, _args, options) => {
+        cwdUsed = options?.cwd ?? "";
+        return {
+          stdout: '{"response":"READY"}',
+          stderr: "",
+          exitCode: 0
+        };
+      }
+    });
+
+    expect(result.code).toBe("healthy");
+    expect(cwdUsed).toBe(homedir());
+  });
+
+  it("forwards an explicit working directory into the health probe", async () => {
+    let cwdUsed = "";
+
+    await probeGeminiCliHealth({
+      phase: "full",
+      workingDirectory: "/tmp",
+      now: () => "2026-03-16T00:00:00.000Z",
+      probeRunner: async (_file, _args, options) => {
+        cwdUsed = options?.cwd ?? "";
+        return {
+          stdout: '{"response":"READY"}',
+          stderr: "",
+          exitCode: 0
+        };
+      }
+    });
+
+    expect(cwdUsed).toBe("/tmp");
+  });
+
+  it("detects api key auth strategy from env", async () => {
+    const result = await probeGeminiCliHealth({
+      phase: "full",
+      env: {
+        ...process.env,
+        GEMINI_API_KEY: "demo-key"
+      },
+      now: () => "2026-03-16T00:00:00.000Z",
+      probeRunner: async () => ({
+        stdout: '{"response":"READY"}',
+        stderr: "",
+        exitCode: 0
+      })
+    });
+
+    expect(result.authStrategy).toBe("gemini_api_key");
   });
 });

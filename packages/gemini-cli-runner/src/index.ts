@@ -1,8 +1,10 @@
 export {
   buildGeminiCliCommand,
+  buildGeminiCliHealthCommand,
   resolveDefaultWorkingDirectory,
   resolveGeminiCliCommand,
-  type DefaultWorkingDirectoryOptions
+  type DefaultWorkingDirectoryOptions,
+  type GeminiCliHealthCommandInput
 } from "./command-builder.js";
 export {
   buildExecutorPrompt,
@@ -36,6 +38,11 @@ export {
   type RunCommandOptions,
   type SpawnLike
 } from "./subprocess-executor.js";
+export {
+  resolvePlatformSpawnCommand,
+  type PlatformSpawnCommand,
+  type PlatformSpawnCommandInput
+} from "./windows-spawn.js";
 export { MockExecutor } from "./mock-executor.js";
 export {
   probeGeminiCliHealth,

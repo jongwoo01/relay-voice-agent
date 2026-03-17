@@ -106,15 +106,8 @@ describe("GeminiCliExecutor", () => {
       "stream-json"
     ]);
     expect(options?.cwd).toBeUndefined();
-    expect(options?.env).toEqual(
-      expect.objectContaining({
-        GOOGLE_GENAI_USE_GCA: "true"
-      })
-    );
     expect(options?.onStdoutLine).toEqual(expect.any(Function));
-    expect(options?.env?.GEMINI_API_KEY).toBeUndefined();
-    expect(options?.env?.GOOGLE_API_KEY).toBeUndefined();
-    expect(options?.env?.GOOGLE_GENAI_USE_VERTEXAI).toBeUndefined();
+    expect(options?.env?.PATH).toEqual(expect.any(String));
     expect(result).toEqual(
       expect.objectContaining({
         progressEvents: [
@@ -202,15 +195,11 @@ describe("GeminiCliExecutor", () => {
       "stream-json"
     ]);
     expect(options?.cwd).toBe("/tmp");
-    expect(options?.env).toEqual(
-      expect.objectContaining({
-        GOOGLE_GENAI_USE_GCA: "true"
-      })
-    );
+    expect(options?.env?.PATH).toEqual(expect.any(String));
     expect(options?.onStdoutLine).toEqual(expect.any(Function));
   });
 
-  it("strips live api key auth env before spawning Gemini CLI", async () => {
+  it("preserves configured auth env before spawning Gemini CLI", async () => {
     const exec = vi.fn(async () => ({
       stdout: JSON.stringify({
         type: "result",
@@ -249,13 +238,12 @@ describe("GeminiCliExecutor", () => {
       });
 
       const env = (exec.mock.calls[0] as any)?.[2]?.env;
-      expect(env?.GOOGLE_GENAI_USE_GCA).toBe("true");
-      expect(env?.GEMINI_API_KEY).toBeUndefined();
-      expect(env?.GOOGLE_API_KEY).toBeUndefined();
-      expect(env?.GOOGLE_GENAI_USE_VERTEXAI).toBeUndefined();
-      expect(env?.GOOGLE_CLOUD_PROJECT).toBeUndefined();
-      expect(env?.GOOGLE_CLOUD_PROJECT_ID).toBeUndefined();
-      expect(env?.GOOGLE_CLOUD_LOCATION).toBeUndefined();
+      expect(env?.GEMINI_API_KEY).toBe("live-key");
+      expect(env?.GOOGLE_API_KEY).toBe("google-live-key");
+      expect(env?.GOOGLE_GENAI_USE_VERTEXAI).toBe("true");
+      expect(env?.GOOGLE_CLOUD_PROJECT).toBe("project-123");
+      expect(env?.GOOGLE_CLOUD_PROJECT_ID).toBe("project-123");
+      expect(env?.GOOGLE_CLOUD_LOCATION).toBe("us-central1");
     } finally {
       vi.unstubAllEnvs();
     }

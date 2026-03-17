@@ -37,10 +37,14 @@ function createExecutorHealthState(overrides = {}) {
     status: "unknown",
     code: null,
     summary: "Gemini CLI health has not been checked yet.",
-    detail: "Relay will check the local executor before running Gemini-backed tasks.",
+    detail: "Relay can run a lightweight Gemini CLI probe and show the result here.",
     checkedAt: null,
     canRunLocalTasks: false,
     commandPath: null,
+    authStrategy: "unknown",
+    exitCode: null,
+    probeWorkingDirectory: null,
+    stdoutSnippet: null,
     stderrSnippet: null,
     ...overrides
   };
@@ -61,21 +65,6 @@ function normalizeError(error) {
   }
 
   return String(error);
-}
-
-function shouldKeepLocalExecutionAvailable(previousHealth, phase, nextHealth) {
-  if (phase !== "full") {
-    return false;
-  }
-
-  if (!previousHealth?.canRunLocalTasks) {
-    return false;
-  }
-
-  return (
-    nextHealth?.status === "unhealthy" &&
-    (nextHealth.code === "probe_timeout" || nextHealth.code === "probe_failed_unknown")
-  );
 }
 
 function isLiveInputDebugEnabled() {
@@ -193,18 +182,6 @@ export class CloudSessionClient {
     });
   }
 
-  formatExecutorHealthBlocker() {
-    if (this.executorHealth.status === "checking") {
-      return "Gemini CLI is still being checked on this machine. Wait for the health check to finish, then retry the task.";
-    }
-
-    if (this.executorHealth.status === "unhealthy") {
-      return `${this.executorHealth.summary} ${this.executorHealth.detail}`.trim();
-    }
-
-    return "Gemini CLI is not ready on this machine yet.";
-  }
-
   formatLocalExecutionDisabledBlocker() {
     return "Local task execution is turned off in Relay settings. Enable it in Settings > Local Executor to run Gemini-backed tasks on this machine.";
   }
@@ -214,19 +191,22 @@ export class CloudSessionClient {
     await this.setExecutorHealth({
       status: "checking",
       code: null,
-      canRunLocalTasks:
-        phase === "full" ? previousHealth.canRunLocalTasks : false,
+      canRunLocalTasks: previousHealth.canRunLocalTasks,
       checkedAt: previousHealth.checkedAt,
       commandPath: previousHealth.commandPath,
+      authStrategy: previousHealth.authStrategy ?? "unknown",
+      exitCode: previousHealth.exitCode ?? null,
+      probeWorkingDirectory: previousHealth.probeWorkingDirectory ?? null,
+      stdoutSnippet: null,
       stderrSnippet: null,
       summary:
         phase === "binary"
           ? "Checking whether Gemini CLI is installed locally."
-          : "Checking Gemini CLI authentication and readiness.",
+          : "Checking Gemini CLI minimal readiness.",
       detail:
         phase === "binary"
           ? "Relay is verifying that the local Gemini CLI binary is available."
-          : "Relay is verifying that Gemini CLI can authenticate and answer a lightweight probe."
+          : "Relay is verifying that Gemini CLI can answer a minimal non-interactive probe in the current environment."
     });
     await this.emitExecutorHealthDebugEvent(
       "health_check_started",
@@ -239,14 +219,10 @@ export class CloudSessionClient {
     try {
       const result = await this.execution.probeHealth({
         phase,
-        now: () => new Date().toISOString()
+        now: () => new Date().toISOString(),
+        workingDirectory: this.lastExecutorWorkingDirectory ?? undefined
       });
-      const nextHealth = shouldKeepLocalExecutionAvailable(previousHealth, phase, result)
-        ? {
-            ...result,
-            canRunLocalTasks: true
-          }
-        : result;
+      const nextHealth = result;
       await this.setExecutorHealth(nextHealth);
       await this.emitExecutorHealthDebugEvent(
         "health_check_result",
@@ -256,6 +232,10 @@ export class CloudSessionClient {
           status: nextHealth.status,
           code: nextHealth.code,
           commandPath: nextHealth.commandPath,
+          authStrategy: nextHealth.authStrategy ?? null,
+          exitCode: nextHealth.exitCode ?? null,
+          probeWorkingDirectory: nextHealth.probeWorkingDirectory ?? null,
+          stdoutSnippet: nextHealth.stdoutSnippet ?? null,
           checkedAt: nextHealth.checkedAt,
           stderrSnippet: nextHealth.stderrSnippet ?? null,
           canRunLocalTasks: nextHealth.canRunLocalTasks
@@ -267,12 +247,14 @@ export class CloudSessionClient {
       const fallback = createExecutorHealthState({
         status: "unhealthy",
         code: "probe_failed_unknown",
-        summary: "Gemini CLI could not complete its readiness check.",
+        summary: "Gemini CLI readiness is not confirmed.",
         detail:
-          "Relay could not finish the local Gemini CLI probe. Review the executor details and retry.",
+          "Relay could not finish the local Gemini CLI probe. Review the saved diagnostics and retry.",
         checkedAt: new Date().toISOString(),
         canRunLocalTasks: false,
         commandPath: this.executorHealth.commandPath,
+        authStrategy: this.executorHealth.authStrategy ?? "unknown",
+        probeWorkingDirectory: this.lastExecutorWorkingDirectory ?? null,
         stderrSnippet: message
       });
       await this.setExecutorHealth(fallback);
@@ -765,26 +747,19 @@ export class CloudSessionClient {
       return;
     }
 
-    if (!this.executorHealth.canRunLocalTasks) {
-      const error = this.formatExecutorHealthBlocker();
+    if (this.executorHealth.status === "unhealthy" || this.executorHealth.status === "checking") {
       await this.emitExecutorHealthDebugEvent(
-        "health_check_blocked_task",
-        "Blocked local task because Gemini CLI is not ready.",
+        "health_check_warning",
+        "Gemini CLI health is degraded, but local execution is still allowed.",
         JSON.stringify({
           taskId: request.taskId,
           status: this.executorHealth.status,
           code: this.executorHealth.code,
-          message: error
+          commandPath: this.executorHealth.commandPath,
+          authStrategy: this.executorHealth.authStrategy ?? null,
+          probeWorkingDirectory: this.executorHealth.probeWorkingDirectory ?? null
         })
       );
-      this.send({
-        type: "executor_terminal",
-        runId: request.runId,
-        taskId: request.taskId,
-        ok: false,
-        error
-      });
-      return;
     }
 
     try {

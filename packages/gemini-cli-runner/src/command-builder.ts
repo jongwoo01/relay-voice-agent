@@ -10,6 +10,10 @@ export interface GeminiCliCommand {
   cwd?: string;
 }
 
+export interface GeminiCliHealthCommandInput {
+  workingDirectory?: string;
+}
+
 function isExecutableFile(path: string): boolean {
   try {
     accessSync(path, constants.X_OK);
@@ -143,6 +147,19 @@ export function buildGeminiCliCommand(
   return {
     command: resolveGeminiCliCommand(env),
     args,
+    cwd: workingDirectory
+  };
+}
+
+export function buildGeminiCliHealthCommand(
+  input: GeminiCliHealthCommandInput = {},
+  env: NodeJS.ProcessEnv = process.env
+): GeminiCliCommand {
+  const workingDirectory = resolveLocalWorkingDirectory(input.workingDirectory);
+
+  return {
+    command: resolveGeminiCliCommand(env),
+    args: ["-p", "Reply exactly READY.", "--output-format", "json"],
     cwd: workingDirectory
   };
 }

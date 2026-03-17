@@ -2,9 +2,13 @@ import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { delimiter, isAbsolute, join } from "node:path";
 import { accessSync, constants } from "node:fs";
-import type { ExecutorRunRequest } from "@agent/local-executor-protocol";
-import { buildGeminiCliCommand, resolveGeminiCliCommand } from "./command-builder.js";
+import { homedir } from "node:os";
+import {
+  buildGeminiCliHealthCommand,
+  resolveGeminiCliCommand
+} from "./command-builder.js";
 import { buildGeminiCliEnvironment, type ExecResult } from "./subprocess-executor.js";
+import { resolvePlatformSpawnCommand } from "./windows-spawn.js";
 
 export type GeminiCliHealthCode =
   | "healthy"
@@ -18,6 +22,12 @@ export type GeminiCliHealthStatus = "healthy" | "unhealthy";
 
 export type GeminiCliHealthPhase = "binary" | "full";
 
+export type GeminiCliAuthStrategy =
+  | "cached_google"
+  | "gemini_api_key"
+  | "vertex_ai"
+  | "unknown";
+
 export interface GeminiCliHealthResult {
   status: GeminiCliHealthStatus;
   code: GeminiCliHealthCode;
@@ -26,6 +36,10 @@ export interface GeminiCliHealthResult {
   checkedAt: string;
   canRunLocalTasks: boolean;
   commandPath: string;
+  authStrategy?: GeminiCliAuthStrategy;
+  exitCode?: number | null;
+  probeWorkingDirectory?: string;
+  stdoutSnippet?: string;
   stderrSnippet?: string;
 }
 
@@ -47,10 +61,14 @@ export interface ProbeGeminiCliHealthOptions {
   timeoutMs?: number;
   phase?: GeminiCliHealthPhase;
   probeRunner?: ProbeRunner;
+  workingDirectory?: string;
 }
 
-const DEFAULT_PROBE_TIMEOUT_MS = 8_000;
-const AUTH_PROBE_PROMPT = "Reply with the single word READY.";
+const DEFAULT_PROBE_TIMEOUT_MS = 25_000;
+const EXPECTED_HEALTH_RESPONSE = "READY";
+const HEALTH_PROBE_SUMMARY = "Gemini CLI readiness check passed.";
+const HEALTH_PROBE_DETAIL =
+  "Gemini CLI answered a minimal non-interactive probe in this environment.";
 
 function isExecutableFile(path: string): boolean {
   try {
@@ -100,19 +118,73 @@ function combinedText(input: {
   return [input.stdout ?? "", input.stderr ?? "", errorText].join("\n").toLowerCase();
 }
 
+function parseJsonObjectString(value: string): Record<string, unknown> | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function detectAuthStrategy(env: NodeJS.ProcessEnv): GeminiCliAuthStrategy {
+  if (
+    env.GOOGLE_GENAI_USE_VERTEXAI?.trim().toLowerCase() === "true" ||
+    env.GOOGLE_CLOUD_PROJECT?.trim() ||
+    env.GOOGLE_CLOUD_PROJECT_ID?.trim() ||
+    env.GOOGLE_CLOUD_LOCATION?.trim()
+  ) {
+    return "vertex_ai";
+  }
+
+  if (env.GEMINI_API_KEY?.trim() || env.GOOGLE_API_KEY?.trim()) {
+    return "gemini_api_key";
+  }
+
+  return "cached_google";
+}
+
+function normalizeProbeResponse(value: string | null): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  return trimmed.replace(/[.!?]+$/, "").trim().toUpperCase();
+}
+
 function toHealthyResult(input: {
   checkedAt: string;
   commandPath: string;
+  authStrategy: GeminiCliAuthStrategy;
+  summary: string;
+  detail: string;
+  exitCode?: number | null;
+  probeWorkingDirectory?: string;
+  stdoutSnippet?: string;
   stderrSnippet?: string;
 }): GeminiCliHealthResult {
   return {
     status: "healthy",
     code: "healthy",
-    summary: "Gemini CLI is ready on this machine.",
-    detail: "Local Gemini-backed tasks can run.",
+    summary: input.summary,
+    detail: input.detail,
     checkedAt: input.checkedAt,
     canRunLocalTasks: true,
     commandPath: input.commandPath,
+    authStrategy: input.authStrategy,
+    exitCode: input.exitCode,
+    probeWorkingDirectory: input.probeWorkingDirectory,
+    stdoutSnippet: input.stdoutSnippet,
     stderrSnippet: input.stderrSnippet
   };
 }
@@ -121,6 +193,10 @@ function toUnhealthyResult(input: {
   checkedAt: string;
   commandPath: string;
   code: Exclude<GeminiCliHealthCode, "healthy">;
+  authStrategy: GeminiCliAuthStrategy;
+  exitCode?: number | null;
+  probeWorkingDirectory?: string;
+  stdoutSnippet?: string;
   stderrSnippet?: string;
 }): GeminiCliHealthResult {
   const messages: Record<
@@ -133,9 +209,9 @@ function toUnhealthyResult(input: {
         "Install Gemini CLI on this machine and make sure Relay can find it in /usr/local/bin, /opt/homebrew/bin, your PATH, or GEMINI_CLI_PATH."
     },
     missing_auth: {
-      summary: "Gemini CLI needs Google authentication.",
+      summary: "Gemini CLI authentication is not ready.",
       detail:
-        "Authenticate Gemini CLI on this machine, then retry the health check before starting local tasks."
+        "Gemini CLI could not authenticate with the current local auth path. Check login or configured credentials, then retry."
     },
     permission_denied: {
       summary: "Local permissions are blocking Gemini CLI.",
@@ -145,12 +221,12 @@ function toUnhealthyResult(input: {
     probe_timeout: {
       summary: "Gemini CLI health check timed out.",
       detail:
-        "The CLI did not finish its startup/auth probe in time. Check local auth or connectivity, then retry."
+        "The CLI did not complete the minimal readiness probe in time. Check local auth, connectivity, or CLI startup behavior, then retry."
     },
     probe_failed_unknown: {
-      summary: "Gemini CLI could not complete its readiness check.",
+      summary: "Gemini CLI readiness is not confirmed.",
       detail:
-        "Review the saved executor details, fix the local Gemini CLI setup, and retry the health check."
+        "The minimal non-interactive probe did not return the expected structured READY response."
     }
   };
 
@@ -163,6 +239,10 @@ function toUnhealthyResult(input: {
     checkedAt: input.checkedAt,
     canRunLocalTasks: false,
     commandPath: input.commandPath,
+    authStrategy: input.authStrategy,
+    exitCode: input.exitCode,
+    probeWorkingDirectory: input.probeWorkingDirectory,
+    stdoutSnippet: input.stdoutSnippet,
     stderrSnippet: input.stderrSnippet
   };
 }
@@ -181,7 +261,7 @@ function classifyFailureCode(input: {
   if (
     text.includes("enoent") ||
     text.includes("not found") ||
-    text.includes("spawn ") && text.includes(" gemini")
+    (text.includes("spawn ") && text.includes(" gemini"))
   ) {
     return "missing_binary";
   }
@@ -227,11 +307,21 @@ async function defaultProbeRunner(
   options: ProbeRunnerOptions = {}
 ): Promise<ExecResult> {
   return await new Promise<ExecResult>((resolve, reject) => {
-    const child: ChildProcessWithoutNullStreams = spawn(file, args, {
-      cwd: options.cwd,
-      env: options.env,
-      stdio: "pipe"
+    const platformCommand = resolvePlatformSpawnCommand({
+      file,
+      args,
+      env: options.env
     });
+    const child: ChildProcessWithoutNullStreams = spawn(
+      platformCommand.file,
+      platformCommand.args,
+      {
+        cwd: options.cwd,
+        env: options.env,
+        stdio: "pipe",
+        windowsHide: platformCommand.windowsHide
+      }
+    );
 
     let stdout = "";
     let stderr = "";
@@ -303,27 +393,31 @@ async function defaultProbeRunner(
   });
 }
 
-function buildHealthProbeCommand(
-  env: NodeJS.ProcessEnv
-): { command: string; args: string[] } {
-  const request: ExecutorRunRequest = {
-    task: {
-      id: "health-check",
-      title: "Gemini CLI health check",
-      normalizedGoal: "gemini cli health check",
-      status: "queued",
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString()
+function buildHealthProbeCommand(input: {
+  env: NodeJS.ProcessEnv;
+  workingDirectory?: string;
+}): { command: string; args: string[]; cwd: string } {
+  const command = buildGeminiCliHealthCommand(
+    {
+      workingDirectory: input.workingDirectory ?? homedir()
     },
-    now: new Date(0).toISOString(),
-    prompt: AUTH_PROBE_PROMPT
-  };
+    input.env
+  );
 
-  const command = buildGeminiCliCommand(request, env);
   return {
     command: command.command,
-    args: command.args
+    args: command.args,
+    cwd: command.cwd ?? homedir()
   };
+}
+
+function extractExpectedProbeResponse(stdout: string): string | null {
+  const parsed = parseJsonObjectString(stdout);
+  if (!parsed) {
+    return null;
+  }
+
+  return typeof parsed.response === "string" ? parsed.response.trim() : null;
 }
 
 export async function probeGeminiCliHealth(
@@ -334,6 +428,7 @@ export async function probeGeminiCliHealth(
   const env = buildGeminiCliEnvironment(options.env);
   const resolvedCommand = resolveGeminiCliCommand(options.env);
   const commandPath = formatCommandPath(resolvedCommand, env);
+  const authStrategy = detectAuthStrategy(env);
   const phase = options.phase ?? "full";
 
   if (!isAbsolute(resolvedCommand)) {
@@ -341,27 +436,35 @@ export async function probeGeminiCliHealth(
       return toUnhealthyResult({
         checkedAt,
         commandPath,
-        code: "missing_binary"
+        code: "missing_binary",
+        authStrategy
       });
     }
   } else if (!isExecutableFile(resolvedCommand)) {
     return toUnhealthyResult({
       checkedAt,
       commandPath: resolvedCommand,
-      code: "missing_binary"
+      code: "missing_binary",
+      authStrategy
     });
   }
 
   if (phase === "binary") {
     return toHealthyResult({
       checkedAt,
-      commandPath
+      commandPath,
+      authStrategy,
+      summary: "Gemini CLI binary is available.",
+      detail: "Relay can invoke the local Gemini CLI command on this machine."
     });
   }
 
   const probeRunner = options.probeRunner ?? defaultProbeRunner;
   const timeoutMs = options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
-  const probeCommand = buildHealthProbeCommand(options.env ?? process.env);
+  const probeCommand = buildHealthProbeCommand({
+    env: options.env ?? process.env,
+    workingDirectory: options.workingDirectory
+  });
 
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
@@ -369,6 +472,7 @@ export async function probeGeminiCliHealth(
     const result = (await Promise.race([
       probeRunner(probeCommand.command, probeCommand.args, {
         env,
+        cwd: probeCommand.cwd,
         timeoutMs
       }),
       new Promise((_, reject) => {
@@ -377,15 +481,28 @@ export async function probeGeminiCliHealth(
         }, timeoutMs);
       })
     ])) as ExecResult;
+
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
     }
 
+    const stdoutSnippet = normalizeSnippet(result.stdout);
     const stderrSnippet = normalizeSnippet(result.stderr);
-    if (result.exitCode === 0 && result.stdout.trim()) {
+    const probeResponse =
+      result.exitCode === 0
+        ? normalizeProbeResponse(extractExpectedProbeResponse(result.stdout))
+        : null;
+
+    if (result.exitCode === 0 && probeResponse === EXPECTED_HEALTH_RESPONSE) {
       return toHealthyResult({
         checkedAt,
         commandPath,
+        authStrategy,
+        summary: HEALTH_PROBE_SUMMARY,
+        detail: HEALTH_PROBE_DETAIL,
+        exitCode: result.exitCode,
+        probeWorkingDirectory: probeCommand.cwd,
+        stdoutSnippet,
         stderrSnippet
       });
     }
@@ -397,12 +514,17 @@ export async function probeGeminiCliHealth(
         stdout: result.stdout,
         stderr: result.stderr
       }),
+      authStrategy,
+      exitCode: result.exitCode,
+      probeWorkingDirectory: probeCommand.cwd,
+      stdoutSnippet,
       stderrSnippet
     });
   } catch (error) {
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
     }
+
     return toUnhealthyResult({
       checkedAt,
       commandPath,
@@ -412,6 +534,8 @@ export async function probeGeminiCliHealth(
           error instanceof Error &&
           error.message.toLowerCase().includes("timed out")
       }),
+      authStrategy,
+      probeWorkingDirectory: probeCommand.cwd,
       stderrSnippet: normalizeSnippet(
         error instanceof Error ? error.message : String(error)
       )

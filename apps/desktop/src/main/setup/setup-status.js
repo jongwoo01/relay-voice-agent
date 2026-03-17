@@ -1,11 +1,12 @@
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, readdir } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, isAbsolute, join } from "node:path";
 import { homedir } from "node:os";
 import {
   buildGeminiCliEnvironment,
-  resolveGeminiCliCommand
+  resolveGeminiCliCommand,
+  resolvePlatformSpawnCommand
 } from "@agent/gemini-cli-runner";
 
 const SETUP_PROBE_TIMEOUT_MS = 4_500;
@@ -17,10 +18,6 @@ function createItemStatus(status, summary, detail, extra = {}) {
     detail,
     ...extra
   };
-}
-
-function isObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function trimString(value) {
@@ -42,25 +39,6 @@ function createTimeoutSignal(timeoutMs) {
   }
 
   return undefined;
-}
-
-function pathsAreRelated(parentPath, childPath) {
-  const parent = trimString(parentPath);
-  const child = trimString(childPath);
-  if (!parent || !child) {
-    return false;
-  }
-
-  return child === parent || child.startsWith(`${parent}/`);
-}
-
-async function readJsonFile(filePath) {
-  try {
-    const content = await readFile(filePath, "utf8");
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
 }
 
 async function probeDirectoryAccess(pathValue) {
@@ -97,10 +75,16 @@ async function probeDirectoryAccess(pathValue) {
 
 function runCommand(file, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(file, args, {
+    const platformCommand = resolvePlatformSpawnCommand({
+      file,
+      args,
+      env: options.env
+    });
+    const child = spawn(platformCommand.file, platformCommand.args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: "pipe"
+      stdio: "pipe",
+      windowsHide: platformCommand.windowsHide
     });
 
     let stdout = "";
@@ -209,26 +193,6 @@ async function probeGeminiBinary(env = process.env) {
   }
 }
 
-function extractTrustedFolders(input) {
-  if (Array.isArray(input)) {
-    return input
-      .map((item) => trimString(item))
-      .filter(Boolean)
-      .map((pathValue) => ({ path: pathValue, value: "TRUST_FOLDER" }));
-  }
-
-  if (isObject(input)) {
-    return Object.entries(input)
-      .map(([pathValue, value]) => ({
-        path: trimString(pathValue),
-        value: trimString(value) ?? "TRUST_FOLDER"
-      }))
-      .filter((entry) => entry.path);
-  }
-
-  return [];
-}
-
 async function probeHostedBackend(baseUrl, sessionToken) {
   const normalizedBaseUrl = trimString(baseUrl);
   if (!normalizedBaseUrl) {
@@ -305,129 +269,6 @@ async function probeHostedBackend(baseUrl, sessionToken) {
   }
 }
 
-function deriveExecutorAuthStatus(executorHealth, binaryStatus, geminiSettings, envFilePresent) {
-  const selectedType =
-    trimString(geminiSettings?.security?.auth?.selectedType) ??
-    trimString(geminiSettings?.selectedAuthType);
-  const useExternal =
-    typeof geminiSettings?.security?.auth?.useExternal === "boolean"
-      ? geminiSettings.security.auth.useExternal
-      : null;
-
-  if (binaryStatus.status === "error") {
-    return createItemStatus(
-      "unknown",
-      "Gemini auth could not be checked yet.",
-      "Relay could not verify authentication because the Gemini CLI binary is unavailable.",
-      {
-        selectedAuthType: selectedType,
-        useExternal,
-        envFilePresent
-      }
-    );
-  }
-
-  if (executorHealth?.status === "healthy") {
-    return createItemStatus(
-      "ready",
-      "Google login cache is ready.",
-      "Relay's headless Gemini CLI probe succeeded.",
-      {
-        selectedAuthType: selectedType,
-        useExternal,
-        envFilePresent
-      }
-    );
-  }
-
-  if (executorHealth?.code === "missing_auth") {
-    return createItemStatus(
-      "error",
-      "Google login is missing.",
-      "Relay found Gemini CLI but the cached Google login required for headless use is not ready.",
-      {
-        selectedAuthType: selectedType,
-        useExternal,
-        envFilePresent
-      }
-    );
-  }
-
-  if (executorHealth?.code === "permission_denied") {
-    return createItemStatus(
-      "warning",
-      "Gemini auth is blocked by a local permission issue.",
-      "Relay could not confirm Gemini auth because a local permission or file access issue blocked the probe.",
-      {
-        selectedAuthType: selectedType,
-        useExternal,
-        envFilePresent
-      }
-    );
-  }
-
-  return createItemStatus(
-    "unknown",
-    "Gemini auth state is not confirmed.",
-    "Relay has not yet confirmed whether the cached Google login is usable for headless tasks.",
-    {
-      selectedAuthType: selectedType,
-      useExternal,
-      envFilePresent
-    }
-  );
-}
-
-function deriveWorkspaceTrustStatus({
-  workspacePath,
-  trustedEntries,
-  trustedFoldersPath
-}) {
-  const normalizedWorkspace = trimString(workspacePath);
-  if (!normalizedWorkspace) {
-    return createItemStatus(
-      "unknown",
-      "No task workspace has been used yet.",
-      "Relay will check trusted folder coverage after the first local task with a working directory.",
-      {
-        workspacePath: null,
-        trustedFoldersPath,
-        matchedTrustedPath: null,
-        trustEntriesCount: trustedEntries.length
-      }
-    );
-  }
-
-  const matchedEntry =
-    trustedEntries.find((entry) => pathsAreRelated(entry.path, normalizedWorkspace)) ?? null;
-
-  if (matchedEntry) {
-    return createItemStatus(
-      "ready",
-      "Current workspace is covered by Gemini trusted folders.",
-      "Gemini CLI should treat the current task workspace as trusted for local operations.",
-      {
-        workspacePath: normalizedWorkspace,
-        trustedFoldersPath,
-        matchedTrustedPath: matchedEntry.path,
-        trustEntriesCount: trustedEntries.length
-      }
-    );
-  }
-
-  return createItemStatus(
-    "warning",
-    "Current workspace is not covered by Gemini trusted folders.",
-    "Local tasks can still run, but Gemini CLI may prompt or restrict actions until the folder is trusted.",
-    {
-      workspacePath: normalizedWorkspace,
-      trustedFoldersPath,
-      matchedTrustedPath: null,
-      trustEntriesCount: trustedEntries.length
-    }
-  );
-}
-
 export function createEmptySetupStatus() {
   return {
     checkedAt: null,
@@ -446,11 +287,6 @@ export function createEmptySetupStatus() {
       "Gemini CLI binary has not been checked yet.",
       "Relay will probe the local Gemini CLI binary when setup status is refreshed."
     ),
-    localExecutorAuth: createItemStatus(
-      "unknown",
-      "Gemini auth has not been checked yet.",
-      "Relay will verify whether a cached Google login is available for headless Gemini CLI use."
-    ),
     localFileAccess: createItemStatus(
       "unknown",
       "Local file access has not been checked yet.",
@@ -458,11 +294,6 @@ export function createEmptySetupStatus() {
       {
         directories: []
       }
-    ),
-    currentWorkspaceTrust: createItemStatus(
-      "unknown",
-      "Workspace trust has not been checked yet.",
-      "Relay will inspect Gemini trusted folder coverage when setup status is refreshed."
     )
   };
 }
@@ -491,17 +322,10 @@ export async function collectSetupStatus({
   now = () => new Date().toISOString()
 } = {}) {
   const checkedAt = now();
-  const geminiPaths = getGeminiConfigPaths();
-  const [hostedBackend, localExecutorBinary, geminiSettings, trustedFolders, envFileAccess] =
-    await Promise.all([
-      probeHostedBackend(baseUrl, sessionToken),
-      probeGeminiBinary(env),
-      readJsonFile(geminiPaths.settingsPath),
-      readJsonFile(geminiPaths.trustedFoldersPath),
-      access(geminiPaths.envPath, fsConstants.F_OK)
-        .then(() => true)
-        .catch(() => false)
-    ]);
+  const [hostedBackend, localExecutorBinary] = await Promise.all([
+    probeHostedBackend(baseUrl, sessionToken),
+    probeGeminiBinary(env)
+  ]);
 
   const directories = await Promise.all([
     probeDirectoryAccess(desktopPath).then((result) => ({
@@ -542,13 +366,6 @@ export async function collectSetupStatus({
         }
       );
 
-  const trustedEntries = extractTrustedFolders(trustedFolders);
-  const currentWorkspaceTrust = deriveWorkspaceTrustStatus({
-    workspacePath: lastExecutorWorkingDirectory,
-    trustedEntries,
-    trustedFoldersPath: geminiPaths.trustedFoldersPath
-  });
-
   const microphone =
     microphonePermissionStatus === "granted"
       ? createItemStatus(
@@ -583,14 +400,7 @@ export async function collectSetupStatus({
     hostedBackend,
     microphone,
     localExecutorBinary,
-    localExecutorAuth: deriveExecutorAuthStatus(
-      executorHealth,
-      localExecutorBinary,
-      geminiSettings,
-      envFileAccess
-    ),
-    localFileAccess,
-    currentWorkspaceTrust
+    localFileAccess
   };
 }
 

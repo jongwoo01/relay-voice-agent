@@ -377,6 +377,10 @@ export function SettingsModal({
         : systemStatus.microphonePermissionStatus === "not-determined"
           ? "warning"
           : "neutral";
+  const shouldShowMicrophonePrivacyShortcut =
+    supportsSystemPrivacyShortcut &&
+    (systemStatus.microphonePermissionStatus === "denied" ||
+      systemStatus.microphonePermissionStatus === "restricted");
   const selectedMicText = useMemo(() => {
     if (!selectedMicId) {
       return selectedMicrophoneLabel || "Default input";
@@ -487,7 +491,7 @@ export function SettingsModal({
                       <SecondaryButton onClick={() => void onRequestMicrophoneAccess()}>
                         Request access
                       </SecondaryButton>
-                      {supportsSystemPrivacyShortcut ? (
+                      {shouldShowMicrophonePrivacyShortcut ? (
                         <SecondaryButton
                           onClick={() =>
                             void globalThis.window?.desktopSystem?.openMicrophonePrivacySettings?.()
@@ -535,39 +539,6 @@ export function SettingsModal({
                 />
 
                 <SetupStatusItem
-                  title="Local executor auth"
-                  item={setup.localExecutorAuth}
-                  meta={[
-                    setup.localExecutorAuth?.selectedAuthType
-                      ? `Selected auth: ${setup.localExecutorAuth.selectedAuthType}`
-                      : "Selected auth: unknown",
-                    typeof setup.localExecutorAuth?.useExternal === "boolean"
-                      ? `External auth: ${setup.localExecutorAuth.useExternal ? "on" : "off"}`
-                      : null,
-                    typeof setup.localExecutorAuth?.envFilePresent === "boolean"
-                      ? `.gemini/.env: ${setup.localExecutorAuth.envFilePresent ? "present" : "missing"}`
-                      : null
-                  ]}
-                  actions={
-                    <>
-                      <SecondaryButton onClick={() => void onOpenGeminiLoginTerminal()}>
-                        Open Terminal for gemini login
-                      </SecondaryButton>
-                      <SecondaryButton
-                        onClick={() => void onOpenSupportTarget("gemini_auth_docs")}
-                      >
-                        Open auth docs
-                      </SecondaryButton>
-                      <SecondaryButton
-                        onClick={() => void onOpenSupportTarget("gemini_settings")}
-                      >
-                        Open ~/.gemini/settings.json
-                      </SecondaryButton>
-                    </>
-                  }
-                />
-
-                <SetupStatusItem
                   title="Local file access"
                   item={setup.localFileAccess}
                   meta={[
@@ -590,35 +561,6 @@ export function SettingsModal({
                   <DirectoryProbeList directories={setup.localFileAccess?.directories ?? []} />
                 </SetupStatusItem>
 
-                <SetupStatusItem
-                  title="Current workspace trust"
-                  item={setup.currentWorkspaceTrust}
-                  meta={[
-                    setup.currentWorkspaceTrust?.workspacePath
-                      ? `Workspace: ${setup.currentWorkspaceTrust.workspacePath}`
-                      : null,
-                    setup.currentWorkspaceTrust?.matchedTrustedPath
-                      ? `Matched rule: ${setup.currentWorkspaceTrust.matchedTrustedPath}`
-                      : null,
-                    setup.currentWorkspaceTrust?.trustEntriesCount >= 0
-                      ? `Trusted rules: ${setup.currentWorkspaceTrust.trustEntriesCount}`
-                      : null
-                  ]}
-                  actions={
-                    <>
-                      <SecondaryButton
-                        onClick={() => void onOpenSupportTarget("gemini_trusted_folders")}
-                      >
-                        Open trustedFolders.json
-                      </SecondaryButton>
-                      <SecondaryButton
-                        onClick={() => void onOpenSupportTarget("gemini_trusted_docs")}
-                      >
-                        Open trust docs
-                      </SecondaryButton>
-                    </>
-                  }
-                />
               </Section>
 
               <Section
@@ -656,7 +598,7 @@ export function SettingsModal({
 
                 <SettingRow
                   title="Microphone permission"
-                  description="Turn this on to use the microphone in hosted sessions. Relay will request access if needed, and can jump straight to system privacy settings when the OS has already blocked it."
+                  description="Turn this on to use the microphone in hosted sessions. On a fresh machine, request access in Relay first so macOS can register the app. Open system privacy settings only after the OS has already denied or restricted access."
                   action={
                     <Toggle
                       checked={settings.audio.voiceCaptureEnabled !== false}
@@ -672,7 +614,7 @@ export function SettingsModal({
                     <SecondaryButton onClick={() => void onRequestMicrophoneAccess()}>
                       Request microphone access
                     </SecondaryButton>
-                    {supportsSystemPrivacyShortcut ? (
+                    {shouldShowMicrophonePrivacyShortcut ? (
                       <SecondaryButton
                         onClick={() =>
                           void globalThis.window?.desktopSystem?.openMicrophonePrivacySettings?.()
@@ -703,7 +645,7 @@ export function SettingsModal({
               >
                 <SettingRow
                   title="Gemini CLI health"
-                  description="Checks whether the CLI is installed, authenticated, and ready for local tasks."
+                  description="Runs a minimal non-interactive Gemini CLI probe and shows diagnostics without blocking local tasks."
                   action={<Badge tone={executorTone(executorHealth)}>{executorHealth.code ?? "unknown"}</Badge>}
                 >
                   <div className="space-y-3">
@@ -725,13 +667,28 @@ export function SettingsModal({
                         </pre>
                       </div>
                     ) : null}
+                    {executorHealth.stdoutSnippet ? (
+                      <div className="rounded-2xl border border-sky-200 bg-sky-50/70 px-4 py-3">
+                        <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700">
+                          Saved stdout snippet
+                        </p>
+                        <pre className="m-0 mt-2 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-sky-900">
+                          {executorHealth.stdoutSnippet}
+                        </pre>
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap gap-2 text-xs text-gray-500">
                       <span>Last checked: {formatCheckedAt(executorHealth.checkedAt)}</span>
                       <span>Command: {executorHealth.commandPath ?? "unknown"}</span>
+                      <span>Exit: {executorHealth.exitCode ?? "unknown"}</span>
+                      <span>Cwd: {executorHealth.probeWorkingDirectory ?? "unknown"}</span>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <SecondaryButton onClick={onRetryExecutorHealthCheck}>
                         Retry checks
+                      </SecondaryButton>
+                      <SecondaryButton onClick={() => void onOpenGeminiLoginTerminal()}>
+                        Open Terminal for gemini login
                       </SecondaryButton>
                       <SecondaryButton
                         onClick={() => void onOpenSupportTarget("gemini_auth_docs")}
