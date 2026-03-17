@@ -1202,6 +1202,7 @@ export function useDesktopAppController() {
   const handleConnect = useCallback(async () => {
     return connectHostedSession({
       passcode,
+      microphoneEnabled: settings.audio.voiceCaptureEnabled,
       startMuted: settings.audio.startMuted,
       hideRuntimeError,
       showRuntimeError,
@@ -1217,6 +1218,7 @@ export function useDesktopAppController() {
     applyMutedState,
     hideRuntimeError,
     passcode,
+    settings.audio.voiceCaptureEnabled,
     settings.audio.startMuted,
     showRuntimeError,
     startVoiceCapture,
@@ -1356,6 +1358,64 @@ export function useDesktopAppController() {
     [hideRuntimeError, showRuntimeError, updateDesktopSettings]
   );
 
+  const handleVoiceCaptureEnabledChange = useCallback(
+    async (enabled) => {
+      try {
+        hideRuntimeError();
+        if (!enabled) {
+          await applyMutedState(true).catch(() => undefined);
+          await stopVoiceCapture().catch(() => undefined);
+          await updateDesktopSettings({
+            audio: {
+              voiceCaptureEnabled: false
+            }
+          });
+          await refreshSetupStatus({ refresh: false });
+          return true;
+        }
+
+        let granted = systemStatus.microphonePermissionStatus === "granted";
+        if (!granted) {
+          granted = await (window.desktopSystem?.requestMicrophoneAccess?.() ?? false);
+          await populateMicrophones().catch(() => undefined);
+          await refreshSetupStatus({ refresh: false });
+        }
+
+        if (!granted) {
+          return false;
+        }
+
+        await updateDesktopSettings({
+          audio: {
+            voiceCaptureEnabled: true
+          }
+        });
+
+        if (voiceStateRef.current.connected && !recorderStreamRef.current) {
+          await startVoiceCapture();
+          await applyMutedState(Boolean(settings.audio.startMuted));
+        }
+
+        return true;
+      } catch (error) {
+        showRuntimeError(error);
+        return false;
+      }
+    },
+    [
+      applyMutedState,
+      hideRuntimeError,
+      populateMicrophones,
+      refreshSetupStatus,
+      settings.audio.startMuted,
+      showRuntimeError,
+      startVoiceCapture,
+      stopVoiceCapture,
+      systemStatus.microphonePermissionStatus,
+      updateDesktopSettings
+    ]
+  );
+
   const handleExecutorEnabledChange = useCallback(
     async (enabled) => {
       try {
@@ -1454,6 +1514,13 @@ export function useDesktopAppController() {
     try {
       hideRuntimeError();
       const granted = await window.desktopSystem.requestMicrophoneAccess();
+      if (granted && settings.audio.voiceCaptureEnabled === false) {
+        await updateDesktopSettings({
+          audio: {
+            voiceCaptureEnabled: true
+          }
+        });
+      }
       await populateMicrophones().catch(() => undefined);
       await refreshSetupStatus({ refresh: false });
       return granted;
@@ -1461,7 +1528,14 @@ export function useDesktopAppController() {
       showRuntimeError(error);
       return false;
     }
-  }, [hideRuntimeError, populateMicrophones, refreshSetupStatus, showRuntimeError]);
+  }, [
+    hideRuntimeError,
+    populateMicrophones,
+    refreshSetupStatus,
+    settings.audio.voiceCaptureEnabled,
+    showRuntimeError,
+    updateDesktopSettings
+  ]);
 
   const handleCopyText = useCallback(
     async (text) => {
@@ -1520,6 +1594,7 @@ export function useDesktopAppController() {
     handleHangup,
     handleHeaderHealthWarningsChange,
     handleMicToggle,
+    handleVoiceCaptureEnabledChange,
     handleMuteToggle,
     handleMotionPreferenceChange,
     handleOpenGeminiLoginTerminal,

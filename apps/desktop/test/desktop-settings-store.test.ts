@@ -13,6 +13,7 @@ describe("desktop-settings-store", () => {
     const nextSettings = await store.update({
       audio: {
         defaultMicId: "mic-2",
+        voiceCaptureEnabled: false,
         startMuted: true,
         liveVad: {
           confirmMs: 90,
@@ -37,6 +38,7 @@ describe("desktop-settings-store", () => {
       expect.objectContaining({
         audio: expect.objectContaining({
           defaultMicId: "mic-2",
+          voiceCaptureEnabled: false,
           startMuted: true,
           liveVad: expect.objectContaining({
             confirmMs: 90,
@@ -82,7 +84,9 @@ describe("desktop-settings-store", () => {
     );
 
     expect(resetSettings.audio.defaultMicId).toBe("");
+    expect(resetSettings.audio.voiceCaptureEnabled).toBe(true);
     expect(saved.audio.defaultMicId).toBe("");
+    expect(saved.audio.voiceCaptureEnabled).toBe(true);
     expect(resetSettings.audio.liveVad.confirmMs).toBe(180);
     expect(resetSettings.audio.liveVad.minSpeechThreshold).toBe(0.045);
     expect(resetSettings.executor.enabled).toBe(true);

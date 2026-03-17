@@ -133,7 +133,7 @@ function ExecutorHealthBanner({ model, onRetry }) {
         {model.showPrivacyShortcut ? (
           <button
             type="button"
-            onClick={() => void window.desktopSystem.openMacPrivacySettings()}
+            onClick={() => void window.desktopSystem.openMicrophonePrivacySettings?.()}
             className={`rounded-full border px-4 py-2 text-[12px] font-semibold transition-colors ${accent.button}`}
           >
             Open Privacy Settings
@@ -174,6 +174,7 @@ export default function App() {
     handleExecutorEnabledChange,
     handleHangup,
     handleHeaderHealthWarningsChange,
+    handleVoiceCaptureEnabledChange,
     handleMuteToggle,
     handleMotionPreferenceChange,
     handleOpenGeminiLoginTerminal,
@@ -471,6 +472,7 @@ export default function App() {
             onRefreshMicrophones={handleRefreshMicrophones}
             onRefreshSetupStatus={refreshSetupStatus}
             onRequestMicrophoneAccess={handleRequestMicrophoneAccess}
+            onMicrophoneEnabledChange={handleVoiceCaptureEnabledChange}
             onStartMutedChange={handleStartMutedChange}
             onExecutorEnabledChange={handleExecutorEnabledChange}
             onRetryExecutorHealthCheck={handleRetryExecutorHealthCheck}

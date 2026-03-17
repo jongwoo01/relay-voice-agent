@@ -42,6 +42,7 @@ let settingsStore;
 const desktopUiState = new DesktopUiStateStore();
 let historyRefreshTimer = null;
 let setupStatusCache = createEmptySetupStatus();
+let microphoneAccessRequestPromise = null;
 
 loadDotEnvFromRoot(path.resolve(__dirname, "..", ".."));
 clearDesktopLog();
@@ -76,7 +77,7 @@ async function applyDesktopSettings(settings) {
 }
 
 function getMicrophonePermissionStatus() {
-  if (process.platform !== "darwin") {
+  if (process.platform !== "darwin" && process.platform !== "win32") {
     return "unknown";
   }
 
@@ -154,17 +155,28 @@ async function refreshSetupStatusNow(options = {}) {
   return setupStatusCache;
 }
 
-function openMacPrivacyShortcut(section = "files") {
+function openSystemPrivacyShortcut(section = "files") {
+  if (section === "microphone") {
+    if (process.platform === "darwin") {
+      return shell.openExternal(
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+      );
+    }
+
+    if (process.platform === "win32") {
+      return shell.openExternal("ms-settings:privacy-microphone");
+    }
+
+    return false;
+  }
+
   if (process.platform !== "darwin") {
     return false;
   }
 
-  const target =
-    section === "microphone"
-      ? "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
-      : "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
-
-  return shell.openExternal(target);
+  return shell.openExternal(
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+  );
 }
 
 async function openSupportTarget(target) {
@@ -308,8 +320,8 @@ function registerIpcHandle(channel, handler) {
   });
 }
 
-async function requestMacMicrophoneAccess() {
-  if (process.platform !== "darwin") {
+async function requestSystemMicrophoneAccess() {
+  if (process.platform !== "darwin" && process.platform !== "win32") {
     return true;
   }
 
@@ -318,7 +330,27 @@ async function requestMacMicrophoneAccess() {
     return true;
   }
 
-  return systemPreferences.askForMediaAccess("microphone");
+  if (status === "restricted") {
+    return false;
+  }
+
+  if (microphoneAccessRequestPromise) {
+    return microphoneAccessRequestPromise;
+  }
+
+  microphoneAccessRequestPromise = (async () => {
+    if (process.platform === "darwin") {
+      return systemPreferences.askForMediaAccess("microphone");
+    }
+
+    return false;
+  })();
+
+  try {
+    return await microphoneAccessRequestPromise;
+  } finally {
+    microphoneAccessRequestPromise = null;
+  }
 }
 
 function buildRawExecutorEventSummary(event) {
@@ -609,7 +641,7 @@ app.whenReady().then(async () => {
 
   registerIpcHandle("system:request-microphone-access", async (event) => {
     assertTrustedSender(event);
-    const granted = await requestMacMicrophoneAccess();
+    const granted = await requestSystemMicrophoneAccess();
     await refreshSystemStatus();
     return granted;
   });
@@ -706,9 +738,15 @@ app.whenReady().then(async () => {
     return openTerminalForGeminiLogin();
   });
 
+  registerIpcHandle("system:open-microphone-privacy-settings", async (event) => {
+    assertTrustedSender(event);
+    await openSystemPrivacyShortcut("microphone");
+    return process.platform === "darwin" || process.platform === "win32";
+  });
+
   registerIpcHandle("system:open-mac-privacy-settings", async (event, section) => {
     assertTrustedSender(event);
-    await openMacPrivacyShortcut(section);
+    await openSystemPrivacyShortcut(section);
     return process.platform === "darwin";
   });
 

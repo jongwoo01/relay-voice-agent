@@ -39,7 +39,7 @@ describe("connectHostedSession", () => {
     expect(disconnect).not.toHaveBeenCalled();
   });
 
-  it("connects with the trimmed judge passcode", async () => {
+  it("connects with the trimmed judge passcode before prompting for microphone access", async () => {
     const hideRuntimeError = vi.fn();
     const showRuntimeError = vi.fn();
     const stopPlayback = vi.fn(async () => undefined);
@@ -63,8 +63,11 @@ describe("connectHostedSession", () => {
 
     expect(connected).toBe(true);
     expect(hideRuntimeError).toHaveBeenCalledTimes(1);
-    expect(requestMicrophoneAccess).toHaveBeenCalledTimes(1);
     expect(connect).toHaveBeenCalledWith("judge-passcode");
+    expect(requestMicrophoneAccess).toHaveBeenCalledTimes(1);
+    expect(connect.mock.invocationCallOrder[0]).toBeLessThan(
+      requestMicrophoneAccess.mock.invocationCallOrder[0]
+    );
     expect(startVoiceCapture).toHaveBeenCalledTimes(1);
     expect(showRuntimeError).not.toHaveBeenCalled();
     expect(stopVoiceCapture).not.toHaveBeenCalled();
@@ -101,7 +104,39 @@ describe("connectHostedSession", () => {
     expect(setMuted).toHaveBeenCalledWith(true);
   });
 
-  it("stops before connect when microphone access is denied", async () => {
+  it("skips microphone access and starts muted when voice capture is disabled", async () => {
+    const hideRuntimeError = vi.fn();
+    const showRuntimeError = vi.fn();
+    const stopPlayback = vi.fn(async () => undefined);
+    const connect = vi.fn(async () => undefined);
+    const requestMicrophoneAccess = vi.fn(async () => true);
+    const setMuted = vi.fn(async () => undefined);
+    const startVoiceCapture = vi.fn(async () => undefined);
+    const stopVoiceCapture = vi.fn(async () => undefined);
+    const disconnect = vi.fn(async () => undefined);
+
+    const connected = await connectHostedSession({
+      passcode: "judge-passcode",
+      microphoneEnabled: false,
+      hideRuntimeError,
+      showRuntimeError,
+      stopPlayback,
+      connect,
+      requestMicrophoneAccess,
+      setMuted,
+      startVoiceCapture,
+      stopVoiceCapture,
+      disconnect
+    });
+
+    expect(connected).toBe(true);
+    expect(connect).toHaveBeenCalledWith("judge-passcode");
+    expect(requestMicrophoneAccess).not.toHaveBeenCalled();
+    expect(startVoiceCapture).not.toHaveBeenCalled();
+    expect(setMuted).toHaveBeenCalledWith(true);
+  });
+
+  it("disconnects after connect when microphone access is denied", async () => {
     const hideRuntimeError = vi.fn();
     const showRuntimeError = vi.fn();
     const stopPlayback = vi.fn(async () => undefined);
@@ -129,7 +164,7 @@ describe("connectHostedSession", () => {
         message: "Microphone access is required to start the hosted session."
       })
     );
-    expect(connect).not.toHaveBeenCalled();
+    expect(connect).toHaveBeenCalledWith("judge-passcode");
     expect(startVoiceCapture).not.toHaveBeenCalled();
     expect(stopVoiceCapture).toHaveBeenCalledTimes(1);
     expect(disconnect).toHaveBeenCalledTimes(1);

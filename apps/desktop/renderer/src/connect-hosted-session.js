@@ -4,6 +4,7 @@ export function normalizeJudgePasscode(passcode) {
 
 export async function connectHostedSession({
   passcode,
+  microphoneEnabled = true,
   startMuted = false,
   hideRuntimeError,
   showRuntimeError,
@@ -24,16 +25,18 @@ export async function connectHostedSession({
   try {
     hideRuntimeError();
     await stopPlayback();
-    if (typeof requestMicrophoneAccess === "function") {
+    await connect(normalizedPasscode);
+    if (microphoneEnabled && typeof requestMicrophoneAccess === "function") {
       const microphoneAllowed = await requestMicrophoneAccess();
       if (!microphoneAllowed) {
         throw new Error("Microphone access is required to start the hosted session.");
       }
     }
-    await connect(normalizedPasscode);
-    await startVoiceCapture();
+    if (microphoneEnabled) {
+      await startVoiceCapture();
+    }
     if (typeof setMuted === "function") {
-      await setMuted(Boolean(startMuted));
+      await setMuted(microphoneEnabled ? Boolean(startMuted) : true);
     }
     return true;
   } catch (error) {

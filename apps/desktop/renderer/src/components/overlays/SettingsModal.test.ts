@@ -18,6 +18,7 @@ globalThis.React = React;
 globalThis.window = {
   desktopSystem: {
     platform: "darwin",
+    openMicrophonePrivacySettings: vi.fn(),
     openMacPrivacySettings: vi.fn()
   }
 };
@@ -31,6 +32,7 @@ describe("SettingsModal", () => {
         settings: {
           audio: {
             defaultMicId: "mic-1",
+            voiceCaptureEnabled: true,
             startMuted: true
           },
           executor: {
@@ -127,6 +129,7 @@ describe("SettingsModal", () => {
         onRefreshMicrophones: vi.fn(),
         onRefreshSetupStatus: vi.fn(),
         onRequestMicrophoneAccess: vi.fn(),
+        onMicrophoneEnabledChange: vi.fn(),
         onStartMutedChange: vi.fn(),
         onExecutorEnabledChange: vi.fn(),
         onRetryExecutorHealthCheck: vi.fn(),
@@ -158,6 +161,7 @@ describe("SettingsModal", () => {
     expect(markup).toContain("Gemini CLI needs authentication.");
     expect(markup).toContain("/usr/local/bin/gemini");
     expect(markup).toContain("Open Terminal for gemini login");
+    expect(markup).toContain("Use microphone in hosted sessions");
     expect(markup).toContain("Reset all local settings");
     expect(markup).toContain("Copy diagnostics");
     expect(markup).toContain("Cmd/Ctrl + Shift + D opens Developer Console");

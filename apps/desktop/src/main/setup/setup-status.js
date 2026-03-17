@@ -559,11 +559,12 @@ export async function collectSetupStatus({
             permissionStatus: microphonePermissionStatus
           }
         )
-      : microphonePermissionStatus === "denied"
+      : microphonePermissionStatus === "denied" ||
+          microphonePermissionStatus === "restricted"
         ? createItemStatus(
             "error",
-            "Microphone permission is denied.",
-            "Grant microphone access in macOS Privacy settings before starting a live voice session.",
+            "Microphone permission is blocked.",
+            "Grant microphone access in the system privacy settings before starting a live voice session.",
             {
               permissionStatus: microphonePermissionStatus
             }

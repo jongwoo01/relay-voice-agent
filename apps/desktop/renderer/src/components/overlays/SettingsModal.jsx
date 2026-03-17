@@ -29,6 +29,14 @@ function formatPermissionStatus(value) {
     return "Denied";
   }
 
+  if (value === "restricted") {
+    return "Restricted";
+  }
+
+  if (value === "not-determined") {
+    return "Not requested";
+  }
+
   return "Unknown";
 }
 
@@ -338,6 +346,7 @@ export function SettingsModal({
   onRefreshMicrophones,
   onRefreshSetupStatus,
   onRequestMicrophoneAccess,
+  onMicrophoneEnabledChange,
   onStartMutedChange,
   onExecutorEnabledChange,
   onRetryExecutorHealthCheck,
@@ -355,12 +364,19 @@ export function SettingsModal({
 }) {
   const [copiedAt, setCopiedAt] = useState(null);
   const platform = globalThis.window?.desktopSystem?.platform ?? "unknown";
+  const supportsSystemPrivacyShortcut =
+    platform === "darwin" || platform === "win32";
+  const privacySettingsLabel =
+    platform === "win32" ? "Open Windows Privacy Settings" : "Open Privacy Settings";
   const permissionTone =
     systemStatus.microphonePermissionStatus === "granted"
       ? "success"
-      : systemStatus.microphonePermissionStatus === "denied"
+      : systemStatus.microphonePermissionStatus === "denied" ||
+          systemStatus.microphonePermissionStatus === "restricted"
         ? "error"
-        : "neutral";
+        : systemStatus.microphonePermissionStatus === "not-determined"
+          ? "warning"
+          : "neutral";
   const selectedMicText = useMemo(() => {
     if (!selectedMicId) {
       return selectedMicrophoneLabel || "Default input";
@@ -471,13 +487,13 @@ export function SettingsModal({
                       <SecondaryButton onClick={() => void onRequestMicrophoneAccess()}>
                         Request access
                       </SecondaryButton>
-                      {platform === "darwin" ? (
+                      {supportsSystemPrivacyShortcut ? (
                         <SecondaryButton
                           onClick={() =>
-                            void globalThis.window?.desktopSystem?.openMacPrivacySettings?.("microphone")
+                            void globalThis.window?.desktopSystem?.openMicrophonePrivacySettings?.()
                           }
                         >
-                          Open Privacy Settings
+                          {privacySettingsLabel}
                         </SecondaryButton>
                       ) : null}
                     </>
@@ -640,24 +656,29 @@ export function SettingsModal({
 
                 <SettingRow
                   title="Microphone permission"
-                  description="Voice mode requires OS microphone access before Relay can open a hosted session."
+                  description="Turn this on to use the microphone in hosted sessions. Relay will request access if needed, and can jump straight to system privacy settings when the OS has already blocked it."
                   action={
-                    <Badge tone={permissionTone}>
-                      {formatPermissionStatus(systemStatus.microphonePermissionStatus)}
-                    </Badge>
+                    <Toggle
+                      checked={settings.audio.voiceCaptureEnabled !== false}
+                      onChange={(nextValue) => void onMicrophoneEnabledChange(nextValue)}
+                      label="Use microphone in hosted sessions"
+                    />
                   }
                 >
                   <div className="flex flex-wrap gap-2">
+                    <Badge tone={permissionTone}>
+                      {formatPermissionStatus(systemStatus.microphonePermissionStatus)}
+                    </Badge>
                     <SecondaryButton onClick={() => void onRequestMicrophoneAccess()}>
                       Request microphone access
                     </SecondaryButton>
-                    {platform === "darwin" ? (
+                    {supportsSystemPrivacyShortcut ? (
                       <SecondaryButton
                         onClick={() =>
-                          void globalThis.window?.desktopSystem?.openMacPrivacySettings?.("microphone")
+                          void globalThis.window?.desktopSystem?.openMicrophonePrivacySettings?.()
                         }
                       >
-                        Open Privacy Settings
+                        {privacySettingsLabel}
                       </SecondaryButton>
                     ) : null}
                   </div>

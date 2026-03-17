@@ -25,6 +25,7 @@ export function createDefaultDesktopSettings() {
   return {
     audio: {
       defaultMicId: "",
+      voiceCaptureEnabled: true,
       startMuted: false,
       liveVad: createDefaultLiveVadSettings()
     },
@@ -148,6 +149,10 @@ export function normalizeDesktopSettings(input) {
         typeof input.audio?.defaultMicId === "string"
           ? input.audio.defaultMicId
           : defaults.audio.defaultMicId,
+      voiceCaptureEnabled:
+        typeof input.audio?.voiceCaptureEnabled === "boolean"
+          ? input.audio.voiceCaptureEnabled
+          : defaults.audio.voiceCaptureEnabled,
       startMuted:
         typeof input.audio?.startMuted === "boolean"
           ? input.audio.startMuted
@@ -209,5 +214,10 @@ export function mergeDesktopSettings(current, patch) {
 }
 
 export function normalizeMicrophonePermissionStatus(value) {
-  return value === "granted" || value === "denied" ? value : "unknown";
+  return value === "granted" ||
+    value === "denied" ||
+    value === "restricted" ||
+    value === "not-determined"
+    ? value
+    : "unknown";
 }

@@ -68,6 +68,8 @@ contextBridge.exposeInMainWorld("desktopSystem", {
     ipcRenderer.invoke("system:get-microphone-access-status"),
   requestMicrophoneAccess: () =>
     ipcRenderer.invoke("system:request-microphone-access"),
+  openMicrophonePrivacySettings: () =>
+    ipcRenderer.invoke("system:open-microphone-privacy-settings"),
   openMacPrivacySettings: (section) =>
     ipcRenderer.invoke("system:open-mac-privacy-settings", section)
 });
