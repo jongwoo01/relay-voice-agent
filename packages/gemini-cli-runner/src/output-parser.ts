@@ -29,6 +29,15 @@ export interface ParsedGeminiCliOutput {
 // Keep this marker aligned with the local executor prompt contract in prompts.ts.
 const REPORT_JSON_MARKER = "REPORT_JSON:";
 
+function createSyntheticResultEvent(response: string): GeminiCliHeadlessEvent {
+  return {
+    type: "result",
+    payload: {
+      response
+    }
+  };
+}
+
 function parseJsonObjectString(value: string): Record<string, unknown> | null {
   const trimmed = value.trim();
 
@@ -485,11 +494,31 @@ export function parseGeminiCliOutput(stdout: string): ParsedGeminiCliOutput {
     throw new Error("Gemini CLI output was empty");
   }
 
-  const events = trimmed
+  const lines = trimmed
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map(parseGeminiCliEventLine);
+    .filter((line) => line.length > 0);
+
+  const events: GeminiCliHeadlessEvent[] = [];
+  const unparsedLines: string[] = [];
+
+  for (const line of lines) {
+    try {
+      events.push(parseGeminiCliEventLine(line));
+    } catch {
+      unparsedLines.push(line);
+    }
+  }
+
+  if (events.length === 0) {
+    return {
+      events: [createSyntheticResultEvent(trimmed)]
+    };
+  }
+
+  if (unparsedLines.length > 0 && !events.some((event) => event.type === "result")) {
+    events.push(createSyntheticResultEvent(unparsedLines.join("\n")));
+  }
 
   if (events.length === 0) {
     throw new Error("Gemini CLI output did not include any stream events");

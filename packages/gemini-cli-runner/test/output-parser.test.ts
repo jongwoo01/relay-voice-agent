@@ -50,6 +50,50 @@ describe("parseGeminiCliOutput", () => {
   it("throws when the output is empty", () => {
     expect(() => parseGeminiCliOutput("")).toThrow("Gemini CLI output was empty");
   });
+
+  it("falls back to a synthetic final result when Gemini CLI emits plain text", () => {
+    const parsed = parseGeminiCliOutput(
+      'I am Gemini, and I checked the Downloads folder.\nREPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
+    );
+
+    expect(parsed.events).toEqual([
+      {
+        type: "result",
+        payload: {
+          response:
+            'I am Gemini, and I checked the Downloads folder.\nREPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
+        }
+      }
+    ]);
+  });
+
+  it("keeps parsed stream events and appends a synthetic result for trailing plain text", () => {
+    const parsed = parseGeminiCliOutput(
+      [
+        JSON.stringify({
+          type: "tool_use",
+          name: "list_directory"
+        }),
+        'I am Gemini, and I checked the Downloads folder.\nREPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
+      ].join("\n")
+    );
+
+    expect(parsed.events).toEqual([
+      {
+        type: "tool_use",
+        payload: {
+          name: "list_directory"
+        }
+      },
+      {
+        type: "result",
+        payload: {
+          response:
+            'I am Gemini, and I checked the Downloads folder.\nREPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
+        }
+      }
+    ]);
+  });
 });
 
 describe("buildExecutorResultFromGeminiCliOutput", () => {
