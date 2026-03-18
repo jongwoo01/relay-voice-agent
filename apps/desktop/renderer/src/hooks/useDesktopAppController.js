@@ -386,6 +386,20 @@ export function useDesktopAppController() {
     }
   }, [hideRuntimeError, refreshSetupStatus, showRuntimeError]);
 
+  const updateDesktopSettings = useCallback(
+    async (patch) => {
+      const nextSettings = await window.desktopUi.updateSettings(patch);
+      startTransition(() => {
+        setUiState((current) => ({
+          ...current,
+          settings: nextSettings
+        }));
+      });
+      return nextSettings;
+    },
+    []
+  );
+
   const setRuntimeUserSpeaking = useCallback(async (speaking) => {
     if (voiceStateRef.current.activity?.userSpeaking === speaking) {
       return;
@@ -1307,20 +1321,6 @@ export function useDesktopAppController() {
       "Selected input"
     );
   }, [microphones, selectedMicId]);
-
-  const updateDesktopSettings = useCallback(
-    async (patch) => {
-      const nextSettings = await window.desktopUi.updateSettings(patch);
-      startTransition(() => {
-        setUiState((current) => ({
-          ...current,
-          settings: nextSettings
-        }));
-      });
-      return nextSettings;
-    },
-    []
-  );
 
   const handlePromptSubmit = useCallback(
     async (event) => {
