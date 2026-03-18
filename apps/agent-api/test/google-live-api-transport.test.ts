@@ -296,9 +296,10 @@ describe("google-live-api-transport", () => {
           text: "hello",
           finished: true
         },
+        generationComplete: true,
         waitingForInput: true,
         turnComplete: true
-      }
+      } as LiveServerMessage["serverContent"] & { generationComplete: boolean }
     } as LiveServerMessage);
 
     await flushAsyncWork();
@@ -316,6 +317,7 @@ describe("google-live-api-transport", () => {
       type: "go_away",
       timeLeft: "5s"
     });
+    expect(events).toContainEqual({ type: "generation_complete" });
     expect(events).toContainEqual({ type: "waiting_for_input" });
     expect(events).toContainEqual({ type: "turn_complete" });
   });

@@ -671,6 +671,10 @@ describe("CloudAgentSession", () => {
     expect(lastState).toEqual(
       expect.objectContaining({
         status: "interrupted",
+        routing: expect.objectContaining({
+          mode: "interrupted",
+          summary: "Response stopped early."
+        }),
         activeTurnId: null
       })
     );
@@ -678,6 +682,103 @@ describe("CloudAgentSession", () => {
       expect.objectContaining({
         text: "Hello there",
         interrupted: true
+      })
+    );
+  });
+
+  it("separates responding, finishing, and listening lifecycle states", async () => {
+    const sentEvents: Array<{ type: string; state?: any }> = [];
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
+      close: vi.fn()
+    };
+    let liveCallbacks: GoogleLiveApiTransportCallbacks | undefined;
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        liveCallbacks = callbacks;
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-lifecycle",
+        userId: "user-lifecycle",
+        send: (event) => {
+          sentEvents.push(event as { type: string; state?: any });
+        }
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-15T01:40:00.000Z"
+      }
+    );
+
+    await session.start();
+    await session.handleClientEvent({
+      type: "typed_turn",
+      text: "Say hello"
+    });
+
+    await liveCallbacks?.onevent?.({
+      type: "output_transcription",
+      text: "Hello there",
+      finished: false
+    });
+    await liveCallbacks?.onevent?.({
+      type: "generation_complete"
+    });
+    await liveCallbacks?.onevent?.({
+      type: "turn_complete"
+    });
+
+    const conversationStates = sentEvents.filter(
+      (event) => event.type === "conversation_state"
+    );
+    const respondingState = conversationStates.at(-3)?.state;
+    const finishingState = conversationStates.at(-2)?.state;
+    const listeningState = conversationStates.at(-1)?.state;
+
+    expect(respondingState).toEqual(
+      expect.objectContaining({
+        status: "responding",
+        routing: expect.objectContaining({
+          mode: "responding",
+          summary: "Preparing a reply."
+        })
+      })
+    );
+    expect(finishingState).toEqual(
+      expect.objectContaining({
+        status: "finishing",
+        routing: expect.objectContaining({
+          mode: "finishing",
+          summary: "Finishing the reply."
+        })
+      })
+    );
+    expect(listeningState).toEqual(
+      expect.objectContaining({
+        status: "listening",
+        routing: expect.objectContaining({
+          mode: "idle",
+          summary: "Waiting for the next request."
+        })
       })
     );
   });
@@ -852,7 +953,11 @@ describe("CloudAgentSession", () => {
         inputPartial: "",
         lastUserTranscript: "check my desktop",
         outputTranscript: "Okay, I'll check it now.",
-        status: "thinking"
+        status: "responding",
+        routing: expect.objectContaining({
+          mode: "responding",
+          summary: "Preparing a reply."
+        })
       })
     );
     expect(lastState?.conversationTimeline).toEqual([

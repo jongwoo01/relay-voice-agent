@@ -43,6 +43,7 @@ export type GoogleLiveTransportEvent =
   | { type: "output_audio"; data: string; mimeType: string }
   | { type: "model_text"; text: string }
   | { type: "output_transcription"; text: string; finished: boolean }
+  | { type: "generation_complete" }
   | { type: "tool_call"; functionCalls: FunctionCall[] }
   | { type: "tool_call_cancellation"; ids: string[] }
   | { type: "interrupted" }
@@ -183,6 +184,9 @@ function collectOutputAudioParts(
 }
 
 function summarizeServerMessage(message: LiveServerMessage): string {
+  const serverContent = message.serverContent as
+    | ({ generationComplete?: boolean } & LiveServerMessage["serverContent"])
+    | undefined;
   const summary = {
     setupComplete: message.setupComplete ?? false,
     inputText: message.serverContent?.inputTranscription?.text ?? null,
@@ -207,6 +211,7 @@ function summarizeServerMessage(message: LiveServerMessage): string {
       return { unknown: true };
     }),
     interrupted: message.serverContent?.interrupted ?? false,
+    generationComplete: serverContent?.generationComplete ?? false,
     waitingForInput: message.serverContent?.waitingForInput ?? false,
     turnComplete: message.serverContent?.turnComplete ?? false,
     toolCalls:
@@ -445,11 +450,15 @@ export class GoogleLiveApiTransport {
     message: LiveServerMessage,
     callbacks?: GoogleLiveApiTransportCallbacks
   ): Promise<void> {
+    const serverContent = message.serverContent as
+      | ({ generationComplete?: boolean } & LiveServerMessage["serverContent"])
+      | undefined;
     const inputText = collectInputTranscriptionText(message);
     const summary = summarizeServerMessage(message);
     let summaryData: {
       inputText: string | null;
       outputText: string | null;
+      generationComplete?: boolean;
       waitingForInput: boolean;
       turnComplete: boolean;
       interrupted: boolean;
@@ -460,6 +469,7 @@ export class GoogleLiveApiTransport {
         summaryData = JSON.parse(summary) as {
           inputText: string | null;
           outputText: string | null;
+          generationComplete?: boolean;
           waitingForInput: boolean;
           turnComplete: boolean;
           interrupted: boolean;
@@ -473,6 +483,7 @@ export class GoogleLiveApiTransport {
       const hasInterestingPayload =
         summaryData?.inputText !== null ||
         summaryData?.outputText !== null ||
+        summaryData?.generationComplete === true ||
         summaryData?.waitingForInput === true ||
         summaryData?.turnComplete === true ||
         summaryData?.interrupted === true;
@@ -539,6 +550,10 @@ export class GoogleLiveApiTransport {
         data: audioPart.data,
         mimeType: audioPart.mimeType
       });
+    }
+
+    if (serverContent?.generationComplete) {
+      await callbacks?.onevent?.({ type: "generation_complete" });
     }
 
     if (message.serverContent?.interrupted) {

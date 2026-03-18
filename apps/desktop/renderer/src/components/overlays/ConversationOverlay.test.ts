@@ -82,4 +82,27 @@ describe("ConversationOverlay", () => {
     expect(markup).toContain("border-amber-200");
     expect(markup).toContain("task event");
   });
+
+  it("shows an interrupted assistant message with a status badge instead of strike-through", () => {
+    const markup = renderOverlay([
+      {
+        id: "turn-2:assistant",
+        turnId: "turn-2",
+        kind: "assistant_message",
+        inputMode: "voice",
+        speaker: "assistant",
+        text: "I was about to explain the next step.",
+        partial: false,
+        streaming: false,
+        interrupted: true,
+        responseSource: "live",
+        createdAt: "2026-03-15T10:00:02.000Z",
+        updatedAt: "2026-03-15T10:00:02.000Z"
+      }
+    ]);
+
+    expect(markup).toContain("Stopped early");
+    expect(markup).toContain("I was about to explain the next step.");
+    expect(markup).not.toContain("line-through");
+  });
 });

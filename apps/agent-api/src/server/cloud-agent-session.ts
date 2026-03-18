@@ -101,6 +101,8 @@ function isLiveInputDebugEnabled(): boolean {
   return process.env.LIVE_INPUT_DEBUG?.trim() === "1";
 }
 
+const IDLE_ROUTING_SUMMARY = "Waiting for the next request.";
+
 export interface CloudAgentSessionLoopLike {
   handleDelegateToGeminiCli(
     input: Parameters<TextRealtimeSessionLoop["handleDelegateToGeminiCli"]>[0]
@@ -564,7 +566,7 @@ export class CloudAgentSession {
     activityDetection: createLiveActivityDetectionSnapshot("auto"),
     routing: {
       mode: "idle",
-      summary: "No request is being reviewed yet.",
+      summary: IDLE_ROUTING_SUMMARY,
       detail: ""
     },
     conversationTimeline: [],
@@ -650,6 +652,20 @@ export class CloudAgentSession {
             userSpeaking: false,
             assistantSpeaking: false
           });
+          if (
+            notification.reason === "approval_required" ||
+            notification.reason === "task_waiting_input"
+          ) {
+            this.setConversationUiState(
+              "listening",
+              "waiting_user",
+              "Waiting for your answer."
+            );
+            this.input.send({
+              type: "conversation_state",
+              state: this.getConversationState()
+            });
+          }
           this.notifications.push(plan);
           if (this.notifications.length > 40) {
             this.notifications.shift();
@@ -666,13 +682,39 @@ export class CloudAgentSession {
       new GoogleLiveApiTransport(new NoopLiveSessionController());
   }
 
+  private setRouting(mode: string, summary: string, detail = ""): void {
+    this.conversationState.routing = {
+      mode,
+      summary,
+      detail
+    };
+  }
+
+  private setConversationUiState(
+    status: string,
+    routingMode: string,
+    routingSummary: string,
+    routingDetail = ""
+  ): void {
+    this.conversationState.status = status;
+    this.setRouting(routingMode, routingSummary, routingDetail);
+  }
+
+  private setIdleConversationState(): void {
+    this.setConversationUiState("listening", "idle", IDLE_ROUTING_SUMMARY);
+  }
+
   async start(): Promise<void> {
     if (this.liveSession || this.conversationState.connecting) {
       return;
     }
 
     this.conversationState.connecting = true;
-    this.conversationState.status = "connecting";
+    this.setConversationUiState(
+      "connecting",
+      "connecting",
+      "Connecting to the live session."
+    );
     this.input.send({
       type: "conversation_state",
       state: this.getConversationState()
@@ -719,7 +761,7 @@ export class CloudAgentSession {
           }
           this.conversationState.connected = true;
           this.conversationState.connecting = false;
-          this.conversationState.status = "listening";
+          this.setIdleConversationState();
           this.conversationState.error = null;
           this.input.send({
             type: "conversation_state",
@@ -742,6 +784,7 @@ export class CloudAgentSession {
 
               this.conversationState.connected = false;
               this.conversationState.connecting = false;
+              this.setRouting("idle", IDLE_ROUTING_SUMMARY);
               this.conversationState.status = "idle";
               this.conversationState.error =
                 info.reason ? `closed: ${info.reason}` : normalizeError(error);
@@ -753,6 +796,7 @@ export class CloudAgentSession {
             return;
           }
 
+          this.setRouting("idle", IDLE_ROUTING_SUMMARY);
           this.conversationState.status = "idle";
           this.conversationState.error = info.reason ? `closed: ${info.reason}` : null;
           this.input.send({
@@ -764,6 +808,7 @@ export class CloudAgentSession {
           if (generation !== this.liveSessionGeneration) {
             return;
           }
+          this.setRouting("error", "Live session hit an error.");
           this.conversationState.status = "error";
           this.conversationState.error = normalizeError(error);
           this.input.send({
@@ -1002,7 +1047,11 @@ export class CloudAgentSession {
     const createdAt = this.now();
     const turnId = this.createUserTurn("typed", normalizedText, createdAt);
     this.conversationState.activeTurnId = turnId;
-    this.conversationState.status = "thinking";
+    this.setConversationUiState(
+      "thinking",
+      "thinking",
+      "Understanding your request."
+    );
     this.conversationState.lastUserTranscript = normalizedText;
     this.conversationState.outputTranscript = "";
 
@@ -1034,6 +1083,12 @@ export class CloudAgentSession {
 
     switch (event.type) {
       case "output_audio":
+        if (
+          this.conversationState.status !== "finishing" &&
+          this.conversationState.status !== "interrupted"
+        ) {
+          this.setConversationUiState("speaking", "speaking", "Speaking now.");
+        }
         this.input.send({
           type: "live_output_audio_chunk",
           data: String(event.data ?? ""),
@@ -1050,6 +1105,17 @@ export class CloudAgentSession {
           String(event.text ?? ""),
           Boolean(event.finished)
         );
+        if (
+          this.conversationState.status !== "speaking" &&
+          this.conversationState.status !== "finishing" &&
+          this.conversationState.status !== "interrupted"
+        ) {
+          this.setConversationUiState(
+            "responding",
+            "responding",
+            "Preparing a reply."
+          );
+        }
         this.input.send({
           type: "live_output_transcript",
           text: this.conversationState.outputTranscript,
@@ -1084,7 +1150,11 @@ export class CloudAgentSession {
           String(event.text ?? ""),
           typeof event.rawText === "string" ? event.rawText : String(event.text ?? "")
         );
-        this.conversationState.status = "listening";
+        this.setConversationUiState(
+          "listening",
+          "capturing",
+          "Listening to your request."
+        );
         this.input.send({
           type: "conversation_state",
           state: this.getConversationState()
@@ -1104,7 +1174,7 @@ export class CloudAgentSession {
             `[live-input][session] waiting_for_input session=${this.input.brainSessionId}`
           );
         }
-        this.conversationState.status = "listening";
+        this.setIdleConversationState();
         await this.flushSessionMemoryContextIfNeeded();
         this.liveSession?.clearInputTranscriptPartial();
         this.input.send({
@@ -1119,7 +1189,7 @@ export class CloudAgentSession {
           );
         }
         this.finalizeActiveTurn("completed");
-        this.conversationState.status = "listening";
+        this.setIdleConversationState();
         await this.flushSessionMemoryContextIfNeeded();
         this.liveSession?.clearInputTranscriptPartial();
         this.input.send({
@@ -1127,9 +1197,24 @@ export class CloudAgentSession {
           state: this.getConversationState()
         });
         return;
+      case "generation_complete":
+        this.setConversationUiState(
+          "finishing",
+          "finishing",
+          "Finishing the reply."
+        );
+        this.input.send({
+          type: "conversation_state",
+          state: this.getConversationState()
+        });
+        return;
       case "interrupted":
         this.finalizeActiveTurn("completed", true);
-        this.conversationState.status = "interrupted";
+        this.setConversationUiState(
+          "interrupted",
+          "interrupted",
+          "Response stopped early."
+        );
         this.liveSession?.clearInputTranscriptPartial();
         this.input.send({
           type: "conversation_state",
@@ -1137,6 +1222,11 @@ export class CloudAgentSession {
         });
         return;
       case "tool_call":
+        this.setConversationUiState(
+          "thinking",
+          "delegating",
+          "Starting the requested task."
+        );
         await this.handleToolCall(
           Array.isArray(event.functionCalls) ? event.functionCalls : []
         );
@@ -1176,7 +1266,11 @@ export class CloudAgentSession {
 
       this.conversationState.connected = false;
       this.conversationState.connecting = true;
-      this.conversationState.status = "connecting";
+      this.setConversationUiState(
+        "connecting",
+        "connecting",
+        "Reconnecting the live session."
+      );
       this.conversationState.error = null;
       this.input.send({
         type: "conversation_state",
@@ -1212,7 +1306,7 @@ export class CloudAgentSession {
       this.discardPendingVoiceTurn();
       this.conversationState.rawInputPartial = "";
       this.conversationState.inputPartial = "";
-      this.conversationState.status = "listening";
+      this.setIdleConversationState();
       this.input.send({
         type: "conversation_state",
         state: this.getConversationState()
@@ -1686,12 +1780,16 @@ export class CloudAgentSession {
     const turnId = this.finalizeVoiceUserTurn(normalizedText, createdAt);
     this.conversationState.activeTurnId ??= turnId;
     this.pendingVoiceTurnId = null;
-    this.pendingVoiceFinalTranscript = null;
+   this.pendingVoiceFinalTranscript = null;
     this.conversationState.rawInputPartial = "";
     this.conversationState.inputPartial = "";
     this.conversationState.lastUserTranscript = normalizedText;
     this.conversationState.outputTranscript = "";
-    this.conversationState.status = "thinking";
+    this.setConversationUiState(
+      "thinking",
+      "thinking",
+      "Understanding your request."
+    );
 
     const persistence = await this.persistencePromise;
     await persistence.conversationRepository.save({
@@ -1714,6 +1812,7 @@ export class CloudAgentSession {
       case "output_transcription":
         return Boolean(this.pendingVoiceFinalTranscript?.trim());
       case "tool_call":
+      case "generation_complete":
       case "waiting_for_input":
       case "turn_complete":
       case "interrupted":

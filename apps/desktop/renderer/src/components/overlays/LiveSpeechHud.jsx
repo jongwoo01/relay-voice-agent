@@ -1,8 +1,10 @@
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 
 export function buildHudBubbles({
   sessionActive,
   voiceState,
+  routing,
   inputPartial,
   outputTranscript
 }) {
@@ -12,29 +14,27 @@ export function buildHudBubbles({
 
   const bubbles = [];
   const assistantText = String(outputTranscript ?? "").trim();
+  const hudState =
+    voiceState.status === "finishing"
+      ? "Finishing"
+      : voiceState.status === "responding"
+        ? "Responding"
+        : voiceState.status === "thinking"
+          ? "Thinking"
+          : voiceState.status === "connecting"
+            ? "Connecting"
+            : routing?.mode === "waiting_user"
+              ? "Waiting"
+              : voiceState.activity?.assistantSpeaking || voiceState.status === "speaking"
+                ? "Speaking"
+                : null;
   if (assistantText) {
     bubbles.push({
       id: "assistant-live",
-      speaker: "Gemini",
+      speaker: "Relay",
       tone: "assistant",
-      state: voiceState.activity?.assistantSpeaking ? "Speaking" : "Responding",
+      state: hudState ?? "Responding",
       text: assistantText
-    });
-  } else if (voiceState.activity?.assistantSpeaking) {
-    bubbles.push({
-      id: "assistant-speaking",
-      speaker: "Gemini",
-      tone: "assistant",
-      state: "Speaking",
-      text: "Speaking..."
-    });
-  } else if (voiceState.status === "thinking") {
-    bubbles.push({
-      id: "assistant-thinking",
-      speaker: "Gemini",
-      tone: "assistant",
-      state: "Thinking",
-      text: "Thinking..."
     });
   }
 
@@ -44,14 +44,55 @@ export function buildHudBubbles({
 export function LiveSpeechHud({
   sessionActive,
   voiceState,
+  routing,
   inputPartial,
   outputTranscript
 }) {
+  const [visibleTranscript, setVisibleTranscript] = useState("");
+  const clearTranscriptTimerRef = useRef(null);
+  const assistantPlaybackActive =
+    voiceState.activity?.assistantSpeaking === true ||
+    voiceState.status === "speaking" ||
+    voiceState.status === "finishing";
+
+  useEffect(() => {
+    clearTimeout(clearTranscriptTimerRef.current);
+
+    if (!sessionActive) {
+      setVisibleTranscript("");
+      return undefined;
+    }
+
+    const nextTranscript = String(outputTranscript ?? "").trim();
+    if (nextTranscript) {
+      setVisibleTranscript(nextTranscript);
+      return undefined;
+    }
+
+    if (assistantPlaybackActive || voiceState.status === "responding") {
+      return undefined;
+    }
+
+    clearTranscriptTimerRef.current = setTimeout(() => {
+      setVisibleTranscript("");
+    }, 220);
+
+    return () => {
+      clearTimeout(clearTranscriptTimerRef.current);
+    };
+  }, [
+    assistantPlaybackActive,
+    outputTranscript,
+    sessionActive,
+    voiceState.status
+  ]);
+
   const bubbles = buildHudBubbles({
     sessionActive,
     voiceState,
+    routing,
     inputPartial,
-    outputTranscript
+    outputTranscript: visibleTranscript
   });
 
   return (

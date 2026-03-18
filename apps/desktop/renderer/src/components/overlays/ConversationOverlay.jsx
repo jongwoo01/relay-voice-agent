@@ -91,21 +91,26 @@ export function ConversationOverlay({
                 const turn = turnsById.get(item.turnId);
                 const tone = getBubbleTone(item);
 
-                return (
-                  <article className={tone.articleClassName} key={item.id ?? `${item.turnId}-${item.createdAt}`}>
-                    <div className={`max-w-[85%] px-4 py-3 text-sm leading-relaxed ${
-                      tone.bubbleClassName
-                    } ${
-                      item.partial ? "opacity-60" : ""
-                    } ${item.interrupted ? "opacity-40 line-through" : ""}`}>
-                      <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                        <span className={`text-[10px] font-semibold uppercase tracking-wider ${tone.metaLabelClassName}`}>{buildConversationRoleLabel(item)}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${tone.badgeClassName}`}>{item.inputMode}</span>
-                        {turn?.stage ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${tone.badgeClassName}`}>{turn.stage}</span> : null}
-                        <span className={`text-[10px] ml-auto ${tone.timestampClassName}`}>{formatTime(item.updatedAt || item.createdAt)}</span>
-                      </div>
-                      <p className="m-0 whitespace-pre-wrap">{item.text}</p>
-                    </div>
+	                return (
+	                  <article className={tone.articleClassName} key={item.id ?? `${item.turnId}-${item.createdAt}`}>
+	                    <div className={`max-w-[85%] px-4 py-3 text-sm leading-relaxed ${
+	                      tone.bubbleClassName
+	                    } ${
+	                      item.partial ? "opacity-60" : ""
+	                    } ${item.interrupted ? "ring-1 ring-inset ring-amber-200/70" : ""}`}>
+	                      <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+	                        <span className={`text-[10px] font-semibold uppercase tracking-wider ${tone.metaLabelClassName}`}>{buildConversationRoleLabel(item)}</span>
+	                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${tone.badgeClassName}`}>{item.inputMode}</span>
+	                        {turn?.stage ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${tone.badgeClassName}`}>{turn.stage}</span> : null}
+	                        {item.interrupted ? (
+	                          <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-700">
+	                            Stopped early
+	                          </span>
+	                        ) : null}
+	                        <span className={`text-[10px] ml-auto ${tone.timestampClassName}`}>{formatTime(item.updatedAt || item.createdAt)}</span>
+	                      </div>
+	                      <p className="m-0 whitespace-pre-wrap">{item.text}</p>
+	                    </div>
                   </article>
                 );
               })

@@ -14,6 +14,9 @@ describe("runtime prompt registry", () => {
 
     expect(prompt).toContain("You are Relay, the voice agent for the Google ecosystem.");
     expect(prompt).toContain(
+      "Refer to yourself as Relay when the user asks who you are or what you are called."
+    );
+    expect(prompt).toContain(
       "If the user asks about local files, file contents, browser state, desktop state, or the result of prior local work, call delegate_to_gemini_cli instead of answering from memory alone."
     );
     expect(prompt).toContain(
