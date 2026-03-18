@@ -339,10 +339,7 @@ export class CloudSessionClient {
     }
     this.sessionToken = null;
     this.brainSessionId = null;
-    this.state = {
-      ...createInitialState(),
-      muted: this.state.muted
-    };
+    this.state = createInitialState();
     this.historyState = createInitialHistoryState();
     await this.publishConversationState();
     await this.publishHistoryState();

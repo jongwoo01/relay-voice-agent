@@ -10,6 +10,10 @@ import {
 import { useMotionValue } from "motion/react";
 import { connectHostedSession } from "../connect-hosted-session.js";
 import liveInputMeterWorkletUrl from "../audio/live-input-meter.worklet.js?url";
+import {
+  classifyLiveSpeechCandidate,
+  SPEECH_CANDIDATE_DIP_TOLERANCE_MS
+} from "../live-vad.js";
 import { createDefaultDesktopSettings } from "../../../src/main/ui/desktop-settings.js";
 import {
   buildDisplayConversationTimeline,
@@ -20,6 +24,10 @@ import {
   resolveTaskPanelSelection,
   TASK_CANCEL_CONFIRMATION_DWELL_MS
 } from "../ui-utils.js";
+import {
+  formatMicrophoneAccessError,
+  requestMicrophoneStream
+} from "../microphone-access.js";
 
 const LIVE_INPUT_BUFFER_SIZE = 512;
 const LIVE_INPUT_WORKLET_NAME = "relay-live-input-meter";
@@ -158,10 +166,6 @@ function clamp(value, min, max) {
 }
 
 function avatarStateForUi(summary, voiceState, inputState) {
-  if (voiceState.status === "interrupted") {
-    return "interrupted";
-  }
-
   if (voiceState.activity?.assistantSpeaking) {
     return "speaking";
   }
@@ -170,8 +174,20 @@ function avatarStateForUi(summary, voiceState, inputState) {
     return "thinking";
   }
 
+  if (
+    voiceState.status === "thinking" ||
+    voiceState.status === "responding" ||
+    voiceState.status === "finishing"
+  ) {
+    return "thinking";
+  }
+
   if (voiceState.activity?.userSpeaking || voiceState.status === "listening") {
     return "listening";
+  }
+
+  if (voiceState.status === "interrupted") {
+    return "interrupted";
   }
 
   if (summary.avatar?.mainState === "waiting_user") {
@@ -240,6 +256,7 @@ export function useDesktopAppController() {
   const userSpeakingTimerRef = useRef(null);
   const userSpeakingActiveRef = useRef(false);
   const speechCandidateStartAtRef = useRef(0);
+  const speechCandidateBelowThresholdAtRef = useRef(0);
   const liveActivityActiveRef = useRef(false);
   const liveActivitySequenceRef = useRef(0);
   const liveAudioChunkCountRef = useRef(0);
@@ -579,6 +596,7 @@ export function useDesktopAppController() {
     userSpeakingTimerRef.current = setTimeout(() => {
       userSpeakingActiveRef.current = false;
       speechCandidateStartAtRef.current = 0;
+      speechCandidateBelowThresholdAtRef.current = 0;
       inputEnergy.set(0);
       endLiveActivity();
       void setRuntimeUserSpeaking(false).catch(showRuntimeError);
@@ -586,23 +604,47 @@ export function useDesktopAppController() {
   }, [endLiveActivity, inputEnergy, setRuntimeUserSpeaking, showRuntimeError]);
 
   const handleLiveUserAudioActivity = useCallback(
-    ({ activityLevel, threshold }) => {
-      if (activityLevel < threshold) {
-        speechCandidateStartAtRef.current = 0;
+    ({ activityLevel, threshold, rms }) => {
+      const now = Date.now();
+      const assistantSpeaking = voiceStateRef.current.activity?.assistantSpeaking === true;
+      const speechCandidate = classifyLiveSpeechCandidate({
+        activityLevel,
+        rms,
+        threshold,
+        config: liveVadConfigRef.current,
+        assistantSpeaking
+      });
+
+      if (!speechCandidate.accepted) {
+        if (speechCandidateStartAtRef.current) {
+          if (!speechCandidateBelowThresholdAtRef.current) {
+            speechCandidateBelowThresholdAtRef.current = now;
+          }
+
+          if (
+            now - speechCandidateBelowThresholdAtRef.current >=
+            SPEECH_CANDIDATE_DIP_TOLERANCE_MS
+          ) {
+            speechCandidateStartAtRef.current = 0;
+            speechCandidateBelowThresholdAtRef.current = 0;
+          }
+        }
         return;
       }
 
-      const now = Date.now();
+      speechCandidateBelowThresholdAtRef.current = 0;
       if (!speechCandidateStartAtRef.current) {
         speechCandidateStartAtRef.current = now;
       }
 
-      if (now - speechCandidateStartAtRef.current < liveVadConfigRef.current.confirmMs) {
+      if (now - speechCandidateStartAtRef.current < speechCandidate.confirmMs) {
         return;
       }
 
       if (!userSpeakingActiveRef.current) {
-        void stopPlayback();
+        if (assistantSpeaking) {
+          void stopPlayback();
+        }
         userSpeakingActiveRef.current = true;
         startLiveActivity();
         void setRuntimeUserSpeaking(true).catch(showRuntimeError);
@@ -651,7 +693,8 @@ export function useDesktopAppController() {
       inputEnergy.set(Math.min(1, activityLevel / Math.max(threshold * 3, 0.18)));
       handleLiveUserAudioActivity({
         activityLevel: looksLikeTransientNoise ? 0 : activityLevel,
-        threshold
+        threshold,
+        rms: looksLikeTransientNoise ? 0 : smoothedRms
       });
 
       const encodedChunk = arrayBufferToBase64(pcm16.buffer);
@@ -716,11 +759,21 @@ export function useDesktopAppController() {
     });
   }, []);
 
+  const clearSavedMicrophoneSelection = useCallback(async () => {
+    setSelectedMicId("");
+    await window.desktopUi?.updateSettings?.({
+      audio: {
+        defaultMicId: ""
+      }
+    });
+  }, []);
+
   const stopVoiceCapture = useCallback(async () => {
     recorderStartPromiseRef.current = null;
     clearTimeout(userSpeakingTimerRef.current);
     userSpeakingActiveRef.current = false;
     speechCandidateStartAtRef.current = 0;
+    speechCandidateBelowThresholdAtRef.current = 0;
     pendingSpeechChunksRef.current = [];
     liveVadStateRef.current = {
       noiseFloor: liveVadConfigRef.current.noiseFloor,
@@ -767,14 +820,28 @@ export function useDesktopAppController() {
         channelCount: 1,
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
-        ...(selectedMicId ? { deviceId: { exact: selectedMicId } } : {})
+        autoGainControl: true
       };
-      const constraints = {
-        audio: audioConstraints
-      };
+      try {
+        const { stream, usedFallbackDevice } = await requestMicrophoneStream({
+          mediaDevices: navigator.mediaDevices,
+          selectedMicId,
+          audioConstraints
+        });
+        recorderStreamRef.current = stream;
+        if (usedFallbackDevice) {
+          console.warn(
+            "[live-input][renderer] saved microphone unavailable, falling back to default input"
+          );
+          await clearSavedMicrophoneSelection().catch(() => undefined);
+        }
+      } catch (error) {
+        throw formatMicrophoneAccessError(error, {
+          permissionStatus: uiStateRef.current.systemStatus?.microphonePermissionStatus,
+          selectedMicId
+        });
+      }
 
-      recorderStreamRef.current = await navigator.mediaDevices.getUserMedia(constraints);
       await populateMicrophones();
 
       recorderContextRef.current = new AudioContext({
@@ -789,6 +856,7 @@ export function useDesktopAppController() {
         recorderContextRef.current.createMediaStreamSource(recorderStreamRef.current);
       recorderGainNodeRef.current = recorderContextRef.current.createGain();
       recorderGainNodeRef.current.gain.value = 0;
+      speechCandidateBelowThresholdAtRef.current = 0;
       liveVadStateRef.current = {
         noiseFloor: liveVadConfigRef.current.noiseFloor,
         smoothedRms: 0
@@ -876,7 +944,92 @@ export function useDesktopAppController() {
     } finally {
       recorderStartPromiseRef.current = null;
     }
-  }, [handleLiveInputFrame, populateMicrophones, selectedMicId]);
+  }, [
+    clearSavedMicrophoneSelection,
+    handleLiveInputFrame,
+    populateMicrophones,
+    selectedMicId
+  ]);
+
+  const primeMicrophoneCaptureAccess = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("getUserMedia is not available in this environment.");
+    }
+
+    let stream;
+    try {
+      const result = await requestMicrophoneStream({
+        mediaDevices: navigator.mediaDevices,
+        selectedMicId,
+        audioConstraints: {
+          channelCount: 1
+        }
+      });
+      stream = result.stream;
+      if (result.usedFallbackDevice) {
+        console.warn(
+          "[live-input][renderer] permission warmup used the default microphone because the saved input was unavailable"
+        );
+        await clearSavedMicrophoneSelection().catch(() => undefined);
+      }
+      await populateMicrophones();
+      return true;
+    } catch (error) {
+      throw formatMicrophoneAccessError(error, {
+        permissionStatus: uiStateRef.current.systemStatus?.microphonePermissionStatus,
+        selectedMicId
+      });
+    } finally {
+      stream?.getTracks?.().forEach((track) => track.stop());
+    }
+  }, [clearSavedMicrophoneSelection, populateMicrophones, selectedMicId]);
+
+  const requestMicrophoneAccessWithCapture = useCallback(async () => {
+    try {
+      const granted = await (window.desktopSystem?.requestMicrophoneAccess?.() ?? false);
+      if (!granted) {
+        return false;
+      }
+
+      await primeMicrophoneCaptureAccess();
+      return true;
+    } finally {
+      await refreshSetupStatus({ refresh: false });
+    }
+  }, [primeMicrophoneCaptureAccess, refreshSetupStatus]);
+
+  const ensureVoiceCaptureReady = useCallback(
+    async ({ enableIfDisabled = false } = {}) => {
+      const currentSettings = uiStateRef.current.settings ?? createDefaultDesktopSettings();
+      if (currentSettings.audio?.voiceCaptureEnabled === false) {
+        if (!enableIfDisabled) {
+          return false;
+        }
+
+        await updateDesktopSettings({
+          audio: {
+            voiceCaptureEnabled: true
+          }
+        });
+      }
+
+      let granted =
+        uiStateRef.current.systemStatus?.microphonePermissionStatus === "granted";
+      if (!granted) {
+        granted = await requestMicrophoneAccessWithCapture();
+        if (!granted) {
+          return false;
+        }
+      }
+
+      if (!recorderStreamRef.current) {
+        await startVoiceCapture();
+      }
+
+      return true;
+    },
+    [requestMicrophoneAccessWithCapture, startVoiceCapture, updateDesktopSettings]
+  );
 
   useEffect(() => {
     let unsubscribeState = () => {};
@@ -899,6 +1052,12 @@ export function useDesktopAppController() {
       });
 
       unsubscribeState = window.desktopUi.onStateUpdated((nextState) => {
+        if (
+          nextState?.voiceControlState?.status === "interrupted" &&
+          voiceStateRef.current.status !== "interrupted"
+        ) {
+          void stopPlayback();
+        }
         startTransition(() => {
           setUiState(nextState);
         });
@@ -1229,23 +1388,26 @@ export function useDesktopAppController() {
   const handleConnect = useCallback(async () => {
     return connectHostedSession({
       passcode,
-      microphoneEnabled: settings.audio.voiceCaptureEnabled,
+      microphoneEnabled: true,
       startMuted: settings.audio.startMuted,
       hideRuntimeError,
       showRuntimeError,
       stopPlayback,
       connect: (judgePasscode) => window.desktopLive.connect(judgePasscode),
       setMuted: applyMutedState,
-      requestMicrophoneAccess: () => window.desktopSystem?.requestMicrophoneAccess?.() ?? true,
+      requestMicrophoneAccess: () =>
+        ensureVoiceCaptureReady({
+          enableIfDisabled: true
+        }),
       startVoiceCapture,
       stopVoiceCapture,
       disconnect: () => window.desktopLive.disconnect()
     });
   }, [
     applyMutedState,
+    ensureVoiceCaptureReady,
     hideRuntimeError,
     passcode,
-    settings.audio.voiceCaptureEnabled,
     settings.audio.startMuted,
     showRuntimeError,
     startVoiceCapture,
@@ -1256,11 +1418,22 @@ export function useDesktopAppController() {
   const handleMuteToggle = useCallback(async () => {
     try {
       hideRuntimeError();
-      await applyMutedState(!voiceStateRef.current.muted);
+      if (voiceStateRef.current.muted) {
+        const ready = await ensureVoiceCaptureReady({
+          enableIfDisabled: true
+        });
+        if (!ready) {
+          return;
+        }
+        await applyMutedState(false);
+        return;
+      }
+
+      await applyMutedState(true);
     } catch (error) {
       showRuntimeError(error);
     }
-  }, [applyMutedState, hideRuntimeError, showRuntimeError]);
+  }, [applyMutedState, ensureVoiceCaptureReady, hideRuntimeError, showRuntimeError]);
 
   const handleHangup = useCallback(async () => {
     try {
@@ -1395,14 +1568,10 @@ export function useDesktopAppController() {
           return true;
         }
 
-        let granted = systemStatus.microphonePermissionStatus === "granted";
-        if (!granted) {
-          granted = await (window.desktopSystem?.requestMicrophoneAccess?.() ?? false);
-          await populateMicrophones().catch(() => undefined);
-          await refreshSetupStatus({ refresh: false });
-        }
-
-        if (!granted) {
+        const ready = await ensureVoiceCaptureReady({
+          enableIfDisabled: true
+        });
+        if (!ready) {
           return false;
         }
 
@@ -1412,8 +1581,7 @@ export function useDesktopAppController() {
           }
         });
 
-        if (voiceStateRef.current.connected && !recorderStreamRef.current) {
-          await startVoiceCapture();
+        if (voiceStateRef.current.connected) {
           await applyMutedState(Boolean(settings.audio.startMuted));
         }
 
@@ -1425,14 +1593,12 @@ export function useDesktopAppController() {
     },
     [
       applyMutedState,
+      ensureVoiceCaptureReady,
       hideRuntimeError,
-      populateMicrophones,
       refreshSetupStatus,
       settings.audio.startMuted,
       showRuntimeError,
-      startVoiceCapture,
       stopVoiceCapture,
-      systemStatus.microphonePermissionStatus,
       updateDesktopSettings
     ]
   );
@@ -1534,7 +1700,7 @@ export function useDesktopAppController() {
   const handleRequestMicrophoneAccess = useCallback(async () => {
     try {
       hideRuntimeError();
-      const granted = await window.desktopSystem.requestMicrophoneAccess();
+      const granted = await requestMicrophoneAccessWithCapture();
       if (granted && settings.audio.voiceCaptureEnabled === false) {
         await updateDesktopSettings({
           audio: {
@@ -1542,8 +1708,6 @@ export function useDesktopAppController() {
           }
         });
       }
-      await populateMicrophones().catch(() => undefined);
-      await refreshSetupStatus({ refresh: false });
       return granted;
     } catch (error) {
       showRuntimeError(error);
@@ -1551,8 +1715,7 @@ export function useDesktopAppController() {
     }
   }, [
     hideRuntimeError,
-    populateMicrophones,
-    refreshSetupStatus,
+    requestMicrophoneAccessWithCapture,
     settings.audio.voiceCaptureEnabled,
     showRuntimeError,
     updateDesktopSettings

@@ -3,8 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { DesktopSettingsStore } from "../src/main/ui/desktop-settings-store.js";
+import { createDefaultLiveVadSettings } from "../src/main/ui/desktop-settings.js";
 
 describe("desktop-settings-store", () => {
+  const defaultLiveVad = createDefaultLiveVadSettings();
+
   it("persists settings updates and reloads them from disk", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "relay-settings-"));
     const store = new DesktopSettingsStore({ directory });
@@ -43,8 +46,8 @@ describe("desktop-settings-store", () => {
           liveVad: expect.objectContaining({
             confirmMs: 90,
             noiseGateMultiplier: 3.1,
-            prerollChunks: 12,
-            transientRmsRatio: 0.42
+            prerollChunks: defaultLiveVad.prerollChunks,
+            transientRmsRatio: defaultLiveVad.transientRmsRatio
           })
         }),
         executor: expect.objectContaining({
@@ -87,8 +90,49 @@ describe("desktop-settings-store", () => {
     expect(resetSettings.audio.voiceCaptureEnabled).toBe(true);
     expect(saved.audio.defaultMicId).toBe("");
     expect(saved.audio.voiceCaptureEnabled).toBe(true);
-    expect(resetSettings.audio.liveVad.confirmMs).toBe(180);
-    expect(resetSettings.audio.liveVad.minSpeechThreshold).toBe(0.045);
+    expect(resetSettings.audio.liveVad.confirmMs).toBe(defaultLiveVad.confirmMs);
+    expect(resetSettings.audio.liveVad.minSpeechThreshold).toBe(
+      defaultLiveVad.minSpeechThreshold
+    );
     expect(resetSettings.executor.enabled).toBe(true);
+  });
+
+  it("migrates settings from a legacy file path when the new location is empty", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "relay-settings-current-"));
+    const legacyDirectory = await mkdtemp(path.join(os.tmpdir(), "relay-settings-legacy-"));
+    const legacyStore = new DesktopSettingsStore({ directory: legacyDirectory });
+
+    await legacyStore.load();
+    const legacySettings = await legacyStore.update({
+      audio: {
+        defaultMicId: "legacy-mic",
+        voiceCaptureEnabled: false
+      },
+      ui: {
+        motionPreference: "off"
+      }
+    });
+
+    const migratedStore = new DesktopSettingsStore({
+      directory,
+      legacyFilePaths: [path.join(legacyDirectory, "desktop-settings.json")]
+    });
+    await migratedStore.load();
+
+    expect(migratedStore.get()).toEqual(
+      expect.objectContaining({
+        ...legacySettings,
+        audio: expect.objectContaining({
+          ...legacySettings.audio,
+          voiceCaptureEnabled: true
+        })
+      })
+    );
+    const saved = JSON.parse(
+      await readFile(path.join(directory, "desktop-settings.json"), "utf8")
+    );
+    expect(saved.audio.voiceCaptureEnabled).toBe(true);
+    expect(saved.audio.defaultMicId).toBe(legacySettings.audio.defaultMicId);
+    expect(saved.ui.motionPreference).toBe(legacySettings.ui.motionPreference);
   });
 });

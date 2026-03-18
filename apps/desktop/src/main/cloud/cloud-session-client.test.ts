@@ -788,6 +788,35 @@ beforeEach(() => {
     );
   });
 
+  it("resets muted state when disconnecting before a new session", async () => {
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host",
+      onConversationState: async () => undefined,
+      onTaskState: async () => undefined
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState(),
+      tasks: createTaskState()
+    });
+    await connectPromise;
+
+    await client.setMuted(true);
+    const disconnected = await client.disconnect();
+
+    expect(disconnected).toEqual(
+      expect.objectContaining({
+        connected: false,
+        muted: false
+      })
+    );
+  });
+
   it("suppresses client activity boundary events when the server owns automatic detection", async () => {
     const client = new CloudSessionClient({
       baseUrl: "http://judge-host",

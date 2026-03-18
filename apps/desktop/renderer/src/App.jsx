@@ -67,6 +67,23 @@ function classifyRuntimeIssue(errorText, platform) {
   }
 
   if (
+    normalized.includes("microphone") ||
+    normalized.includes("notallowederror") ||
+    normalized.includes("notfounderror") ||
+    normalized.includes("overconstrainederror") ||
+    normalized.includes("notreadableerror")
+  ) {
+    return {
+      kind: "microphone",
+      title: "Microphone access needs attention",
+      guidance:
+        platform === "darwin"
+          ? "Request microphone access inside Relay first. If Relay still does not appear in System Settings > Privacy & Security > Microphone, reopen the packaged app and retry. If a specific mic was disconnected, refresh devices or switch back to the default input."
+          : "Recheck the microphone permission state and selected input device, then retry."
+    };
+  }
+
+  if (
     normalized.includes("spawn gemini") ||
     normalized.includes("gemini") && normalized.includes("not found") ||
     normalized.includes("enoent")
@@ -428,15 +445,22 @@ export default function App() {
                   <p className="mt-2 text-[12px] leading-relaxed text-red-600">
                     {runtimeIssue.guidance}
                   </p>
-                  {runtimeIssue.kind === "permission" &&
+                  {(runtimeIssue.kind === "permission" ||
+                    runtimeIssue.kind === "microphone") &&
                   window.desktopSystem?.platform === "darwin" ? (
                     <div className="mt-3 flex justify-end">
                       <button
                         type="button"
-                        onClick={() => void window.desktopSystem.openMacPrivacySettings()}
+                        onClick={() =>
+                          void (runtimeIssue.kind === "microphone"
+                            ? window.desktopSystem.openMicrophonePrivacySettings()
+                            : window.desktopSystem.openMacPrivacySettings())
+                        }
                         className="rounded-full border border-red-300 bg-white/80 px-4 py-2 text-[12px] font-semibold text-red-700 transition-colors hover:bg-white"
                       >
-                        Open Privacy Settings
+                        {runtimeIssue.kind === "microphone"
+                          ? "Open Microphone Settings"
+                          : "Open Privacy Settings"}
                       </button>
                     </div>
                   ) : null}
@@ -465,6 +489,7 @@ export default function App() {
             <LiveSpeechHud
               sessionActive={sessionActive}
               voiceState={voiceState}
+              routing={voiceState.routing}
               inputPartial={deferredUiState.rawInputPartial || deferredUiState.inputPartial}
               outputTranscript={deferredUiState.outputTranscript}
             />

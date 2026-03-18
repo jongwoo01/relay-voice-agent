@@ -8,16 +8,16 @@ export const DESKTOP_DEBUG_FILTER_SOURCES = [
 
 export function createDefaultLiveVadSettings() {
   return {
-    minSpeechThreshold: 0.045,
-    confirmMs: 180,
-    idleMs: 360,
-    prerollChunks: 12,
+    minSpeechThreshold: 0.05,
+    confirmMs: 220,
+    idleMs: 720,
+    prerollChunks: 16,
     noiseFloor: 0.008,
     noiseAdaptation: 0.04,
-    noiseGateMultiplier: 3.2,
+    noiseGateMultiplier: 3.6,
     rmsSmoothing: 0.2,
-    rmsBoost: 1.45,
-    transientRmsRatio: 0.42
+    rmsBoost: 1.35,
+    transientRmsRatio: 0.36
   };
 }
 

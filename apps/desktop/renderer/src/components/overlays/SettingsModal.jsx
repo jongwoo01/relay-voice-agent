@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { CrossIcon } from "../icons.jsx";
+import {
+  formatMicrophoneAccessError,
+  requestMicrophoneStream
+} from "../../microphone-access.js";
 
 function formatCheckedAt(value) {
   if (!value) {
@@ -247,12 +251,14 @@ function MicrophoneLevelPreview({ open, selectedMicId, enabled }) {
     (async () => {
       try {
         setError(null);
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            ...(selectedMicId ? { deviceId: { exact: selectedMicId } } : {})
+        const result = await requestMicrophoneStream({
+          mediaDevices: navigator.mediaDevices,
+          selectedMicId,
+          audioConstraints: {
+            channelCount: 1
           }
         });
+        stream = result.stream;
 
         if (cancelled) {
           return;
@@ -265,7 +271,12 @@ function MicrophoneLevelPreview({ open, selectedMicId, enabled }) {
         source.connect(analyser);
         tick();
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Microphone preview failed.");
+        const formatted = formatMicrophoneAccessError(nextError, {
+          selectedMicId
+        });
+        setError(
+          formatted instanceof Error ? formatted.message : "Microphone preview failed."
+        );
       }
     })();
 

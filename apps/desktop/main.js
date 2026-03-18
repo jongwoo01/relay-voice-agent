@@ -34,6 +34,9 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const relayIconPath = path.join(__dirname, "build", "icon.png");
+const RELAY_APP_NAME = "Relay";
+const RELAY_USER_DATA_DIRNAME = "Relay";
+const LEGACY_USER_DATA_DIRNAMES = ["@agent/desktop", "Electron"];
 
 let mainWindow;
 let runtime;
@@ -67,6 +70,18 @@ function broadcastToWindow(channel, payload) {
 
 function broadcastUiState() {
   broadcastToWindow("desktop-ui:state-updated", desktopUiState.compose());
+}
+
+function isTrustedRendererPermissionSource(webContents) {
+  return Boolean(webContents) && webContents.getURL() === rendererEntryUrl;
+}
+
+function shouldGrantRendererPermission(webContents, permission) {
+  if (!isTrustedRendererPermissionSource(webContents)) {
+    return false;
+  }
+
+  return permission === "media" || permission === "microphone";
 }
 
 async function applyDesktopSettings(settings) {
@@ -326,6 +341,7 @@ async function requestSystemMicrophoneAccess() {
   }
 
   const status = systemPreferences.getMediaAccessStatus("microphone");
+  logDesktop(`[desktop-main] microphone status before request: ${status}`);
   if (status === "granted") {
     return true;
   }
@@ -334,13 +350,22 @@ async function requestSystemMicrophoneAccess() {
     return false;
   }
 
+  if (process.platform === "win32") {
+    return status !== "denied";
+  }
+
   if (microphoneAccessRequestPromise) {
     return microphoneAccessRequestPromise;
   }
 
   microphoneAccessRequestPromise = (async () => {
     if (process.platform === "darwin") {
-      return systemPreferences.askForMediaAccess("microphone");
+      const granted = await systemPreferences.askForMediaAccess("microphone");
+      const nextStatus = systemPreferences.getMediaAccessStatus("microphone");
+      logDesktop(
+        `[desktop-main] microphone request completed: granted=${granted} status=${nextStatus}`
+      );
+      return granted;
     }
 
     return false;
@@ -565,8 +590,17 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  app.setName(RELAY_APP_NAME);
+  const relayUserDataPath = path.join(
+    app.getPath("appData"),
+    RELAY_USER_DATA_DIRNAME
+  );
+  app.setPath("userData", relayUserDataPath);
   settingsStore = new DesktopSettingsStore({
-    directory: app.getPath("userData")
+    directory: app.getPath("userData"),
+    legacyFilePaths: LEGACY_USER_DATA_DIRNAMES.map((directoryName) =>
+      path.join(app.getPath("appData"), directoryName, "desktop-settings.json")
+    )
   });
   try {
     await settingsStore.load();
@@ -578,7 +612,6 @@ app.whenReady().then(async () => {
   desktopUiState.setSettings(settingsStore.get());
   await refreshSystemStatus();
 
-  app.setName("Relay");
   if (process.platform === "darwin" && app.dock) {
     app.dock.setIcon(relayIconPath);
   }
@@ -595,14 +628,15 @@ app.whenReady().then(async () => {
     });
   });
 
-  const allowedPermissions = new Set(["media", "microphone"]);
   app.on("web-contents-created", (_event, contents) => {
-    contents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-      callback(
-        allowedPermissions.has(permission) &&
-          webContents.getURL() === rendererEntryUrl
-      );
-    });
+    contents.session.setPermissionCheckHandler((webContents, permission) =>
+      shouldGrantRendererPermission(webContents, permission)
+    );
+    contents.session.setPermissionRequestHandler(
+      (webContents, permission, callback) => {
+        callback(shouldGrantRendererPermission(webContents, permission));
+      }
+    );
   });
 
   registerIpcHandle("session:init", async (event) => {

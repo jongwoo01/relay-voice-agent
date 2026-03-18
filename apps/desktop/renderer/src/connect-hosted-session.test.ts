@@ -39,7 +39,7 @@ describe("connectHostedSession", () => {
     expect(disconnect).not.toHaveBeenCalled();
   });
 
-  it("connects with the trimmed judge passcode before prompting for microphone access", async () => {
+  it("prompts for microphone access before opening the hosted session", async () => {
     const hideRuntimeError = vi.fn();
     const showRuntimeError = vi.fn();
     const stopPlayback = vi.fn(async () => undefined);
@@ -63,11 +63,11 @@ describe("connectHostedSession", () => {
 
     expect(connected).toBe(true);
     expect(hideRuntimeError).toHaveBeenCalledTimes(1);
-    expect(connect).toHaveBeenCalledWith("judge-passcode");
     expect(requestMicrophoneAccess).toHaveBeenCalledTimes(1);
-    expect(connect.mock.invocationCallOrder[0]).toBeLessThan(
-      requestMicrophoneAccess.mock.invocationCallOrder[0]
+    expect(requestMicrophoneAccess.mock.invocationCallOrder[0]).toBeLessThan(
+      connect.mock.invocationCallOrder[0]
     );
+    expect(connect).toHaveBeenCalledWith("judge-passcode");
     expect(startVoiceCapture).toHaveBeenCalledTimes(1);
     expect(showRuntimeError).not.toHaveBeenCalled();
     expect(stopVoiceCapture).not.toHaveBeenCalled();
@@ -136,7 +136,7 @@ describe("connectHostedSession", () => {
     expect(setMuted).toHaveBeenCalledWith(true);
   });
 
-  it("disconnects after connect when microphone access is denied", async () => {
+  it("fails before connecting when microphone access is denied", async () => {
     const hideRuntimeError = vi.fn();
     const showRuntimeError = vi.fn();
     const stopPlayback = vi.fn(async () => undefined);
@@ -164,10 +164,10 @@ describe("connectHostedSession", () => {
         message: "Microphone access is required to start the hosted session."
       })
     );
-    expect(connect).toHaveBeenCalledWith("judge-passcode");
+    expect(connect).not.toHaveBeenCalled();
     expect(startVoiceCapture).not.toHaveBeenCalled();
     expect(stopVoiceCapture).toHaveBeenCalledTimes(1);
-    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(disconnect).not.toHaveBeenCalled();
   });
 
   it("cleans up after a failed connection attempt", async () => {
@@ -196,8 +196,59 @@ describe("connectHostedSession", () => {
     expect(connected).toBe(false);
     expect(showRuntimeError).toHaveBeenCalledWith(failure);
     expect(stopVoiceCapture).toHaveBeenCalledTimes(1);
-    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(disconnect).not.toHaveBeenCalled();
     expect(startVoiceCapture).not.toHaveBeenCalled();
+  });
+
+  it("can recover cleanly after an invalid passcode attempt and start voice capture on retry", async () => {
+    const invalidPasscode = new Error("Invalid passcode");
+    const hideRuntimeError = vi.fn();
+    const showRuntimeError = vi.fn();
+    const stopPlayback = vi.fn(async () => undefined);
+    const requestMicrophoneAccess = vi.fn(async () => true);
+    const connect = vi
+      .fn()
+      .mockRejectedValueOnce(invalidPasscode)
+      .mockResolvedValueOnce(undefined);
+    const startVoiceCapture = vi.fn(async () => undefined);
+    const setMuted = vi.fn(async () => undefined);
+    const stopVoiceCapture = vi.fn(async () => undefined);
+    const disconnect = vi.fn(async () => undefined);
+
+    const firstAttempt = await connectHostedSession({
+      passcode: "wrong-passcode",
+      hideRuntimeError,
+      showRuntimeError,
+      stopPlayback,
+      connect,
+      setMuted,
+      requestMicrophoneAccess,
+      startVoiceCapture,
+      stopVoiceCapture,
+      disconnect
+    });
+
+    const secondAttempt = await connectHostedSession({
+      passcode: "judge-passcode",
+      hideRuntimeError,
+      showRuntimeError,
+      stopPlayback,
+      connect,
+      setMuted,
+      requestMicrophoneAccess,
+      startVoiceCapture,
+      stopVoiceCapture,
+      disconnect
+    });
+
+    expect(firstAttempt).toBe(false);
+    expect(secondAttempt).toBe(true);
+    expect(requestMicrophoneAccess).toHaveBeenCalledTimes(2);
+    expect(startVoiceCapture).toHaveBeenCalledTimes(1);
+    expect(setMuted).toHaveBeenCalledWith(false);
+    expect(stopVoiceCapture).toHaveBeenCalledTimes(1);
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(showRuntimeError).toHaveBeenCalledWith(invalidPasscode);
   });
 });
 
