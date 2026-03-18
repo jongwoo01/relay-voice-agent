@@ -18,6 +18,8 @@ export async function connectHostedSession({
 }) {
   const normalizedPasscode = normalizeJudgePasscode(passcode);
   let connected = false;
+  let shouldUseMicrophone = Boolean(microphoneEnabled);
+  let postConnectWarning = null;
   if (!normalizedPasscode) {
     showRuntimeError(new Error("Enter the judge passcode to connect."));
     return false;
@@ -26,19 +28,45 @@ export async function connectHostedSession({
   try {
     hideRuntimeError();
     await stopPlayback();
-    if (microphoneEnabled && typeof requestMicrophoneAccess === "function") {
-      const microphoneAllowed = await requestMicrophoneAccess();
-      if (!microphoneAllowed) {
-        throw new Error("Microphone access is required to start the hosted session.");
+    if (shouldUseMicrophone && typeof requestMicrophoneAccess === "function") {
+      try {
+        const microphoneAllowed = await requestMicrophoneAccess();
+        if (!microphoneAllowed) {
+          shouldUseMicrophone = false;
+          postConnectWarning = new Error(
+            "Hosted session started without microphone access. Grant microphone permission to use voice input."
+          );
+        }
+      } catch (error) {
+        shouldUseMicrophone = false;
+        postConnectWarning =
+          error instanceof Error
+            ? error
+            : new Error("Hosted session started without microphone access.");
       }
     }
     await connect(normalizedPasscode);
     connected = true;
-    if (microphoneEnabled) {
-      await startVoiceCapture();
+
+    if (shouldUseMicrophone) {
+      try {
+        await startVoiceCapture();
+      } catch (error) {
+        shouldUseMicrophone = false;
+        postConnectWarning =
+          error instanceof Error
+            ? error
+            : new Error("Hosted session started without microphone access.");
+        await stopVoiceCapture().catch(() => undefined);
+      }
     }
+
     if (typeof setMuted === "function") {
-      await setMuted(microphoneEnabled ? Boolean(startMuted) : true);
+      await setMuted(shouldUseMicrophone ? Boolean(startMuted) : true);
+    }
+
+    if (postConnectWarning) {
+      showRuntimeError(postConnectWarning);
     }
     return true;
   } catch (error) {

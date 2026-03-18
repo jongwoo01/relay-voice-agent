@@ -136,12 +136,13 @@ describe("connectHostedSession", () => {
     expect(setMuted).toHaveBeenCalledWith(true);
   });
 
-  it("fails before connecting when microphone access is denied", async () => {
+  it("still connects in muted mode when microphone access is denied", async () => {
     const hideRuntimeError = vi.fn();
     const showRuntimeError = vi.fn();
     const stopPlayback = vi.fn(async () => undefined);
     const connect = vi.fn(async () => undefined);
     const requestMicrophoneAccess = vi.fn(async () => false);
+    const setMuted = vi.fn(async () => undefined);
     const startVoiceCapture = vi.fn(async () => undefined);
     const stopVoiceCapture = vi.fn(async () => undefined);
     const disconnect = vi.fn(async () => undefined);
@@ -152,21 +153,59 @@ describe("connectHostedSession", () => {
       showRuntimeError,
       stopPlayback,
       connect,
+      setMuted,
       requestMicrophoneAccess,
       startVoiceCapture,
       stopVoiceCapture,
       disconnect
     });
 
-    expect(connected).toBe(false);
+    expect(connected).toBe(true);
     expect(showRuntimeError).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: "Microphone access is required to start the hosted session."
+        message:
+          "Hosted session started without microphone access. Grant microphone permission to use voice input."
       })
     );
-    expect(connect).not.toHaveBeenCalled();
+    expect(connect).toHaveBeenCalledWith("judge-passcode");
     expect(startVoiceCapture).not.toHaveBeenCalled();
+    expect(setMuted).toHaveBeenCalledWith(true);
+    expect(stopVoiceCapture).not.toHaveBeenCalled();
+    expect(disconnect).not.toHaveBeenCalled();
+  });
+
+  it("keeps the hosted session open when voice capture bootstrap fails", async () => {
+    const captureFailure = new Error("Microphone stream unavailable");
+    const hideRuntimeError = vi.fn();
+    const showRuntimeError = vi.fn();
+    const stopPlayback = vi.fn(async () => undefined);
+    const connect = vi.fn(async () => undefined);
+    const requestMicrophoneAccess = vi.fn(async () => true);
+    const setMuted = vi.fn(async () => undefined);
+    const startVoiceCapture = vi.fn(async () => {
+      throw captureFailure;
+    });
+    const stopVoiceCapture = vi.fn(async () => undefined);
+    const disconnect = vi.fn(async () => undefined);
+
+    const connected = await connectHostedSession({
+      passcode: "judge-passcode",
+      hideRuntimeError,
+      showRuntimeError,
+      stopPlayback,
+      connect,
+      setMuted,
+      requestMicrophoneAccess,
+      startVoiceCapture,
+      stopVoiceCapture,
+      disconnect
+    });
+
+    expect(connected).toBe(true);
+    expect(connect).toHaveBeenCalledWith("judge-passcode");
     expect(stopVoiceCapture).toHaveBeenCalledTimes(1);
+    expect(setMuted).toHaveBeenCalledWith(true);
+    expect(showRuntimeError).toHaveBeenCalledWith(captureFailure);
     expect(disconnect).not.toHaveBeenCalled();
   });
 
