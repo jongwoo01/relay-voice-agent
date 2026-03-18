@@ -1,195 +1,133 @@
 # Relay
 
-> Relay is a real-time voice agent for the Google ecosystem.
+> Relay is a real-time voice agent that combines hosted Gemini Live conversation with grounded local execution on the connected desktop.
 
-Relay combines a hosted voice-first agent core with grounded local execution on the connected desktop. A user can speak naturally, interrupt the assistant mid-response, redirect work, and receive grounded updates in the same live session.
+Relay is built for the Gemini Live Agent Challenge judging flow first. Judges should be able to understand what Relay is, why it qualifies, and how to use it in a few minutes without reading internal setup notes first.
 
-This repository contains the public submission package: the Electron desktop client, the Cloud Run-ready hosted agent core, the Gemini CLI executor path for local-machine work, and the Postgres-backed persistence layer that keeps canonical task and session state.
+## Judge Start Here
 
-Judges should use the public download flow at [relay.leejongwoo.com](https://relay.leejongwoo.com). The judge passcode is provided privately through Devpost Additional Info. This public repository does not contain hosted-demo credentials.
+Use this exact path for the intended submission experience:
 
-## For Judges
-
-Use this path if you want the intended submission experience:
-
-1. Go to [relay.leejongwoo.com](https://relay.leejongwoo.com).
+1. Open [relay.leejongwoo.com](https://relay.leejongwoo.com).
 2. Install Gemini CLI.
-3. Install the Workspace extension.
-4. Download Relay for macOS or Windows.
-5. Launch Relay and enter the judge passcode from Devpost Additional Info.
+3. Launch `gemini` once and complete Gemini CLI OAuth sign-in.
+4. Install the Workspace extension for Gemini CLI.
+5. Complete the extension's separate Google Workspace OAuth consent when it first asks for Docs, Drive, or Gmail access.
+6. Download Relay for macOS or Windows from the landing page.
+7. Launch Relay and enter the judge passcode from Devpost Additional Info.
 
 What judges need:
 
-- an operating-system-specific Relay download from [relay.leejongwoo.com](https://relay.leejongwoo.com)
-- Gemini CLI installed on the local machine
-- the Workspace extension installed for Gemini CLI
+- the public landing page: [relay.leejongwoo.com](https://relay.leejongwoo.com)
+- Gemini CLI installed and signed in on the local machine because it is Relay's core grounded execution path
+- the Workspace extension installed and authorized
 - the private judge passcode from Devpost Additional Info
 
-## Reproducible Testing
+## Why Relay Exists
 
-### No-cost smoke test
+Relay is built around a simple product belief: the Google ecosystem is where real work already lives, but most assistants still trap the user in a text box and make the user manually bridge the gap between talking, local desktop work, and Google Workspace work.
 
-Use this when you want a deterministic repo-level sanity check without the packaged desktop app or hosted judge environment.
+Relay is meant to close that gap:
 
-```bash
-npm install
-cp .env.example .env
-npm run dev:text-session
-```
+- speak naturally instead of typing command-style prompts
+- interrupt and redirect work mid-response instead of restarting a workflow
+- combine hosted live reasoning with grounded local desktop execution
+- inspect and act across the Google surfaces the user explicitly authorized instead of forcing the user to copy information between Gmail, Drive, Docs, and the desktop by hand
 
-This validates the local text harness, task flow shape, and repo wiring. It does not validate the packaged desktop app, the hosted Cloud Run service, or real Gemini CLI execution on a local machine.
+## What Relay Does
 
-### Repository test suite
+Relay is a voice-first desktop agent for the Google ecosystem.
 
-Use this when you want reproducible code-level validation from the public repo alone.
+- It supports real-time voice conversation instead of turn-based text chat.
+- It lets the user interrupt, redirect, and continue work in the same live session.
+- It keeps the live Gemini session and task truth in a hosted cloud core instead of hiding product logic inside the desktop shell.
+- It delegates grounded local file, app, and browser work through Gemini CLI on the connected machine.
+- With the Workspace extension authorized, it can inspect and act across the Google Workspace surfaces the user explicitly allowed, including Docs, Drive, and Gmail.
+- It preserves session and task continuity through hosted persistence.
+
+## Google Workflow Coverage
+
+Relay is designed to replace the common "open five tools and manually stitch the workflow together" pattern.
+
+With Gemini CLI as the grounded local execution path and the authorized Workspace extension as the Google access layer, Relay can combine:
+
+- local desktop work such as files, folders, browser state, and app-level follow-up on the connected machine
+- Google Workspace work across the surfaces the user explicitly allowed, including Gmail, Drive, and Docs
+- live conversational control, so the user can ask, interrupt, refine, and continue without dropping into separate tools
+
+The intended value is not just answering questions about Google Workspace data. It is reducing real multi-step workflow friction across local desktop work plus the Google ecosystem the user authorized.
+
+## Why This Qualifies For The Challenge
+
+Relay is submitted as a **Live Agents** project for the Gemini Live Agent Challenge.
+
+| Challenge requirement | Relay evidence |
+| --- | --- |
+| Live Agents category | Real-time voice interaction, interruption handling, and hosted live session flow |
+| Leverages a Gemini model | Gemini Live powers the conversation and Gemini models handle routing, intake, and reasoning |
+| Uses Google GenAI SDK or ADK | The hosted backend uses the Google GenAI SDK |
+| Uses Gemini Live | The hosted core owns the Gemini Live session |
+| Uses at least one Google Cloud service | Hosted on Cloud Run with Cloud SQL for canonical state |
+| Public code repository | This repository is public for judge review |
+| Architecture diagram | Included below and expanded in `docs/architecture.md` |
+| Proof of Google Cloud usage | Linked in `docs/cloud-deployment.md` and backed by repository code paths |
+
+## Architecture At A Glance
+
+![Relay submission architecture](docs/devpost-simple-architecture.png)
+
+Relay keeps the cloud and local boundaries explicit:
+
+- **Desktop surface**: Electron app for voice input, playback, transcript, and task visibility
+- **Hosted cloud core**: Cloud Run service for judge auth, live orchestration, and canonical task state
+- **Gemini Live**: server-owned realtime conversation layer
+- **Cloud SQL / Postgres**: durable sessions, messages, tasks, and task events
+- **Local Gemini CLI executor**: grounded work on the connected device only when the hosted core delegates it
+
+The short version is: **the cloud is the brain, and the desktop is the voice surface plus grounded hands on the local machine**.
+
+## Proof Links
+
+Use these links if you want to verify the submission quickly:
+
+- Public landing page: [relay.leejongwoo.com](https://relay.leejongwoo.com)
+- Public code repository: [github.com/jongwoo01/relay-voice-agent](https://github.com/jongwoo01/relay-voice-agent)
+- Architecture overview: [docs/architecture.md](docs/architecture.md)
+- Google Cloud proof notes: [docs/cloud-deployment.md](docs/cloud-deployment.md)
+- Judge testing guide: [docs/judge-testing.md](docs/judge-testing.md)
+
+## Repository Map
+
+- `apps/desktop`: Electron desktop client, voice UI, and connected local executor bridge
+- `apps/agent-api`: hosted HTTP and WebSocket service, Gemini Live session ownership, judge auth, orchestration, and persistence
+- `packages/gemini-cli-runner`: Gemini CLI command builder and subprocess execution path for grounded local work
+- `db/migrations`: ordered Postgres schema for canonical task and session state
+
+## Minimal Repro Appendix
+
+For the intended judge flow, use the packaged path at the top of this README.
+
+For repo-level verification from the public codebase:
 
 ```bash
 npm run typecheck
 npm test
 ```
 
-This covers the hosted session path, judge auth, persistence contracts, routing and intake logic, and desktop-side client behavior at the repository level.
-
-### Judge path
-
-Use this when you want the actual submission-facing flow.
-
-1. Open [relay.leejongwoo.com](https://relay.leejongwoo.com).
-2. Install Gemini CLI.
-3. Install the Workspace extension.
-4. Download Relay for your operating system.
-5. Launch the app and enter the passcode from Devpost Additional Info.
-
-For the expanded testing guide, see [docs/judge-testing.md](docs/judge-testing.md).
-
-## Architecture At A Glance
-
-![Relay submission architecture](docs/devpost-simple-architecture.png)
-
-Relay keeps live conversation, canonical task state, and orchestration in a hosted Cloud Run core backed by Cloud SQL for Postgres. The desktop app is the user-facing surface. Grounded local-machine work runs only through Gemini CLI on the connected device.
-
-More detail:
-
-- [Architecture overview](docs/architecture.md)
-- [Cloud deployment notes](docs/cloud-deployment.md)
-- [Judge testing guide](docs/judge-testing.md)
-
-## Repo Map
-
-- `apps/desktop`
-  - Electron Relay client
-  - voice and typed UI surface
-  - connected desktop executor bridge
-- `apps/agent-api`
-  - Cloud Run-ready HTTP and WebSocket service
-  - Gemini Live session ownership
-  - judge auth, task orchestration, routing, and persistence
-- `packages/gemini-cli-runner`
-  - Gemini CLI command builder and subprocess execution
-- `packages/brain-domain`
-  - task and continuation rules
-- `db/migrations`
-  - ordered Postgres schema for canonical state
-
-## Developer Setup
-
-### Prerequisites
-
-- Node `24.14.0`
-- npm `11.9.0`
-- Postgres for the hosted path
-- `gcloud` CLI plus Application Default Credentials for Vertex AI-backed local development
-- Gemini CLI if you want real local execution instead of a mock path
-
-### Install
-
-```bash
-npm install
-cp .env.example .env
-```
-
-Set the core environment values in `.env`:
-
-- `GOOGLE_CLOUD_PROJECT`
-- `GOOGLE_CLOUD_LOCATION`
-- `GEMINI_API_KEY` or `GOOGLE_API_KEY`
-- `PGHOST` + `PGUSER` + `PGDATABASE` + `PGPASSWORD` for the recommended Postgres path
-- legacy local fallback: `DATABASE_URL`
-- `JUDGE_PASSCODE` or `JUDGE_USERS_JSON`
-- `JUDGE_TOKEN_SECRET`
-
-Authenticate for local Vertex AI usage:
-
-```bash
-gcloud auth application-default login
-gcloud config set project <project-id>
-```
-
-### Run locally
-
-Start Docker Postgres if needed:
+For a source-based maintainer run, use this path:
 
 ```bash
 npm run dev:postgres
-```
-
-Start the hosted agent service:
-
-```bash
 npm run dev:agent-api
-```
-
-Start Relay from source:
-
-```bash
 npm run dev:desktop:prepare
 npm run dev:desktop
 ```
 
-Desktop local development expects:
+Source-based notes:
 
-- `AGENT_CLOUD_URL`
-- a judge passcode entered in the app at runtime
-- Gemini CLI installed for real local execution
-- microphone permissions enabled
+- this maintainer path still expects `AGENT_CLOUD_URL`
+- the app still requires a judge passcode at runtime
+- real grounded local execution still requires Gemini CLI plus the authorized Workspace extension
+- expanded setup notes remain in [docs/judge-testing.md](docs/judge-testing.md)
 
-### Package the desktop app
-
-```bash
-npm run dist:desktop:mac
-npm run dist:desktop:win
-```
-
-The packaged builds are unsigned judge-style artifacts. macOS may show Gatekeeper warnings and Windows may show SmartScreen warnings on first launch.
-
-## Cloud Deployment
-
-Relay’s hosted submission topology is Cloud Run plus Cloud SQL for Postgres. Runtime should prefer Cloud SQL socket mode, and the deployment helper now defaults to running migrations inside GCP with a Cloud Run Job in that same socket mode. A direct migration URL remains available as a fallback for local migration runs.
-
-Recommended deploy command:
-
-```bash
-GCP_PROJECT_ID=<project-id> \
-GCP_REGION=<region> \
-CLOUD_RUN_SERVICE=gemini-live-agent \
-ARTIFACT_REGISTRY_REPO=<repo> \
-GOOGLE_CLOUD_LOCATION=<region> \
-CLOUD_SQL_CONNECTION_NAME=<project:region:instance> \
-CLOUD_SQL_DATABASE_NAME=gemini_live_agent \
-CLOUD_SQL_DATABASE_USER=<db-user> \
-CLOUD_SQL_DATABASE_PASSWORD_SECRET=<secret-name> \
-JUDGE_PASSCODE_SECRET=<secret-name> \
-JUDGE_TOKEN_SECRET_SECRET=<secret-name> \
-GEMINI_API_KEY_SECRET=<secret-name> \
-npm run deploy:agent-api:cloud-run
-```
-
-The deployment helper builds the monorepo image, runs migrations, pushes the image to Artifact Registry, and deploys the hosted agent to Cloud Run with the required runtime configuration.
-
-For the expanded deployment and proof notes, see [docs/cloud-deployment.md](docs/cloud-deployment.md).
-
-## Public Repository Notes
-
-- Public landing page: [relay.leejongwoo.com](https://relay.leejongwoo.com)
-- Public code repository: [github.com/jongwoo01/relay-voice-agent](https://github.com/jongwoo01/relay-voice-agent)
-- Judge passcodes and hosted-demo credentials are never stored in this repository
+Hosted demo credentials are not stored in this repository. The judge passcode is provided privately through Devpost Additional Info.
