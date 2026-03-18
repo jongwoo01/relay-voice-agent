@@ -350,6 +350,13 @@ async function requestSystemMicrophoneAccess() {
     return false;
   }
 
+  if (process.platform === "darwin" && status === "denied") {
+    logDesktop(
+      "[desktop-main] microphone request skipped because macOS will not re-prompt after a prior denial; open System Settings and restart Relay"
+    );
+    return false;
+  }
+
   if (process.platform === "win32") {
     return status !== "denied";
   }

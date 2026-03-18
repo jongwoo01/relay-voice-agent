@@ -999,9 +999,34 @@ export function useDesktopAppController() {
   }, [clearSavedMicrophoneSelection, populateMicrophones, selectedMicId]);
 
   const requestMicrophoneAccessWithCapture = useCallback(async () => {
+    const getPermissionStatus =
+      window.desktopSystem?.getMicrophoneAccessStatus?.bind(window.desktopSystem) ??
+      (async () => uiStateRef.current.systemStatus?.microphonePermissionStatus ?? "unknown");
+
+    const statusBeforeRequest = await getPermissionStatus().catch(
+      () => uiStateRef.current.systemStatus?.microphonePermissionStatus ?? "unknown"
+    );
+
     try {
       const granted = await (window.desktopSystem?.requestMicrophoneAccess?.() ?? false);
       if (!granted) {
+        const statusAfterRequest = await getPermissionStatus().catch(() => statusBeforeRequest);
+
+        if (statusAfterRequest === "denied" || statusBeforeRequest === "denied") {
+          throw new Error(
+            "macOS has already denied Relay microphone access. Electron will not show the permission popup again. Allow Relay in System Settings > Privacy & Security > Microphone, then fully quit and reopen Relay."
+          );
+        }
+
+        if (
+          statusBeforeRequest === "not-determined" &&
+          (statusAfterRequest === "not-determined" || statusAfterRequest === "unknown")
+        ) {
+          throw new Error(
+            "Relay asked macOS for microphone access, but the permission prompt did not complete. Keep Relay focused, try the microphone request again, or open the microphone privacy settings manually."
+          );
+        }
+
         return false;
       }
 

@@ -82,6 +82,7 @@
       ],
       "category": "public.app-category.productivity"
     },
+    "afterPack": "build/patch-mac-microphone-plists.mjs",
     "afterSign": "build/notarize.mjs",
     "win": {
       "icon": "build/icon.ico",

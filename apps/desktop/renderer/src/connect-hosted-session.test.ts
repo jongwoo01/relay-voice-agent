@@ -174,6 +174,43 @@ describe("connectHostedSession", () => {
     expect(disconnect).not.toHaveBeenCalled();
   });
 
+  it("still connects in muted mode when microphone access check throws", async () => {
+    const permissionFailure = new Error(
+      "macOS has already denied Relay microphone access."
+    );
+    const hideRuntimeError = vi.fn();
+    const showRuntimeError = vi.fn();
+    const stopPlayback = vi.fn(async () => undefined);
+    const connect = vi.fn(async () => undefined);
+    const requestMicrophoneAccess = vi.fn(async () => {
+      throw permissionFailure;
+    });
+    const setMuted = vi.fn(async () => undefined);
+    const startVoiceCapture = vi.fn(async () => undefined);
+    const stopVoiceCapture = vi.fn(async () => undefined);
+    const disconnect = vi.fn(async () => undefined);
+
+    const connected = await connectHostedSession({
+      passcode: "judge-passcode",
+      hideRuntimeError,
+      showRuntimeError,
+      stopPlayback,
+      connect,
+      setMuted,
+      requestMicrophoneAccess,
+      startVoiceCapture,
+      stopVoiceCapture,
+      disconnect
+    });
+
+    expect(connected).toBe(true);
+    expect(connect).toHaveBeenCalledWith("judge-passcode");
+    expect(startVoiceCapture).not.toHaveBeenCalled();
+    expect(setMuted).toHaveBeenCalledWith(true);
+    expect(showRuntimeError).toHaveBeenCalledWith(permissionFailure);
+    expect(disconnect).not.toHaveBeenCalled();
+  });
+
   it("keeps the hosted session open when voice capture bootstrap fails", async () => {
     const captureFailure = new Error("Microphone stream unavailable");
     const hideRuntimeError = vi.fn();
