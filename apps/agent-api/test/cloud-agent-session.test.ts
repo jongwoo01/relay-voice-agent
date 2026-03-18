@@ -236,6 +236,63 @@ describe("CloudAgentSession", () => {
     }
   });
 
+  it("broadcasts mute state changes from the desktop client", async () => {
+    const sentEvents: Array<{ type: string; state?: any }> = [];
+    const liveSession = {
+      sendText: vi.fn(),
+      sendContext: vi.fn(),
+      sendToolResponse: vi.fn(),
+      sendRealtimeText: vi.fn(),
+      sendRealtimeAudio: vi.fn(),
+      sendActivityStart: vi.fn(),
+      sendActivityEnd: vi.fn(),
+      sendAudioStreamEnd: vi.fn(),
+      clearInputTranscriptPartial: vi.fn(),
+      close: vi.fn()
+    };
+    const liveTransport = {
+      connect: vi.fn(async ({ callbacks }) => {
+        callbacks?.onopen?.();
+        return liveSession;
+      })
+    };
+    const session = new CloudAgentSession(
+      {
+        brainSessionId: "brain-muted",
+        userId: "user-muted",
+        send: (event) => {
+          sentEvents.push(event as { type: string; state?: any });
+        }
+      },
+      {
+        createPersistence: async () => createInMemorySessionPersistence(),
+        createLoop: async () => ({
+          getActiveTaskIntake: async () => null,
+          handleDelegateToGeminiCli: async () => {
+            throw new Error("not needed");
+          }
+        }),
+        liveTransport,
+        now: () => "2026-03-14T00:00:00.000Z"
+      }
+    );
+
+    await session.start();
+    await session.handleClientEvent({
+      type: "set_muted",
+      muted: true
+    });
+
+    expect(sentEvents).toContainEqual(
+      expect.objectContaining({
+        type: "conversation_state",
+        state: expect.objectContaining({
+          muted: true
+        })
+      })
+    );
+  });
+
   it("marks the brain session closed when the session ends explicitly", async () => {
     const persistence = createInMemorySessionPersistence({
       ensureBrainSession: {

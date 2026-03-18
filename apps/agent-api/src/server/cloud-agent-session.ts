@@ -829,6 +829,13 @@ export class CloudAgentSession {
       case "cancel_task":
         await this.cancelTaskById(event.taskId);
         break;
+      case "set_muted":
+        this.conversationState.muted = Boolean(event.muted);
+        this.input.send({
+          type: "conversation_state",
+          state: this.getConversationState()
+        });
+        break;
       case "typed_turn":
         await this.handleTypedTurn(event.text);
         break;

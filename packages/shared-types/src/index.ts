@@ -412,6 +412,10 @@ export type CloudClientEvent =
       token: string;
     }
   | {
+      type: "set_muted";
+      muted: boolean;
+    }
+  | {
       type: "audio_chunk";
       data: string;
       mimeType?: string;

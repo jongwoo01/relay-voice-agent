@@ -746,6 +746,48 @@ beforeEach(() => {
     expect(socket.sent).toEqual([]);
   });
 
+  it("keeps the local muted state when later server snapshots still report false", async () => {
+    const conversationStates: Array<Record<string, unknown>> = [];
+    const client = new CloudSessionClient({
+      baseUrl: "http://judge-host",
+      onConversationState: async (state: Record<string, unknown>) => {
+        conversationStates.push(state);
+      },
+      onTaskState: async () => undefined
+    });
+
+    const connectPromise = client.connect("judge-passcode");
+    await waitFor(() => MockWebSocket.instances.length > 0);
+    const socket = MockWebSocket.instances[0];
+    socket.emitMessage({
+      type: "session_ready",
+      brainSessionId: "brain-1",
+      conversation: createConversationState(),
+      tasks: createTaskState()
+    });
+    await connectPromise;
+
+    await client.setMuted(true);
+    expect(socket.sent).toContainEqual({
+      type: "set_muted",
+      muted: true
+    });
+
+    socket.emitMessage({
+      type: "conversation_state",
+      state: createConversationState({
+        muted: false,
+        status: "listening"
+      })
+    });
+
+    expect(conversationStates.at(-1)).toEqual(
+      expect.objectContaining({
+        muted: true
+      })
+    );
+  });
+
   it("suppresses client activity boundary events when the server owns automatic detection", async () => {
     const client = new CloudSessionClient({
       baseUrl: "http://judge-host",

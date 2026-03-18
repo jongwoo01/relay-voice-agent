@@ -77,6 +77,7 @@ export type CloudClientEvent =
   | { type: "auth"; token: string }
   | { type: "end_session"; reason?: "user_hangup" | "client_disconnect" }
   | { type: "cancel_task"; taskId: string }
+  | { type: "set_muted"; muted: boolean }
   | { type: "audio_chunk"; data: string; mimeType?: string }
   | { type: "activity_start" }
   | { type: "activity_end" }

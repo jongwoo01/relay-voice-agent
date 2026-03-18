@@ -350,11 +350,18 @@ export class CloudSessionClient {
   }
 
   async setMuted(muted) {
+    const nextMuted = Boolean(muted);
     this.state = {
       ...this.state,
-      muted: Boolean(muted)
+      muted: nextMuted
     };
     await this.publishConversationState();
+    if (this.webSocket?.readyState === WebSocket.OPEN) {
+      this.send({
+        type: "set_muted",
+        muted: nextMuted
+      });
+    }
     return this.getState();
   }
 
@@ -583,6 +590,7 @@ export class CloudSessionClient {
         this.state = {
           ...this.state,
           ...event.conversation,
+          muted: this.state.muted,
           connected: true,
           connecting: false,
           error: null
@@ -599,6 +607,7 @@ export class CloudSessionClient {
         this.state = {
           ...this.state,
           ...event.state,
+          muted: this.state.muted,
           connected:
             typeof event.state?.connected === "boolean"
               ? event.state.connected
