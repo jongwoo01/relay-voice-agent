@@ -27,6 +27,28 @@ describe("executor-health-banner", () => {
     ).toBeNull();
   });
 
+  it("does not show a banner while the health check is still running", () => {
+    expect(
+      classifyExecutorHealthTone({
+        status: "checking",
+        code: null
+      })
+    ).toBeNull();
+
+    expect(
+      buildExecutorHealthBannerModel(
+        {
+          status: "checking",
+          code: null,
+          summary: "Gemini CLI health check is running.",
+          detail: "Relay is waiting for the local probe to finish.",
+          checkedAt: "2026-03-16T00:00:00.000Z"
+        },
+        "darwin"
+      )
+    ).toBeNull();
+  });
+
   it("builds a lock/session banner model for unhealthy executor states", () => {
     const model = buildExecutorHealthBannerModel(
       {
@@ -44,6 +66,7 @@ describe("executor-health-banner", () => {
         tone: "error",
         title: "Gemini CLI is not available locally.",
         showRetry: true,
+        showSettingsShortcut: true,
         showPrivacyShortcut: false
       })
     );

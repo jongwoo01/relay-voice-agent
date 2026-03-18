@@ -38,9 +38,7 @@ function runtimeMetaText(uiState, voiceState) {
   }
 
   if (voiceState.connected) {
-    return uiState.brainSessionId
-      ? `Session ${uiState.brainSessionId.slice(0, 8)} is live`
-      : "Relay is ready";
+    return "Live session connected";
   }
 
   return "Connect to start a Relay session";
@@ -84,7 +82,13 @@ function classifyRuntimeIssue(errorText, platform) {
   return null;
 }
 
-function ExecutorHealthBanner({ model, onRetry, onOpenPrivacySettings, onDismiss }) {
+function ExecutorHealthBanner({
+  model,
+  onRetry,
+  onOpenPrivacySettings,
+  onOpenSettings,
+  onDismiss
+}) {
   if (!model) {
     return null;
   }
@@ -142,6 +146,15 @@ function ExecutorHealthBanner({ model, onRetry, onOpenPrivacySettings, onDismiss
           <span />
         )}
         <div className="flex flex-wrap justify-end gap-2">
+        {model.showSettingsShortcut ? (
+          <button
+            type="button"
+            onClick={() => void onOpenSettings?.()}
+            className={`rounded-full border px-4 py-2 text-[12px] font-semibold transition-colors ${accent.button}`}
+          >
+            Open Settings
+          </button>
+        ) : null}
         {model.showPrivacyShortcut ? (
           <button
             type="button"
@@ -316,19 +329,19 @@ export default function App() {
               />
             </Suspense>
 
-            <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between px-6 py-4">
-              <div className="pointer-events-auto flex items-center gap-4">
-                <div className="flex items-center gap-3.5">
+            <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-6 py-4">
+              <div className="pointer-events-auto flex items-center gap-6">
+                <div className="flex items-center gap-3">
                   <img
                     src={relayLogoUrl}
                     alt="Relay logo"
-                    className="h-10 w-10 object-contain rounded-2xl border border-white/80 bg-white/85 p-1.5 shadow-[0_12px_30px_-18px_rgba(37,99,235,0.65)] backdrop-blur-xl"
+                    className="h-10 w-10 object-contain rounded-2xl border border-white/80 bg-white/85 p-1.5 shadow-[0_8px_20px_-12px_rgba(37,99,235,0.5)] backdrop-blur-xl"
                   />
-                  <div>
-                    <h1 className="m-0 text-[18px] font-bold tracking-tight text-gray-800">
+                  <div className="flex flex-col justify-center">
+                    <h1 className="m-0 text-[18px] font-bold leading-tight tracking-tight text-gray-800">
                       Relay
                     </h1>
-                    <p className="mt-1 text-[11px] font-medium tracking-[0.08em] text-gray-500 uppercase">
+                    <p className="mt-0.5 text-[11px] font-medium leading-none tracking-[0.08em] text-gray-500 uppercase">
                       {runtimeMetaText(deferredUiState, voiceState)}
                     </p>
                   </div>
@@ -336,16 +349,16 @@ export default function App() {
                 
                 <div className="h-8 w-px bg-gray-200/60" />
 
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-3">
                   {!voiceState.connected ? (
                     <>
-                      <div className="flex h-9 items-center rounded-full border border-gray-200/80 bg-white/80 px-4 text-[12px] font-medium text-gray-700 shadow-sm backdrop-blur-md">
+                      <div className="flex h-10 items-center rounded-full border border-gray-200/80 bg-white/80 px-4 text-[12px] font-medium text-gray-700 shadow-sm backdrop-blur-md">
                         Mic · {selectedMicrophoneLabel}
                       </div>
                       <button
                         onClick={handleConnect}
                         disabled={voiceState.connecting}
-                        className="flex h-9 items-center gap-1.5 rounded-full bg-blue-600 px-4 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-500 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex h-10 items-center gap-1.5 rounded-full bg-blue-600 px-4 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-500 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {voiceState.connecting ? "Connecting…" : "Start Session"}
                       </button>
@@ -354,7 +367,7 @@ export default function App() {
                     <>
                       <button
                         onClick={handleMuteToggle}
-                        className={`group flex h-9 whitespace-nowrap items-center justify-center gap-1.5 rounded-full px-4 text-[12px] font-semibold transition-all duration-200 border shadow-sm ${
+                        className={`group flex h-10 whitespace-nowrap items-center justify-center gap-1.5 rounded-full px-4 text-[12px] font-semibold transition-all duration-200 border shadow-sm ${
                           voiceState.muted
                             ? "bg-red-50 text-red-600 border-red-200/80 hover:bg-red-100"
                             : "bg-white/90 text-gray-700 border-gray-200/80 hover:bg-white"
@@ -369,7 +382,7 @@ export default function App() {
                       </button>
                       <button
                         onClick={handleHangup}
-                        className="group flex h-9 whitespace-nowrap items-center gap-1.5 rounded-full bg-red-500 px-4 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:bg-red-400 hover:shadow-md"
+                        className="group flex h-10 whitespace-nowrap items-center gap-1.5 rounded-full bg-red-500 px-4 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:bg-red-400 hover:shadow-md"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-hover:scale-110"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="22" y1="2" x2="2" y2="22"/></svg>
                         End Session
@@ -442,6 +455,7 @@ export default function App() {
                 <ExecutorHealthBanner
                   model={executorHealthBanner}
                   onRetry={handleRetryExecutorHealthCheck}
+                  onOpenSettings={() => setSettingsOpen(true)}
                   onOpenPrivacySettings={handleOpenExecutorPrivacySettings}
                   onDismiss={() => setDismissedExecutorHealthKey(executorHealthBannerKey)}
                 />
@@ -584,6 +598,7 @@ export default function App() {
                 <ExecutorHealthBanner
                   model={executorHealthBanner}
                   onRetry={handleRetryExecutorHealthCheck}
+                  onOpenSettings={() => setSettingsOpen(true)}
                   onOpenPrivacySettings={handleOpenExecutorPrivacySettings}
                   onDismiss={() => setDismissedExecutorHealthKey(executorHealthBannerKey)}
                 />

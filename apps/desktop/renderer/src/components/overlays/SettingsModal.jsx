@@ -580,7 +580,7 @@ export function SettingsModal({
                     <select
                       value={selectedMicId}
                       onChange={(event) => void onSelectMicrophone(event.target.value)}
-                      className="min-w-[260px] rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 outline-none"
+                      className="min-w-[260px] rounded-2xl border border-gray-200/80 bg-white px-4 py-3 text-sm text-gray-700 outline-none cursor-pointer shadow-sm hover:border-gray-300/90 focus:border-blue-400/60 focus:ring-2 focus:ring-blue-100/70 transition-all appearance-none"
                     >
                       {microphones.length === 0 ? (
                         <option value="">Default input</option>

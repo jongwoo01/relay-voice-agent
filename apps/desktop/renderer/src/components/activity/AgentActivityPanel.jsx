@@ -548,7 +548,7 @@ export function AgentActivityPanel({
       <div className="pointer-events-none absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-indigo-400/10 blur-[100px]" />
 
       {/* ─── Header (fixed) ─── */}
-      <div className="relative z-10 flex items-start justify-between gap-4 border-b border-white/40 pb-5 shrink-0">
+      <div className="relative z-10 flex items-center justify-between gap-4 border-b border-white/40 pb-5 shrink-0">
         <div>
           <p className="m-0 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400/90">Agent Activity</p>
           <h2 className="m-0 mt-2 text-xl font-bold tracking-tight text-gray-800">Tasks &amp; Results</h2>
@@ -618,7 +618,7 @@ export function AgentActivityPanel({
                   : "border-white/40 bg-white/30 hover:bg-white/50 hover:shadow-sm"
               }`}>
                 <span>Completed ({visibleArchivedEntries.length})</span>
-                <span className="text-[10px] text-gray-400 group-open:rotate-180 transition-transform duration-300">▼</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 group-open:rotate-180 transition-transform duration-300"><polyline points="6 9 12 15 18 9"/></svg>
               </summary>
               <div className="mt-3 space-y-3">
                 <TaskRunnerCards
