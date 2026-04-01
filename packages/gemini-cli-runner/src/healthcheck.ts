@@ -8,6 +8,7 @@ import {
   resolveGeminiCliCommand
 } from "./command-builder.js";
 import { buildGeminiCliEnvironment, type ExecResult } from "./subprocess-executor.js";
+import { parseGeminiCliOutput, type GeminiCliHeadlessEvent } from "./output-parser.js";
 import { resolvePlatformSpawnCommand } from "./windows-spawn.js";
 
 export type GeminiCliHealthCode =
@@ -118,20 +119,6 @@ function combinedText(input: {
   return [input.stdout ?? "", input.stderr ?? "", errorText].join("\n").toLowerCase();
 }
 
-function parseJsonObjectString(value: string): Record<string, unknown> | null {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(trimmed);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 function detectAuthStrategy(env: NodeJS.ProcessEnv): GeminiCliAuthStrategy {
   if (
     env.GOOGLE_GENAI_USE_VERTEXAI?.trim().toLowerCase() === "true" ||
@@ -160,6 +147,46 @@ function normalizeProbeResponse(value: string | null): string | null {
   }
 
   return trimmed.replace(/[.!?]+$/, "").trim().toUpperCase();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function firstNonEmptyString(values: Array<unknown>): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function extractMessageChunk(event: GeminiCliHeadlessEvent): string | undefined {
+  return firstNonEmptyString([
+    event.payload.text,
+    event.payload.delta,
+    event.payload.content,
+    isRecord(event.payload.message) ? event.payload.message.content : undefined,
+    isRecord(event.payload.message) ? event.payload.message.text : undefined
+  ]);
+}
+
+function extractResultResponse(event: GeminiCliHeadlessEvent): string | undefined {
+  return firstNonEmptyString([
+    event.payload.response,
+    event.payload.message,
+    event.payload.text,
+    event.payload.output,
+    event.payload.content,
+    typeof event.payload.result === "string" ? event.payload.result : undefined,
+    isRecord(event.payload.result) ? event.payload.result.response : undefined,
+    isRecord(event.payload.result) ? event.payload.result.message : undefined,
+    isRecord(event.payload.result) ? event.payload.result.text : undefined,
+    isRecord(event.payload.result) ? event.payload.result.output : undefined,
+    isRecord(event.payload.result) ? event.payload.result.content : undefined
+  ]);
 }
 
 function toHealthyResult(input: {
@@ -412,12 +439,29 @@ function buildHealthProbeCommand(input: {
 }
 
 function extractExpectedProbeResponse(stdout: string): string | null {
-  const parsed = parseJsonObjectString(stdout);
-  if (!parsed) {
+  const parsed = parseGeminiCliOutput(stdout);
+  if (!parsed.hasRealResultEvent) {
     return null;
   }
 
-  return typeof parsed.response === "string" ? parsed.response.trim() : null;
+  const assistantMessages = parsed.events
+    .filter((event) => event.type === "message")
+    .map((event) => {
+      const role = firstNonEmptyString([
+        event.payload.role,
+        isRecord(event.payload.message) ? event.payload.message.role : undefined
+      ]);
+
+      return role === "assistant" ? extractMessageChunk(event) : undefined;
+    })
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+  if (assistantMessages.length > 0) {
+    return assistantMessages.join("").trim();
+  }
+
+  const resultEvent = [...parsed.events].reverse().find((event) => event.type === "result");
+  return resultEvent ? extractResultResponse(resultEvent)?.trim() ?? null : null;
 }
 
 export async function probeGeminiCliHealth(

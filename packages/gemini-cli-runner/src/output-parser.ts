@@ -24,6 +24,9 @@ export interface GeminiCliHeadlessEvent {
 
 export interface ParsedGeminiCliOutput {
   events: GeminiCliHeadlessEvent[];
+  usedSyntheticResult: boolean;
+  unparsedLines: string[];
+  hasRealResultEvent: boolean;
 }
 
 // Keep this marker aligned with the local executor prompt contract in prompts.ts.
@@ -501,10 +504,15 @@ export function parseGeminiCliOutput(stdout: string): ParsedGeminiCliOutput {
 
   const events: GeminiCliHeadlessEvent[] = [];
   const unparsedLines: string[] = [];
+  let hasRealResultEvent = false;
 
   for (const line of lines) {
     try {
-      events.push(parseGeminiCliEventLine(line));
+      const event = parseGeminiCliEventLine(line);
+      if (event.type === "result") {
+        hasRealResultEvent = true;
+      }
+      events.push(event);
     } catch {
       unparsedLines.push(line);
     }
@@ -512,19 +520,29 @@ export function parseGeminiCliOutput(stdout: string): ParsedGeminiCliOutput {
 
   if (events.length === 0) {
     return {
-      events: [createSyntheticResultEvent(trimmed)]
+      events: [createSyntheticResultEvent(trimmed)],
+      usedSyntheticResult: true,
+      unparsedLines: [...unparsedLines],
+      hasRealResultEvent: false
     };
   }
 
+  let usedSyntheticResult = false;
   if (unparsedLines.length > 0 && !events.some((event) => event.type === "result")) {
     events.push(createSyntheticResultEvent(unparsedLines.join("\n")));
+    usedSyntheticResult = true;
   }
 
   if (events.length === 0) {
     throw new Error("Gemini CLI output did not include any stream events");
   }
 
-  return { events };
+  return {
+    events,
+    usedSyntheticResult,
+    unparsedLines: [...unparsedLines],
+    hasRealResultEvent
+  };
 }
 
 export interface BuildExecutorResultInput {
@@ -532,6 +550,35 @@ export interface BuildExecutorResultInput {
   now: string;
   output: ParsedGeminiCliOutput;
   onProgress?: ExecutorProgressListener;
+}
+
+function summarizeLinePreview(value: string | undefined, max = 160): string | null {
+  const normalized = normalizedTextValue(value);
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized.length > max ? `${normalized.slice(0, max)}...` : normalized;
+}
+
+function createStructuredOutputContractError(
+  output: ParsedGeminiCliOutput
+): Error {
+  const preview = summarizeLinePreview(output.unparsedLines[0]);
+  const structuredEventCount = output.usedSyntheticResult
+    ? Math.max(0, output.events.length - 1)
+    : output.events.length;
+  const context =
+    structuredEventCount > 0
+      ? ` Relay received ${structuredEventCount} structured event${structuredEventCount === 1 ? "" : "s"} before the output became unusable.`
+      : "";
+  const firstLine = preview
+    ? ` First non-JSON stdout line: "${preview}".`
+    : "";
+
+  return new Error(
+    `Gemini CLI did not return usable structured output in stream-json mode.${firstLine}${context}`
+  );
 }
 
 export async function buildExecutorResultFromGeminiCliOutput(
@@ -638,6 +685,11 @@ export async function buildExecutorResultFromGeminiCliOutput(
     naturalFinalAnswer ??= fallbackCompletion.naturalAnswer;
     completionReport = fallbackCompletion.report;
   }
+
+  if (input.output.usedSyntheticResult && !completionReport) {
+    throw createStructuredOutputContractError(input.output);
+  }
+
   if (completionReport && !completionReport.detailedAnswer) {
     const assistantTranscriptStructured = assistantTranscript
       ? parseJsonObjectString(assistantTranscript)
@@ -706,7 +758,12 @@ export function toExecutorProgressEvent(
 }
 
 export function createMockGeminiCliOutput(events: GeminiCliHeadlessEvent[]): ParsedGeminiCliOutput {
-  return { events };
+  return {
+    events,
+    usedSyntheticResult: false,
+    unparsedLines: [],
+    hasRealResultEvent: events.some((event) => event.type === "result")
+  };
 }
 
 export function createToolUseEvent(

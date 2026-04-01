@@ -199,6 +199,117 @@ describe("GeminiCliExecutor", () => {
     expect(options?.onStdoutLine).toEqual(expect.any(Function));
   });
 
+  it("tolerates non-json stdout preamble before valid stream-json events", async () => {
+    const exec = vi.fn(async (_file, _args, options) => {
+      await options?.onStdoutLine?.("Loaded cached credentials.");
+      await options?.onStdoutLine?.(
+        JSON.stringify({
+          type: "init",
+          session_id: "session-noise"
+        })
+      );
+      await options?.onStdoutLine?.(
+        JSON.stringify({
+          type: "tool_use",
+          name: "list_directory"
+        })
+      );
+      await options?.onStdoutLine?.(
+        JSON.stringify({
+          type: "result",
+          response:
+            'I checked the desktop.\nREPORT_JSON: {"summary":"Checked the desktop.","verification":"verified","changes":["Read the Desktop directory entries"],"question":""}'
+        })
+      );
+
+      return {
+        stdout: [
+          "Loaded cached credentials.",
+          JSON.stringify({
+            type: "init",
+            session_id: "session-noise"
+          }),
+          JSON.stringify({
+            type: "tool_use",
+            name: "list_directory"
+          }),
+          JSON.stringify({
+            type: "result",
+            response:
+              'I checked the desktop.\nREPORT_JSON: {"summary":"Checked the desktop.","verification":"verified","changes":["Read the Desktop directory entries"],"question":""}'
+          })
+        ].join("\n"),
+        stderr: "",
+        exitCode: 0
+      };
+    });
+
+    const executor = new GeminiCliExecutor(exec);
+    const onProgress = vi.fn();
+
+    const result = await executor.run(
+      {
+        task: {
+          id: "task-noise",
+          title: "Check desktop",
+          normalizedGoal: "check desktop",
+          status: "queued",
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z"
+        },
+        now: "2026-03-08T00:00:00.000Z",
+        prompt: "Check the desktop"
+      },
+      onProgress
+    );
+
+    expect(result.completionEvent.message).toBe("Checked the desktop.");
+    expect(result.report).toEqual(
+      expect.objectContaining({
+        summary: "Checked the desktop.",
+        verification: "verified"
+      })
+    );
+    expect(onProgress).toHaveBeenCalledWith({
+      taskId: "task-noise",
+      type: "executor_progress",
+      message: "Tool requested: list_directory",
+      createdAt: "2026-03-08T00:00:00.000Z"
+    });
+  });
+
+  it("fails with a targeted protocol error when stdout falls back to plain text without a report", async () => {
+    const exec = vi.fn(async (_file, _args, options) => {
+      await options?.onStdoutLine?.("How can I help you today?");
+      await options?.onStdoutLine?.("I'm ready.");
+
+      return {
+        stdout: ["How can I help you today?", "I'm ready."].join("\n"),
+        stderr: "",
+        exitCode: 0
+      };
+    });
+
+    const executor = new GeminiCliExecutor(exec);
+
+    await expect(
+      executor.run({
+        task: {
+          id: "task-bad-output",
+          title: "Broken output",
+          normalizedGoal: "broken output",
+          status: "queued",
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z"
+        },
+        now: "2026-03-08T00:00:00.000Z",
+        prompt: "Broken output"
+      })
+    ).rejects.toThrow(
+      'Gemini CLI did not return usable structured output in stream-json mode. First non-JSON stdout line: "How can I help you today?".'
+    );
+  });
+
   it("preserves configured auth env before spawning Gemini CLI", async () => {
     const exec = vi.fn(async () => ({
       stdout: JSON.stringify({
@@ -250,27 +361,28 @@ describe("GeminiCliExecutor", () => {
   });
 
   it("attaches taskId to raw executor events", async () => {
+    const stdoutLines = [
+      JSON.stringify({
+        type: "tool_use",
+        name: "run_shell_command"
+      }),
+      JSON.stringify({
+        type: "result",
+        response: JSON.stringify({
+          summary: "OK",
+          verification: "verified",
+          changes: [],
+          question: ""
+        })
+      })
+    ];
     const exec = vi.fn(async (_file, _args, options) => {
-      await options?.onStdoutLine?.(
-        JSON.stringify({
-          type: "tool_use",
-          name: "run_shell_command"
-        })
-      );
-      await options?.onStdoutLine?.(
-        JSON.stringify({
-          type: "result",
-          response: JSON.stringify({
-            summary: "OK",
-            verification: "verified",
-            changes: [],
-            question: ""
-          })
-        })
-      );
+      for (const line of stdoutLines) {
+        await options?.onStdoutLine?.(line);
+      }
 
       return {
-        stdout: "",
+        stdout: stdoutLines.join("\n"),
         stderr: "",
         exitCode: 0
       };

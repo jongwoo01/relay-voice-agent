@@ -285,6 +285,7 @@ export class GeminiCliExecutor implements LocalExecutor {
   ): Promise<ExecutorRunResult> {
     const command = buildGeminiCliCommand(request);
     const streamedEvents: GeminiCliHeadlessEvent[] = [];
+    const unparsedStdoutLines: string[] = [];
     const abortController = new AbortController();
     this.abortControllersByTaskId.set(request.task.id, abortController);
 
@@ -294,7 +295,13 @@ export class GeminiCliExecutor implements LocalExecutor {
         env: buildGeminiCliEnvironment(),
         signal: abortController.signal,
         onStdoutLine: async (line) => {
-          const event = parseGeminiCliEventLine(line);
+          let event: GeminiCliHeadlessEvent;
+          try {
+            event = parseGeminiCliEventLine(line);
+          } catch {
+            unparsedStdoutLines.push(line);
+            return;
+          }
           const contextualEvent: GeminiCliHeadlessEvent = {
             ...event,
             payload: {
@@ -322,10 +329,18 @@ export class GeminiCliExecutor implements LocalExecutor {
         }
       });
 
-      const parsed =
-        streamedEvents.length > 0
-          ? { events: streamedEvents }
-          : parseGeminiCliOutput(result.stdout);
+      let parsed;
+      try {
+        parsed = parseGeminiCliOutput(result.stdout);
+      } catch (error) {
+        const preview = unparsedStdoutLines[0]?.trim();
+        if (preview) {
+          throw new Error(
+            `Gemini CLI did not return usable structured output in stream-json mode. First non-JSON stdout line: "${preview}"`
+          );
+        }
+        throw error;
+      }
 
       return buildExecutorResultFromGeminiCliOutput({
         taskId: request.task.id,

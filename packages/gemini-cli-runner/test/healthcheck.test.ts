@@ -4,6 +4,13 @@ import { homedir, tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { probeGeminiCliHealth } from "../src/healthcheck.js";
 
+function streamJsonResult(response: string): string {
+  return JSON.stringify({
+    type: "result",
+    response
+  });
+}
+
 describe("probeGeminiCliHealth", () => {
   it("reports missing binary when the configured CLI path is not executable", async () => {
     const result = await probeGeminiCliHealth({
@@ -88,12 +95,12 @@ describe("probeGeminiCliHealth", () => {
     expect(result.canRunLocalTasks).toBe(false);
   });
 
-  it("reports healthy when the probe returns structured json with READY", async () => {
+  it("reports healthy when the probe returns a stream-json result with READY", async () => {
     const result = await probeGeminiCliHealth({
       phase: "full",
       now: () => "2026-03-16T00:00:00.000Z",
       probeRunner: async () => ({
-        stdout: '{"response":"READY"}',
+        stdout: streamJsonResult("READY"),
         stderr: "",
         exitCode: 0
       })
@@ -105,7 +112,7 @@ describe("probeGeminiCliHealth", () => {
         code: "healthy",
         canRunLocalTasks: true,
         authStrategy: "cached_google",
-        stdoutSnippet: '{"response":"READY"}'
+        stdoutSnippet: streamJsonResult("READY")
       })
     );
   });
@@ -115,7 +122,7 @@ describe("probeGeminiCliHealth", () => {
       phase: "full",
       now: () => "2026-03-16T00:00:00.000Z",
       probeRunner: async () => ({
-        stdout: '{"response":"READY."}',
+        stdout: streamJsonResult("READY."),
         stderr: "",
         exitCode: 0
       })
@@ -129,7 +136,7 @@ describe("probeGeminiCliHealth", () => {
       phase: "full",
       now: () => "2026-03-16T00:00:00.000Z",
       probeRunner: async () => ({
-        stdout: '{"response":"READY NOW"}',
+        stdout: streamJsonResult("READY NOW"),
         stderr: "",
         exitCode: 0
       })
@@ -139,7 +146,7 @@ describe("probeGeminiCliHealth", () => {
     expect(result.stdoutSnippet).toContain("READY NOW");
   });
 
-  it("fails when the probe output is not valid json", async () => {
+  it("fails when the probe output does not include a real stream-json result event", async () => {
     const result = await probeGeminiCliHealth({
       phase: "full",
       now: () => "2026-03-16T00:00:00.000Z",
@@ -152,6 +159,27 @@ describe("probeGeminiCliHealth", () => {
 
     expect(result.code).toBe("probe_failed_unknown");
     expect(result.stdoutSnippet).toBe("READY");
+  });
+
+  it("accepts stream-json probe output even when stderr contains startup noise", async () => {
+    const result = await probeGeminiCliHealth({
+      phase: "full",
+      now: () => "2026-03-16T00:00:00.000Z",
+      probeRunner: async () => ({
+        stdout: [
+          JSON.stringify({
+            type: "init",
+            session_id: "probe-session"
+          }),
+          streamJsonResult("READY")
+        ].join("\n"),
+        stderr: "Loaded cached credentials.\nInitializing extension host.",
+        exitCode: 0
+      })
+    });
+
+    expect(result.code).toBe("healthy");
+    expect(result.stderrSnippet).toContain("Loaded cached credentials.");
   });
 
   it("runs the full probe with the same GEMINI_CLI_PATH override it validates", async () => {
@@ -172,7 +200,7 @@ describe("probeGeminiCliHealth", () => {
         probeRunner: async (file) => {
           commandUsed = file;
           return {
-            stdout: '{"response":"READY"}',
+            stdout: streamJsonResult("READY"),
             stderr: "",
             exitCode: 0
           };
@@ -195,7 +223,7 @@ describe("probeGeminiCliHealth", () => {
       probeRunner: async (_file, _args, options) => {
         cwdUsed = options?.cwd ?? "";
         return {
-          stdout: '{"response":"READY"}',
+          stdout: streamJsonResult("READY"),
           stderr: "",
           exitCode: 0
         };
@@ -216,7 +244,7 @@ describe("probeGeminiCliHealth", () => {
       probeRunner: async (_file, _args, options) => {
         cwdUsed = options?.cwd ?? "";
         return {
-          stdout: '{"response":"READY"}',
+          stdout: streamJsonResult("READY"),
           stderr: "",
           exitCode: 0
         };
@@ -235,12 +263,39 @@ describe("probeGeminiCliHealth", () => {
       },
       now: () => "2026-03-16T00:00:00.000Z",
       probeRunner: async () => ({
-        stdout: '{"response":"READY"}',
+        stdout: streamJsonResult("READY"),
         stderr: "",
         exitCode: 0
       })
     });
 
     expect(result.authStrategy).toBe("gemini_api_key");
+  });
+
+  it("invokes the health probe with stream-json output and extensions disabled", async () => {
+    let argsUsed: string[] = [];
+
+    const result = await probeGeminiCliHealth({
+      phase: "full",
+      now: () => "2026-03-16T00:00:00.000Z",
+      probeRunner: async (_file, args) => {
+        argsUsed = [...args];
+        return {
+          stdout: streamJsonResult("READY"),
+          stderr: "",
+          exitCode: 0
+        };
+      }
+    });
+
+    expect(result.code).toBe("healthy");
+    expect(argsUsed).toEqual([
+      "-p",
+      "Reply exactly READY.",
+      "--output-format",
+      "stream-json",
+      "--extensions",
+      ""
+    ]);
   });
 });

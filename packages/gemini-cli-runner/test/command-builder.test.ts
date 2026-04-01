@@ -200,7 +200,9 @@ describe("buildGeminiCliCommand", () => {
       "-p",
       "Reply exactly READY.",
       "--output-format",
-      "json"
+      "stream-json",
+      "--extensions",
+      ""
     ]);
     expect(command.cwd).toBe("/tmp");
   });

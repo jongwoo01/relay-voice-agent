@@ -159,7 +159,14 @@ export function buildGeminiCliHealthCommand(
 
   return {
     command: resolveGeminiCliCommand(env),
-    args: ["-p", "Reply exactly READY.", "--output-format", "json"],
+    args: [
+      "-p",
+      "Reply exactly READY.",
+      "--output-format",
+      "stream-json",
+      "--extensions",
+      ""
+    ],
     cwd: workingDirectory
   };
 }

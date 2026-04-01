@@ -24,7 +24,8 @@ describe("parseGeminiCliOutput", () => {
       ].join("\n")
     );
 
-    expect(parsed.events).toEqual([
+    expect(parsed).toEqual({
+      events: [
       {
         type: "init",
         payload: {
@@ -44,7 +45,11 @@ describe("parseGeminiCliOutput", () => {
           response: "Finished cleaning up the browser tabs"
         }
       }
-    ]);
+      ],
+      usedSyntheticResult: false,
+      unparsedLines: [],
+      hasRealResultEvent: true
+    });
   });
 
   it("throws when the output is empty", () => {
@@ -56,15 +61,23 @@ describe("parseGeminiCliOutput", () => {
       'I am Gemini, and I checked the Downloads folder.\nREPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
     );
 
-    expect(parsed.events).toEqual([
-      {
-        type: "result",
-        payload: {
-          response:
-            'I am Gemini, and I checked the Downloads folder.\nREPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
+    expect(parsed).toEqual({
+      events: [
+        {
+          type: "result",
+          payload: {
+            response:
+              'I am Gemini, and I checked the Downloads folder.\nREPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
+          }
         }
-      }
-    ]);
+      ],
+      usedSyntheticResult: true,
+      unparsedLines: [
+        "I am Gemini, and I checked the Downloads folder.",
+        'REPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
+      ],
+      hasRealResultEvent: false
+    });
   });
 
   it("keeps parsed stream events and appends a synthetic result for trailing plain text", () => {
@@ -78,21 +91,29 @@ describe("parseGeminiCliOutput", () => {
       ].join("\n")
     );
 
-    expect(parsed.events).toEqual([
-      {
-        type: "tool_use",
-        payload: {
-          name: "list_directory"
+    expect(parsed).toEqual({
+      events: [
+        {
+          type: "tool_use",
+          payload: {
+            name: "list_directory"
+          }
+        },
+        {
+          type: "result",
+          payload: {
+            response:
+              'I am Gemini, and I checked the Downloads folder.\nREPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
+          }
         }
-      },
-      {
-        type: "result",
-        payload: {
-          response:
-            'I am Gemini, and I checked the Downloads folder.\nREPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
-        }
-      }
-    ]);
+      ],
+      usedSyntheticResult: true,
+      unparsedLines: [
+        "I am Gemini, and I checked the Downloads folder.",
+        'REPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
+      ],
+      hasRealResultEvent: false
+    });
   });
 });
 
@@ -335,6 +356,28 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
       })
     );
     expect(result.report?.detailedAnswer).toBeUndefined();
+  });
+
+  it("rejects synthetic fallback output when no structured completion report can be recovered", async () => {
+    const parsed = parseGeminiCliOutput(
+      [
+        JSON.stringify({
+          type: "tool_use",
+          name: "list_directory"
+        }),
+        "How can I help you today?"
+      ].join("\n")
+    );
+
+    await expect(
+      buildExecutorResultFromGeminiCliOutput({
+        taskId: "task-protocol-error",
+        now: "2026-03-08T00:00:00.000Z",
+        output: parsed
+      })
+    ).rejects.toThrow(
+      'Gemini CLI did not return usable structured output in stream-json mode. First non-JSON stdout line: "How can I help you today?". Relay received 1 structured event before the output became unusable.'
+    );
   });
 
   it("preserves multilingual structured reports", async () => {
