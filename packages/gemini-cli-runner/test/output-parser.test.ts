@@ -48,7 +48,50 @@ describe("parseGeminiCliOutput", () => {
       ],
       usedSyntheticResult: false,
       unparsedLines: [],
-      hasRealResultEvent: true
+      hasRealResultEvent: true,
+      detectedFormat: "stream-json"
+    });
+  });
+
+  it("parses documented headless json output into a final result event", () => {
+    const parsed = parseGeminiCliOutput(
+      [
+        "Loaded cached credentials.",
+        JSON.stringify(
+          {
+            response:
+              'I checked the desktop.\nREPORT_JSON: {"summary":"Checked the desktop.","verification":"verified","changes":["Read the Desktop directory entries"],"question":""}',
+            stats: {
+              tools: {
+                totalCalls: 1
+              }
+            }
+          },
+          null,
+          2
+        )
+      ].join("\n")
+    );
+
+    expect(parsed).toEqual({
+      events: [
+        {
+          type: "result",
+          payload: {
+            response:
+              'I checked the desktop.\nREPORT_JSON: {"summary":"Checked the desktop.","verification":"verified","changes":["Read the Desktop directory entries"],"question":""}',
+            stats: {
+              tools: {
+                totalCalls: 1
+              }
+            }
+          }
+        }
+      ],
+      usedSyntheticResult: false,
+      unparsedLines: [],
+      hasRealResultEvent: true,
+      detectedFormat: "json"
     });
   });
 
@@ -76,7 +119,8 @@ describe("parseGeminiCliOutput", () => {
         "I am Gemini, and I checked the Downloads folder.",
         'REPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
       ],
-      hasRealResultEvent: false
+      hasRealResultEvent: false,
+      detectedFormat: "text"
     });
   });
 
@@ -112,7 +156,8 @@ describe("parseGeminiCliOutput", () => {
         "I am Gemini, and I checked the Downloads folder.",
         'REPORT_JSON: {"summary":"Listed the Downloads folder.","verification":"verified","changes":["Read the Downloads directory entries"],"question":""}'
       ],
-      hasRealResultEvent: false
+      hasRealResultEvent: false,
+      detectedFormat: "stream-json"
     });
   });
 });
@@ -173,6 +218,37 @@ describe("buildExecutorResultFromGeminiCliOutput", () => {
     );
     expect(result.artifacts?.length).toBe(4);
     expect(onProgress).toHaveBeenCalledTimes(2);
+  });
+
+  it("maps documented headless json output to a completed executor result", async () => {
+    const parsed = parseGeminiCliOutput(
+      JSON.stringify({
+        response:
+          'I checked the desktop.\nREPORT_JSON: {"summary":"Checked the desktop.","verification":"verified","changes":["Read the Desktop directory entries"],"question":""}',
+        stats: {
+          tools: {
+            totalCalls: 1
+          }
+        }
+      })
+    );
+
+    const result = await buildExecutorResultFromGeminiCliOutput({
+      taskId: "task-json",
+      now: "2026-03-08T00:00:00.000Z",
+      output: parsed,
+      expectedFormat: "json"
+    });
+
+    expect(result.outcome).toBe("completed");
+    expect(result.completionEvent.message).toBe("Checked the desktop.");
+    expect(result.report).toEqual(
+      expect.objectContaining({
+        summary: "Checked the desktop.",
+        verification: "verified",
+        changes: ["Read the Desktop directory entries"]
+      })
+    );
   });
 
   it("resolves tool_result names through tool_id when the result omits the tool name", async () => {

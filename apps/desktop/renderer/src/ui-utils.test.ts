@@ -52,6 +52,21 @@ describe("task panel selection", () => {
     });
   });
 
+  it("keeps a selected task open when it moves into archived failure", () => {
+    expect(
+      resolveTaskPanelSelection({
+        selectedTaskId: "task-1",
+        taskRunners: [runner("task-2", "running")],
+        archivedEntries: [runner("task-1", "failed")],
+        previousTaskRunners: [runner("task-1", "running")],
+        previousArchivedEntries: []
+      })
+    ).toEqual({
+      nextSelectedTaskId: "task-1",
+      shouldAutoOpenCompleted: false
+    });
+  });
+
   it("prefers a newly urgent active task over completed history", () => {
     expect(
       resolveTaskPanelSelection({
@@ -63,6 +78,21 @@ describe("task panel selection", () => {
       })
     ).toEqual({
       nextSelectedTaskId: "task-urgent",
+      shouldAutoOpenCompleted: false
+    });
+  });
+
+  it("auto-selects a newly failed archived task when no active work remains", () => {
+    expect(
+      resolveTaskPanelSelection({
+        selectedTaskId: null,
+        taskRunners: [],
+        archivedEntries: [runner("task-failed", "failed")],
+        previousTaskRunners: [runner("task-failed", "running")],
+        previousArchivedEntries: []
+      })
+    ).toEqual({
+      nextSelectedTaskId: "task-failed",
       shouldAutoOpenCompleted: false
     });
   });

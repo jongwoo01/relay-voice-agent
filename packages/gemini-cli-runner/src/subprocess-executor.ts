@@ -336,7 +336,7 @@ export class GeminiCliExecutor implements LocalExecutor {
         const preview = unparsedStdoutLines[0]?.trim();
         if (preview) {
           throw new Error(
-            `Gemini CLI did not return usable structured output in stream-json mode. First non-JSON stdout line: "${preview}"`
+            `Gemini CLI did not return usable structured output in ${command.outputFormat} mode. First non-JSON stdout line: "${preview}"`
           );
         }
         throw error;
@@ -345,7 +345,8 @@ export class GeminiCliExecutor implements LocalExecutor {
       return buildExecutorResultFromGeminiCliOutput({
         taskId: request.task.id,
         now: request.now,
-        output: parsed
+        output: parsed,
+        expectedFormat: command.outputFormat
       });
     } finally {
       const activeController = this.abortControllersByTaskId.get(request.task.id);

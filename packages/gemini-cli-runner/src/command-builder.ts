@@ -8,11 +8,14 @@ export interface GeminiCliCommand {
   command: string;
   args: string[];
   cwd?: string;
+  outputFormat: GeminiCliOutputFormat;
 }
 
 export interface GeminiCliHealthCommandInput {
   workingDirectory?: string;
 }
+
+export type GeminiCliOutputFormat = "stream-json" | "json";
 
 function isExecutableFile(path: string): boolean {
   try {
@@ -110,20 +113,32 @@ export function resolveGeminiCliCommand(
   return process.platform === "win32" ? "gemini.cmd" : "gemini";
 }
 
-function buildExecutorPrompt(request: ExecutorRunRequest): string {
+function buildExecutorPrompt(
+  request: ExecutorRunRequest,
+  platform: NodeJS.Platform = process.platform
+): string {
   const workingDirectory = resolveLocalWorkingDirectory(request.workingDirectory);
   return buildExecutorPromptText({
     prompt: request.prompt,
-    workingDirectory
+    workingDirectory,
+    platform
   });
+}
+
+export function resolveGeminiCliOutputFormat(
+  platform: NodeJS.Platform = process.platform
+): GeminiCliOutputFormat {
+  return platform === "win32" ? "json" : "stream-json";
 }
 
 export function buildGeminiCliCommand(
   request: ExecutorRunRequest,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
 ): GeminiCliCommand {
   const workingDirectory = resolveLocalWorkingDirectory(request.workingDirectory);
-  const prompt = buildExecutorPrompt(request);
+  const prompt = buildExecutorPrompt(request, platform);
+  const outputFormat = resolveGeminiCliOutputFormat(platform);
   const args = request.resumeSessionId
     ? [
         "-r",
@@ -133,7 +148,7 @@ export function buildGeminiCliCommand(
         "--approval-mode",
         "yolo",
         "--output-format",
-        "stream-json"
+        outputFormat
       ]
     : [
         "-p",
@@ -141,21 +156,24 @@ export function buildGeminiCliCommand(
         "--approval-mode",
         "yolo",
         "--output-format",
-        "stream-json"
+        outputFormat
       ];
 
   return {
     command: resolveGeminiCliCommand(env),
     args,
-    cwd: workingDirectory
+    cwd: workingDirectory,
+    outputFormat
   };
 }
 
 export function buildGeminiCliHealthCommand(
   input: GeminiCliHealthCommandInput = {},
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
 ): GeminiCliCommand {
   const workingDirectory = resolveLocalWorkingDirectory(input.workingDirectory);
+  const outputFormat = resolveGeminiCliOutputFormat(platform);
 
   return {
     command: resolveGeminiCliCommand(env),
@@ -163,10 +181,11 @@ export function buildGeminiCliHealthCommand(
       "-p",
       "Reply exactly READY.",
       "--output-format",
-      "stream-json",
+      outputFormat,
       "--extensions",
       ""
     ],
-    cwd: workingDirectory
+    cwd: workingDirectory,
+    outputFormat
   };
 }

@@ -29,4 +29,17 @@ describe("executor prompt registry", () => {
       "Working directory: current default workspace"
     );
   });
+
+  it("adds Windows-specific shell guidance on win32", () => {
+    const prompt = buildExecutorPrompt({
+      prompt: "Inspect my project files",
+      platform: "win32"
+    });
+
+    expect(prompt).toContain("You are running on Windows.");
+    expect(prompt).toContain(
+      "Avoid shell commands unless the user explicitly asked you to run a command"
+    );
+    expect(prompt).toContain("compatible with cmd.exe");
+  });
 });

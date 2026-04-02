@@ -149,12 +149,23 @@ export function resolveTaskPanelSelection({
     };
   }
 
+  const selectedArchivedEntry =
+    selectedTaskId !== null
+      ? archivedEntries.find((runner) => runner.taskId === selectedTaskId) ?? null
+      : null;
   const selectedMovedToCompleted =
     selectedTaskId !== null &&
     previousTaskRunners.some((runner) => runner.taskId === selectedTaskId) &&
     archivedEntries.some((runner) => runner.taskId === selectedTaskId);
 
   if (selectedMovedToCompleted) {
+    if (selectedArchivedEntry && isUrgentTaskRunnerStatus(selectedArchivedEntry.status)) {
+      return {
+        nextSelectedTaskId: selectedArchivedEntry.taskId,
+        shouldAutoOpenCompleted: false
+      };
+    }
+
     const fallbackTaskId = pickDefaultTaskSelection(taskRunners, archivedEntries);
     return {
       nextSelectedTaskId: fallbackTaskId,
@@ -180,6 +191,28 @@ export function resolveTaskPanelSelection({
   if (urgentTask) {
     return {
       nextSelectedTaskId: urgentTask.taskId,
+      shouldAutoOpenCompleted: false
+    };
+  }
+
+  const urgentArchivedTask = archivedEntries.find((runner) => {
+    if (!isUrgentTaskRunnerStatus(runner.status)) {
+      return false;
+    }
+    const previous = previousByTaskId.get(runner.taskId);
+    return !previous || previous.status !== runner.status;
+  });
+
+  if (urgentArchivedTask) {
+    return {
+      nextSelectedTaskId: urgentArchivedTask.taskId,
+      shouldAutoOpenCompleted: false
+    };
+  }
+
+  if (selectedArchivedEntry && isUrgentTaskRunnerStatus(selectedArchivedEntry.status)) {
+    return {
+      nextSelectedTaskId: selectedArchivedEntry.taskId,
       shouldAutoOpenCompleted: false
     };
   }

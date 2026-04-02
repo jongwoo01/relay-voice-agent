@@ -15,6 +15,7 @@ export interface PromptSpec<TInput> {
 export interface ExecutorPromptInput {
   prompt: string;
   workingDirectory?: string;
+  platform?: NodeJS.Platform;
 }
 
 export const EXECUTOR_COMPLETION_REPORT_PROMPT_ID =
@@ -38,10 +39,19 @@ export const EXECUTOR_COMPLETION_REPORT_PROMPT: PromptSpec<ExecutorPromptInput> 
     outputContract:
       "Natural-language answer, then a REPORT_JSON line matching output-parser.ts expectations."
   },
-  build({ prompt, workingDirectory }) {
+  build({ prompt, workingDirectory, platform }) {
     const locationHint = workingDirectory
       ? `Working directory: ${workingDirectory}`
       : "Working directory: current default workspace";
+    const windowsExecutionGuidance =
+      platform === "win32"
+        ? [
+            "You are running on Windows.",
+            "Avoid shell commands unless the user explicitly asked you to run a command or a built-in file or directory tool cannot complete the task.",
+            "Prefer built-in file and directory tools for listing, reading, writing, renaming, or moving files, especially when paths may contain spaces.",
+            "If shell usage is truly unavoidable, keep commands simple and compatible with cmd.exe, and avoid fragile quoting."
+          ]
+        : [];
 
     return [
       "You are executing a local desktop task.",
@@ -62,6 +72,7 @@ export const EXECUTOR_COMPLETION_REPORT_PROMPT: PromptSpec<ExecutorPromptInput> 
       'Use "question" only when you need user input or approval; otherwise return an empty string.',
       'Use "changes" for concrete verified actions or observations only. If nothing was verified, return an empty array.',
       "Do not wrap the JSON in markdown fences.",
+      ...windowsExecutionGuidance,
       "",
       locationHint,
       "",

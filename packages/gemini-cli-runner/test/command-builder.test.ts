@@ -6,7 +6,8 @@ import {
   buildGeminiCliCommand,
   buildGeminiCliHealthCommand,
   resolveDefaultWorkingDirectory,
-  resolveGeminiCliCommand
+  resolveGeminiCliCommand,
+  resolveGeminiCliOutputFormat
 } from "../src/command-builder.js";
 
 describe("buildGeminiCliCommand", () => {
@@ -34,6 +35,7 @@ describe("buildGeminiCliCommand", () => {
       "--output-format",
       "stream-json"
     ]);
+    expect(command.outputFormat).toBe("stream-json");
     expect(command.cwd).toBe("/tmp");
     expect(command.args[1]).toContain("Working directory: /tmp");
     expect(command.args[1]).toContain('"summary":"string"');
@@ -76,6 +78,7 @@ describe("buildGeminiCliCommand", () => {
       "--output-format",
       "stream-json"
     ]);
+    expect(command.outputFormat).toBe("stream-json");
     expect(command.args[3]).toContain(
       "Working directory: current default workspace"
     );
@@ -205,5 +208,51 @@ describe("buildGeminiCliCommand", () => {
       ""
     ]);
     expect(command.cwd).toBe("/tmp");
+    expect(command.outputFormat).toBe("stream-json");
+  });
+
+  it("uses documented json output mode on Windows", () => {
+    expect(resolveGeminiCliOutputFormat("win32")).toBe("json");
+
+    const command = buildGeminiCliCommand(
+      {
+        task: {
+          id: "task-win",
+          title: "Inspect files",
+          normalizedGoal: "inspect files",
+          status: "queued",
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z"
+        },
+        now: "2026-03-08T00:00:00.000Z",
+        prompt: "Inspect my files"
+      },
+      process.env,
+      "win32"
+    );
+
+    expect(command.args).toContain("json");
+    expect(command.outputFormat).toBe("json");
+    expect(command.args[1]).toContain("You are running on Windows.");
+  });
+
+  it("uses json output for the Windows health probe", () => {
+    const command = buildGeminiCliHealthCommand(
+      {
+        workingDirectory: "/tmp"
+      },
+      process.env,
+      "win32"
+    );
+
+    expect(command.args).toEqual([
+      "-p",
+      "Reply exactly READY.",
+      "--output-format",
+      "json",
+      "--extensions",
+      ""
+    ]);
+    expect(command.outputFormat).toBe("json");
   });
 });
