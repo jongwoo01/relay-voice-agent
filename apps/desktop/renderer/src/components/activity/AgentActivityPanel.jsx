@@ -74,6 +74,26 @@ function isCancellableStatus(status) {
   );
 }
 
+function runnerMentionsTrustIssue(runner, timelineEntries) {
+  const combined = [
+    runner.needsUserAction,
+    runner.heroSummary,
+    runner.latestHumanUpdate,
+    ...timelineEntries.map((entry) => entry.body)
+  ]
+    .filter((value) => typeof value === "string" && value.trim().length > 0)
+    .join("\n")
+    .toLowerCase();
+
+  return (
+    combined.includes("trusted folders") ||
+    combined.includes("trust this workspace") ||
+    combined.includes("safe mode") ||
+    combined.includes("workspace is not trusted") ||
+    combined.includes("untrusted workspace")
+  );
+}
+
 function TraceList({ entries, emptyText, className = "max-h-[220px] space-y-3 overflow-y-auto" }) {
   const listRef = useStickToBottom([entries.length, entries.at(-1)?.createdAt]);
 
@@ -164,7 +184,11 @@ function TaskRunnerDetail({
   runner,
   summary,
   debugEvents,
-  onCancelTask
+  onCancelTask,
+  setupStatus,
+  onDisableGeminiFolderTrust,
+  onTrustGeminiWorkspace,
+  onOpenSupportTarget
 }) {
   const timelineEntries = useMemo(
     () => buildTaskRunnerDisplayTimeline(summary, debugEvents, runner),
@@ -177,6 +201,9 @@ function TaskRunnerDetail({
   const updatedAtText = runner.lastUpdatedAt ? `Last updated · ${formatTime(runner.lastUpdatedAt)}` : "";
   const accent = accentTheme(runner.status);
   const canCancel = isCancellableStatus(runner.status);
+  const trustActionVisible =
+    globalThis.window?.desktopSystem?.platform === "win32" &&
+    runnerMentionsTrustIssue(runner, timelineEntries);
   const cancelFeedbackCopy =
     runner.cancelUiPhase === "cancelling"
       ? {
@@ -214,6 +241,50 @@ function TaskRunnerDetail({
           <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">Needs Attention</p>
           <p className="m-0 mt-2 text-sm leading-relaxed text-amber-900">{runner.needsUserAction}</p>
         </div>
+      ) : null}
+
+      {trustActionVisible ? (
+        <section className="rounded-[24px] border border-sky-200/80 bg-sky-50/80 px-4 py-4 text-sky-950">
+          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">Workspace Trust Fix</p>
+          <p className="m-0 mt-2 text-sm leading-relaxed">
+            This Windows task looks blocked by Gemini workspace trust or approval. Repair it here, then retry the task.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void onDisableGeminiFolderTrust?.()}
+              disabled={setupStatus?.geminiWorkspaceTrust?.folderTrustEnabled !== true}
+              className="rounded-full border border-sky-200/90 bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-sky-700 transition-colors hover:border-sky-300 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Disable Trusted Folders
+            </button>
+            <button
+              type="button"
+              onClick={() => void onTrustGeminiWorkspace?.()}
+              disabled={
+                setupStatus?.geminiWorkspaceTrust?.folderTrustEnabled !== true ||
+                setupStatus?.geminiWorkspaceTrust?.trusted === true
+              }
+              className="rounded-full border border-sky-200/90 bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-sky-700 transition-colors hover:border-sky-300 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Trust this workspace
+            </button>
+            <button
+              type="button"
+              onClick={() => void onOpenSupportTarget?.("gemini_trusted_folders")}
+              className="rounded-full border border-sky-200/90 bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-sky-700 transition-colors hover:border-sky-300 hover:bg-sky-100"
+            >
+              Open trustedFolders.json
+            </button>
+            <button
+              type="button"
+              onClick={() => void onOpenSupportTarget?.("gemini_trusted_docs")}
+              className="rounded-full border border-sky-200/90 bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-sky-700 transition-colors hover:border-sky-300 hover:bg-sky-100"
+            >
+              Open Gemini trust docs
+            </button>
+          </div>
+        </section>
       ) : null}
 
       <section className="rounded-[28px] border border-white/70 bg-white/80 px-4 py-4 shadow-[0_18px_45px_-30px_rgba(15,23,42,0.28)] backdrop-blur-xl">
@@ -358,7 +429,11 @@ function TaskRunnerCards({
   onSelect,
   summary,
   debugEvents,
-  onCancelTask
+  onCancelTask,
+  setupStatus,
+  onDisableGeminiFolderTrust,
+  onTrustGeminiWorkspace,
+  onOpenSupportTarget
 }) {
   if (!entries.length) {
     return <p className="rounded-[24px] border border-dashed border-gray-200 px-4 py-8 text-center text-sm text-gray-400">{emptyText}</p>;
@@ -502,6 +577,10 @@ function TaskRunnerCards({
               summary={summary}
               debugEvents={debugEvents}
               onCancelTask={onCancelTask}
+              setupStatus={setupStatus}
+              onDisableGeminiFolderTrust={onDisableGeminiFolderTrust}
+              onTrustGeminiWorkspace={onTrustGeminiWorkspace}
+              onOpenSupportTarget={onOpenSupportTarget}
             />
           </div>
         ) : null}
@@ -517,6 +596,10 @@ export function AgentActivityPanel({
   selectionDismissed = false,
   onSelectTask,
   onCancelTask,
+  setupStatus,
+  onDisableGeminiFolderTrust,
+  onTrustGeminiWorkspace,
+  onOpenSupportTarget,
   taskCancelUiState = {},
   summary,
   debugEvents,
@@ -590,6 +673,10 @@ export function AgentActivityPanel({
                 summary={summary}
                 debugEvents={debugEvents}
                 onCancelTask={onCancelTask}
+                setupStatus={setupStatus}
+                onDisableGeminiFolderTrust={onDisableGeminiFolderTrust}
+                onTrustGeminiWorkspace={onTrustGeminiWorkspace}
+                onOpenSupportTarget={onOpenSupportTarget}
               />
             </div>
           </section>
@@ -631,6 +718,10 @@ export function AgentActivityPanel({
                   summary={summary}
                   debugEvents={debugEvents}
                   onCancelTask={onCancelTask}
+                  setupStatus={setupStatus}
+                  onDisableGeminiFolderTrust={onDisableGeminiFolderTrust}
+                  onTrustGeminiWorkspace={onTrustGeminiWorkspace}
+                  onOpenSupportTarget={onOpenSupportTarget}
                 />
               </div>
             </details>

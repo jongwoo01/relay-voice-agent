@@ -6,6 +6,13 @@ const { cancelMock, runMock, probeHealthMock } = vi.hoisted(() => ({
   probeHealthMock: vi.fn()
 }));
 
+const { inspectGeminiWorkspaceTrustMock, probeGeminiWorkspaceToolsReadinessMock } = vi.hoisted(
+  () => ({
+    inspectGeminiWorkspaceTrustMock: vi.fn(),
+    probeGeminiWorkspaceToolsReadinessMock: vi.fn()
+  })
+);
+
 vi.mock("../execution/local-execution-layer.js", () => ({
   createLocalExecutionLayer: vi.fn(() => ({
     mode: "mock",
@@ -20,6 +27,18 @@ vi.mock("../execution/local-execution-layer.js", () => ({
     probeHealth: probeHealthMock
   }))
 }));
+
+vi.mock("../setup/gemini-trust.js", () => ({
+  inspectGeminiWorkspaceTrust: inspectGeminiWorkspaceTrustMock
+}));
+
+vi.mock("../setup/setup-status.js", async () => {
+  const actual = await vi.importActual("../setup/setup-status.js");
+  return {
+    ...actual,
+    probeGeminiWorkspaceToolsReadiness: probeGeminiWorkspaceToolsReadinessMock
+  };
+});
 
 import { CloudSessionClient } from "./cloud-session-client.js";
 
@@ -156,12 +175,54 @@ async function waitFor(predicate: () => boolean, attempts = 20): Promise<void> {
   throw new Error("Timed out waiting for condition");
 }
 
+function withPlatform<T>(platform: NodeJS.Platform, fn: () => Promise<T> | T) {
+  const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", {
+    value: platform
+  });
+
+  const finalize = () => {
+    if (descriptor) {
+      Object.defineProperty(process, "platform", descriptor);
+    }
+  };
+
+  try {
+    const result = fn();
+    if (result && typeof (result as Promise<T>).then === "function") {
+      return (result as Promise<T>).finally(finalize);
+    }
+    finalize();
+    return result;
+  } catch (error) {
+    finalize();
+    throw error;
+  }
+}
+
 describe("CloudSessionClient", () => {
 beforeEach(() => {
   cancelMock.mockReset();
   cancelMock.mockResolvedValue(false);
   runMock.mockReset();
     probeHealthMock.mockReset();
+    inspectGeminiWorkspaceTrustMock.mockReset();
+    inspectGeminiWorkspaceTrustMock.mockResolvedValue({
+      folderTrustEnabled: false,
+      workspacePath: "/Users/jongwoo/Desktop/projects/gemini_live_agent",
+      settingsPath: "/Users/jongwoo/.gemini/settings.json",
+      trustedFoldersPath: "/Users/jongwoo/.gemini/trustedFolders.json",
+      trusted: false,
+      explicitlyUntrusted: false,
+      effectiveRulePath: null,
+      effectiveRuleValue: null
+    });
+    probeGeminiWorkspaceToolsReadinessMock.mockReset();
+    probeGeminiWorkspaceToolsReadinessMock.mockResolvedValue({
+      status: "ready",
+      summary: "Gemini CLI can inspect this workspace.",
+      detail: "Relay confirmed that Gemini CLI can inspect the current workspace with file-oriented tools before task execution starts."
+    });
     probeHealthMock.mockResolvedValue({
       status: "healthy",
       code: "healthy",
@@ -502,6 +563,76 @@ beforeEach(() => {
         ok: true
       })
     );
+  });
+
+  it("blocks Windows executor requests before launch when the workspace is untrusted", async () => {
+    inspectGeminiWorkspaceTrustMock.mockResolvedValueOnce({
+      folderTrustEnabled: true,
+      workspacePath: "C:\\relay\\workspace",
+      settingsPath: "C:\\Users\\jongwoo\\.gemini\\settings.json",
+      trustedFoldersPath: "C:\\Users\\jongwoo\\.gemini\\trustedFolders.json",
+      trusted: false,
+      explicitlyUntrusted: false,
+      effectiveRulePath: null,
+      effectiveRuleValue: null
+    });
+
+    await withPlatform("win32", async () => {
+      const client = new CloudSessionClient({
+        baseUrl: "http://judge-host"
+      });
+
+      const connectPromise = client.connect("judge-passcode");
+      await waitFor(() => MockWebSocket.instances.length > 0);
+      const socket = MockWebSocket.instances[0];
+      socket.emitMessage({
+        type: "session_ready",
+        brainSessionId: "brain-1",
+        conversation: createConversationState(),
+        tasks: createTaskState()
+      });
+      await connectPromise;
+
+      socket.emitMessage({
+        type: "executor_request",
+        request: {
+          runId: "run-win-preflight",
+          taskId: "task-win-preflight",
+          request: {
+            task: {
+              id: "task-win-preflight",
+              title: "Blocked before launch",
+              normalizedGoal: "blocked before launch",
+              status: "running",
+              createdAt: "2026-03-14T00:00:00.000Z",
+              updatedAt: "2026-03-14T00:00:00.000Z"
+            },
+            now: "2026-03-14T00:00:00.000Z",
+            prompt: "Inspect the local workspace",
+            workingDirectory: "C:\\relay\\workspace"
+          }
+        }
+      });
+
+      await waitFor(() =>
+        socket.sent.some(
+          (payload: any) =>
+            payload?.type === "executor_terminal" &&
+            payload?.runId === "run-win-preflight"
+        )
+      );
+
+      expect(runMock).not.toHaveBeenCalled();
+      expect(socket.sent).toContainEqual(
+        expect.objectContaining({
+          type: "executor_terminal",
+          runId: "run-win-preflight",
+          taskId: "task-win-preflight",
+          ok: false,
+          error: expect.stringContaining("Trusted Folders is enabled")
+        })
+      );
+    });
   });
 
   it("keeps local tasks runnable after a full health check times out", async () => {

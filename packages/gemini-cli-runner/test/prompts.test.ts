@@ -33,13 +33,25 @@ describe("executor prompt registry", () => {
   it("adds Windows-specific shell guidance on win32", () => {
     const prompt = buildExecutorPrompt({
       prompt: "Inspect my project files",
-      platform: "win32"
+      platform: "win32",
+      windowsShellMode: "avoid"
     });
 
     expect(prompt).toContain("You are running on Windows.");
     expect(prompt).toContain(
-      "Avoid shell commands unless the user explicitly asked you to run a command"
+      "This task should stay on built-in file and directory tools unless shell commands are absolutely required"
     );
     expect(prompt).toContain("compatible with cmd.exe");
+  });
+
+  it("allows Windows shell guidance for execution-heavy tasks", () => {
+    const prompt = buildExecutorPrompt({
+      prompt: "Run the test suite and fix failures",
+      platform: "win32",
+      windowsShellMode: "allow"
+    });
+
+    expect(prompt).toContain("The user request likely needs command execution");
+    expect(prompt).toContain("Use built-in file and directory tools first for inspection");
   });
 });

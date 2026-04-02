@@ -90,6 +90,27 @@ describe("SettingsModal", () => {
                 status: "granted"
               }
             ]
+          },
+          workspaceToolsReady: {
+            status: "warning",
+            summary: "Gemini CLI could not confirm file-tool access for this workspace.",
+            detail: "Gemini CLI did not prove that it could inspect the current workspace with file-oriented tools.",
+            workspacePath: "/Users/jongwoo/Desktop",
+            outputFormat: "stream-json"
+          },
+          geminiWorkspaceTrust: {
+            status: "warning",
+            summary: "Current workspace is not trusted yet.",
+            detail:
+              "If Gemini Trusted Folders is enabled, Gemini CLI can pause for trust or approval here until you trust this workspace or disable the feature.",
+            folderTrustEnabled: true,
+            workspacePath: "/Users/jongwoo/Desktop",
+            settingsPath: "/Users/jongwoo/.gemini/settings.json",
+            trustedFoldersPath: "/Users/jongwoo/.gemini/trustedFolders.json",
+            trusted: false,
+            explicitlyUntrusted: false,
+            effectiveRulePath: null,
+            effectiveRuleValue: null
           }
         },
         setupStatusLoading: false,
@@ -126,6 +147,7 @@ describe("SettingsModal", () => {
         onMotionPreferenceChange: vi.fn(),
         onHeaderHealthWarningsChange: vi.fn(),
         onCopyText: vi.fn(async () => "gemini --version"),
+        onDisableGeminiFolderTrust: vi.fn(),
         onOpenGeminiLoginTerminal: vi.fn(),
         onOpenDeveloperConsole: vi.fn(),
         onOpenSupportTarget: vi.fn(),
@@ -139,7 +161,8 @@ describe("SettingsModal", () => {
         onToggleDebugFilter: vi.fn(),
         onCopyDiagnostics: vi.fn(async () => "{}"),
         onRefreshHistory: vi.fn(),
-        onResetSettings: vi.fn()
+        onResetSettings: vi.fn(),
+        onTrustGeminiWorkspace: vi.fn()
       })
     );
 
@@ -149,6 +172,10 @@ describe("SettingsModal", () => {
     expect(markup).toContain("Interface");
     expect(markup).toContain("Advanced");
     expect(markup).toContain("Gemini CLI authentication is not ready.");
+    expect(markup).toContain("Workspace tools readiness");
+    expect(markup).toContain("Gemini workspace trust");
+    expect(markup).toContain("Disable Trusted Folders");
+    expect(markup).toContain("Trust this workspace");
     expect(markup).toContain("/usr/local/bin/gemini");
     expect(markup).toContain("Open Terminal for gemini login");
     expect(markup).toContain("Use microphone in hosted sessions");
@@ -195,7 +222,21 @@ describe("SettingsModal", () => {
             hostedBackend: { status: "unknown", summary: "", detail: "" },
             microphone: { status: "warning", summary: "", detail: "" },
             localExecutorBinary: { status: "unknown", summary: "", detail: "" },
-            localFileAccess: { status: "unknown", summary: "", detail: "", directories: [] }
+            localFileAccess: { status: "unknown", summary: "", detail: "", directories: [] },
+            workspaceToolsReady: { status: "unknown", summary: "", detail: "" },
+            geminiWorkspaceTrust: {
+              status: "unknown",
+              summary: "",
+              detail: "",
+              folderTrustEnabled: false,
+              workspacePath: null,
+              settingsPath: null,
+              trustedFoldersPath: null,
+              trusted: false,
+              explicitlyUntrusted: false,
+              effectiveRulePath: null,
+              effectiveRuleValue: null
+            }
           }
         },
         setupStatusLoading: false,
@@ -223,6 +264,7 @@ describe("SettingsModal", () => {
         onMotionPreferenceChange: vi.fn(),
         onHeaderHealthWarningsChange: vi.fn(),
         onCopyText: vi.fn(async () => ""),
+        onDisableGeminiFolderTrust: vi.fn(),
         onOpenGeminiLoginTerminal: vi.fn(),
         onOpenDeveloperConsole: vi.fn(),
         onOpenSupportTarget: vi.fn(),
@@ -236,7 +278,8 @@ describe("SettingsModal", () => {
         onToggleDebugFilter: vi.fn(),
         onCopyDiagnostics: vi.fn(async () => "{}"),
         onRefreshHistory: vi.fn(),
-        onResetSettings: vi.fn()
+        onResetSettings: vi.fn(),
+        onTrustGeminiWorkspace: vi.fn()
       })
     );
 

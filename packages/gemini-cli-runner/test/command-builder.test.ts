@@ -5,9 +5,11 @@ import { join } from "node:path";
 import {
   buildGeminiCliCommand,
   buildGeminiCliHealthCommand,
+  buildGeminiCliWorkspaceProbeCommand,
   resolveDefaultWorkingDirectory,
   resolveGeminiCliCommand,
-  resolveGeminiCliOutputFormat
+  resolveGeminiCliOutputFormat,
+  resolveWindowsShellMode
 } from "../src/command-builder.js";
 
 describe("buildGeminiCliCommand", () => {
@@ -234,6 +236,68 @@ describe("buildGeminiCliCommand", () => {
     expect(command.args).toContain("json");
     expect(command.outputFormat).toBe("json");
     expect(command.args[1]).toContain("You are running on Windows.");
+  });
+
+  it("uses shell-avoid mode for Windows file tasks and shell-allow mode for execution tasks", () => {
+    expect(
+      resolveWindowsShellMode(
+        {
+          task: {
+            id: "task-read",
+            title: "Inspect files",
+            normalizedGoal: "inspect files",
+            status: "queued",
+            createdAt: "2026-03-08T00:00:00.000Z",
+            updatedAt: "2026-03-08T00:00:00.000Z"
+          },
+          now: "2026-03-08T00:00:00.000Z",
+          prompt: "Read the project files and explain the structure"
+        },
+        "win32"
+      )
+    ).toBe("avoid");
+
+    expect(
+      resolveWindowsShellMode(
+        {
+          task: {
+            id: "task-test",
+            title: "Run tests",
+            normalizedGoal: "run tests",
+            status: "queued",
+            createdAt: "2026-03-08T00:00:00.000Z",
+            updatedAt: "2026-03-08T00:00:00.000Z"
+          },
+          now: "2026-03-08T00:00:00.000Z",
+          prompt: "Run the test suite and fix failures"
+        },
+        "win32"
+      )
+    ).toBe("allow");
+  });
+
+  it("builds a dedicated workspace probe command", () => {
+    const command = buildGeminiCliWorkspaceProbeCommand(
+      {
+        workingDirectory: "/tmp",
+        expectedChildName: "package.json"
+      },
+      process.env,
+      "win32"
+    );
+
+    expect(command.args).toEqual([
+      "-p",
+      expect.stringContaining("Reply exactly PROBE_OK:package.json"),
+      "--approval-mode",
+      "yolo",
+      "--output-format",
+      "json",
+      "--extensions",
+      ""
+    ]);
+    expect(command.cwd).toBe("/tmp");
+    expect(command.outputFormat).toBe("json");
   });
 
   it("uses json output for the Windows health probe", () => {

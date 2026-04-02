@@ -364,6 +364,7 @@ export function SettingsModal({
   onMotionPreferenceChange,
   onHeaderHealthWarningsChange,
   onCopyText,
+  onDisableGeminiFolderTrust,
   onOpenGeminiLoginTerminal,
   onOpenDeveloperConsole,
   onOpenSupportTarget,
@@ -371,7 +372,8 @@ export function SettingsModal({
   onToggleDebugFilter,
   onCopyDiagnostics,
   onRefreshHistory,
-  onResetSettings
+  onResetSettings,
+  onTrustGeminiWorkspace
 }) {
   const [copiedAt, setCopiedAt] = useState(null);
   const platform = globalThis.window?.desktopSystem?.platform ?? "unknown";
@@ -571,6 +573,82 @@ export function SettingsModal({
                 >
                   <DirectoryProbeList directories={setup.localFileAccess?.directories ?? []} />
                 </SetupStatusItem>
+
+                <SetupStatusItem
+                  title="Workspace tools readiness"
+                  item={setup.workspaceToolsReady}
+                  meta={[
+                    setup.workspaceToolsReady?.workspacePath
+                      ? `Workspace: ${setup.workspaceToolsReady.workspacePath}`
+                      : null,
+                    setup.workspaceToolsReady?.outputFormat
+                      ? `Output format: ${setup.workspaceToolsReady.outputFormat}`
+                      : null,
+                    setup.workspaceToolsReady?.expectedResponse
+                      ? `Expected probe: ${setup.workspaceToolsReady.expectedResponse}`
+                      : null
+                  ]}
+                  actions={
+                    <>
+                      <SecondaryButton onClick={() => void onRefreshSetupStatus({ refresh: true })}>
+                        Retry workspace probe
+                      </SecondaryButton>
+                      <SecondaryButton
+                        onClick={() => void onOpenSupportTarget("gemini_trusted_docs")}
+                      >
+                        Open trust docs
+                      </SecondaryButton>
+                    </>
+                  }
+                />
+
+                <SetupStatusItem
+                  title="Gemini workspace trust"
+                  item={setup.geminiWorkspaceTrust}
+                  meta={[
+                    setup.geminiWorkspaceTrust?.workspacePath
+                      ? `Workspace: ${setup.geminiWorkspaceTrust.workspacePath}`
+                      : null,
+                    setup.geminiWorkspaceTrust?.folderTrustEnabled === true
+                      ? "Trusted Folders: enabled"
+                      : "Trusted Folders: disabled",
+                    setup.geminiWorkspaceTrust?.effectiveRulePath
+                      ? `Rule path: ${setup.geminiWorkspaceTrust.effectiveRulePath}`
+                      : null,
+                    setup.geminiWorkspaceTrust?.effectiveRuleValue
+                      ? `Rule value: ${setup.geminiWorkspaceTrust.effectiveRuleValue}`
+                      : null
+                  ]}
+                  actions={
+                    <>
+                      <SecondaryButton
+                        onClick={() => void onOpenSupportTarget("gemini_trusted_docs")}
+                      >
+                        Open trust docs
+                      </SecondaryButton>
+                      <SecondaryButton
+                        onClick={() => void onOpenSupportTarget("gemini_trusted_folders")}
+                      >
+                        Open trustedFolders.json
+                      </SecondaryButton>
+                      <SecondaryButton
+                        onClick={() => void onDisableGeminiFolderTrust()}
+                        disabled={setup.geminiWorkspaceTrust?.folderTrustEnabled !== true}
+                      >
+                        Disable Trusted Folders
+                      </SecondaryButton>
+                      <SecondaryButton
+                        onClick={() => void onTrustGeminiWorkspace()}
+                        disabled={
+                          setup.geminiWorkspaceTrust?.folderTrustEnabled !== true ||
+                          setup.geminiWorkspaceTrust?.trusted === true
+                        }
+                      >
+                        Trust this workspace
+                      </SecondaryButton>
+                    </>
+                  }
+                />
 
               </Section>
 

@@ -4,6 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 import { AgentActivityPanel } from "./AgentActivityPanel.jsx";
 
 globalThis.React = React;
+globalThis.window = {
+  desktopSystem: {
+    platform: "darwin"
+  }
+};
 
 function entry(taskId: string, status: string) {
   return {
@@ -40,9 +45,18 @@ const baseProps = {
       pending: []
     }
   },
+  setupStatus: {
+    geminiWorkspaceTrust: {
+      folderTrustEnabled: true,
+      trusted: false
+    }
+  },
   debugEvents: [],
   voiceConnected: true,
-  pendingBriefingCount: 0
+  pendingBriefingCount: 0,
+  onDisableGeminiFolderTrust: vi.fn(),
+  onTrustGeminiWorkspace: vi.fn(),
+  onOpenSupportTarget: vi.fn()
 };
 
 describe("AgentActivityPanel", () => {
@@ -134,5 +148,30 @@ describe("AgentActivityPanel", () => {
     expect(markup).toContain("Running (1)");
     expect(markup).toContain("The task was cancelled and will move to Completed in a moment.");
     expect(markup).not.toContain("Completed (1)");
+  });
+
+  it("shows trust repair actions for Windows trust-related task blockers", () => {
+    const previousPlatform = globalThis.window.desktopSystem.platform;
+    globalThis.window.desktopSystem.platform = "win32";
+    const blocked = {
+      ...entry("task-win", "failed"),
+      needsUserAction:
+        "Gemini CLI Trusted Folders is enabled and this workspace is not trusted."
+    };
+
+    const markup = renderToStaticMarkup(
+      createElement(AgentActivityPanel, {
+        ...baseProps,
+        taskRunners: [],
+        archivedEntries: [blocked],
+        selectedTaskId: "task-win"
+      })
+    );
+
+    expect(markup).toContain("Workspace Trust Fix");
+    expect(markup).toContain("Disable Trusted Folders");
+    expect(markup).toContain("Trust this workspace");
+    expect(markup).toContain("Open trustedFolders.json");
+    globalThis.window.desktopSystem.platform = previousPlatform;
   });
 });

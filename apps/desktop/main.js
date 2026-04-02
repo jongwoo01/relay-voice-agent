@@ -30,6 +30,10 @@ import {
   getSupportTargetDirectory,
   getSupportTargetPath
 } from "./src/main/setup/setup-status.js";
+import {
+  disableGeminiFolderTrust,
+  trustGeminiWorkspace
+} from "./src/main/setup/gemini-trust.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -168,6 +172,11 @@ async function refreshSetupStatusNow(options = {}) {
     downloadsPath: app.getPath("downloads")
   });
   return setupStatusCache;
+}
+
+function getCurrentGeminiWorkspacePath() {
+  const setupContext = cloudSession?.getSetupContext?.();
+  return setupContext?.lastExecutorWorkingDirectory ?? app.getPath("desktop");
 }
 
 function openSystemPrivacyShortcut(section = "files") {
@@ -802,6 +811,35 @@ app.whenReady().then(async () => {
   registerIpcHandle("desktop-ui:open-gemini-login-terminal", async (event) => {
     assertTrustedSender(event);
     return openTerminalForGeminiLogin();
+  });
+
+  registerIpcHandle("desktop-ui:disable-gemini-folder-trust", async (event) => {
+    assertTrustedSender(event);
+    const targetPath = getSupportTargetPath("gemini_settings");
+    if (!targetPath) {
+      throw new Error("Gemini settings path is not available on this machine.");
+    }
+
+    await disableGeminiFolderTrust({
+      settingsPath: targetPath
+    });
+    await refreshSetupStatusNow({ refresh: true });
+    return setupStatusCache;
+  });
+
+  registerIpcHandle("desktop-ui:trust-gemini-workspace", async (event) => {
+    assertTrustedSender(event);
+    const trustedFoldersPath = getSupportTargetPath("gemini_trusted_folders");
+    if (!trustedFoldersPath) {
+      throw new Error("Gemini trusted folders path is not available on this machine.");
+    }
+
+    await trustGeminiWorkspace({
+      trustedFoldersPath,
+      workspacePath: getCurrentGeminiWorkspacePath()
+    });
+    await refreshSetupStatusNow({ refresh: true });
+    return setupStatusCache;
   });
 
   registerIpcHandle("system:open-microphone-privacy-settings", async (event) => {

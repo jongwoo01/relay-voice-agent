@@ -16,6 +16,7 @@ export interface ExecutorPromptInput {
   prompt: string;
   workingDirectory?: string;
   platform?: NodeJS.Platform;
+  windowsShellMode?: "avoid" | "allow";
 }
 
 export const EXECUTOR_COMPLETION_REPORT_PROMPT_ID =
@@ -39,19 +40,13 @@ export const EXECUTOR_COMPLETION_REPORT_PROMPT: PromptSpec<ExecutorPromptInput> 
     outputContract:
       "Natural-language answer, then a REPORT_JSON line matching output-parser.ts expectations."
   },
-  build({ prompt, workingDirectory, platform }) {
+  build(input) {
+    const { prompt, workingDirectory, platform } = input;
     const locationHint = workingDirectory
       ? `Working directory: ${workingDirectory}`
       : "Working directory: current default workspace";
     const windowsExecutionGuidance =
-      platform === "win32"
-        ? [
-            "You are running on Windows.",
-            "Avoid shell commands unless the user explicitly asked you to run a command or a built-in file or directory tool cannot complete the task.",
-            "Prefer built-in file and directory tools for listing, reading, writing, renaming, or moving files, especially when paths may contain spaces.",
-            "If shell usage is truly unavoidable, keep commands simple and compatible with cmd.exe, and avoid fragile quoting."
-          ]
-        : [];
+      platform === "win32" ? inputWindowsExecutionGuidance(input) : [];
 
     return [
       "You are executing a local desktop task.",
@@ -84,4 +79,27 @@ export const EXECUTOR_COMPLETION_REPORT_PROMPT: PromptSpec<ExecutorPromptInput> 
 
 export function buildExecutorPrompt(input: ExecutorPromptInput): string {
   return EXECUTOR_COMPLETION_REPORT_PROMPT.build(input);
+}
+
+function inputWindowsExecutionGuidance(input: ExecutorPromptInput): string[] {
+  if (input.platform !== "win32") {
+    return [];
+  }
+
+  if (input.windowsShellMode === "allow") {
+    return [
+      "You are running on Windows.",
+      "The user request likely needs command execution such as tests, builds, installs, git, server startup, migrations, or other CLI work.",
+      "Use built-in file and directory tools first for inspection, then use shell commands only for the execution steps that truly require them.",
+      "When shell usage is necessary, keep commands simple and compatible with cmd.exe, avoid fragile quoting, and prefer the smallest command that verifies the requested outcome."
+    ];
+  }
+
+  return [
+    "You are running on Windows.",
+    "This task should stay on built-in file and directory tools unless shell commands are absolutely required to complete the user's request.",
+    "Prefer built-in file and directory tools for listing, reading, writing, renaming, or moving files, especially when paths may contain spaces.",
+    "Do not use shell commands just because they are convenient when built-in tools can complete the task.",
+    "If shell usage becomes truly unavoidable, keep commands simple and compatible with cmd.exe, and avoid fragile quoting."
+  ];
 }

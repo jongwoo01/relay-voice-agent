@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { resolveGeminiCliCommand } from "../src/command-builder.js";
 import {
   buildGeminiCliEnvironment,
+  ExecutorCancelledError,
   GeminiCliExecutor,
   type RunCommandOptions
 } from "../src/subprocess-executor.js";
@@ -310,6 +311,57 @@ describe("GeminiCliExecutor", () => {
     );
   });
 
+  it("surfaces blocker progress and aborts stalled runs when Windows safe-mode output appears", async () => {
+    vi.useFakeTimers();
+    const exec = vi.fn(
+      (_file: string, _args: string[], options?: RunCommandOptions) =>
+        new Promise<{ stdout: string; stderr: string; exitCode: number | null }>((_, reject) => {
+          void options?.onStderrLine?.(
+            "Trusted Folders safe mode is active because this workspace is not trusted."
+          );
+          options?.signal?.addEventListener(
+            "abort",
+            () => reject(new ExecutorCancelledError()),
+            { once: true }
+          );
+        })
+    );
+
+    const executor = new GeminiCliExecutor(exec);
+    const onProgress = vi.fn();
+    const runPromise = executor.run(
+      {
+        task: {
+          id: "task-win-blocked",
+          title: "Windows blocked task",
+          normalizedGoal: "windows blocked task",
+          status: "queued",
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z"
+        },
+        now: "2026-03-08T00:00:00.000Z",
+        prompt: "Read project files"
+      },
+      onProgress
+    );
+    const rejection = expect(runPromise).rejects.toThrow(
+      /Gemini CLI remained blocked without new progress and Relay stopped the local run\..*Blocker: trust\./
+    );
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "task-win-blocked",
+        type: "executor_progress",
+        message: expect.stringContaining("Potential blocker:")
+      })
+    );
+
+    await vi.advanceTimersByTimeAsync(90_000);
+    await rejection;
+    vi.useRealTimers();
+  });
+
   it("preserves configured auth env before spawning Gemini CLI", async () => {
     const exec = vi.fn(async () => ({
       stdout: JSON.stringify({
@@ -436,7 +488,9 @@ describe("GeminiCliExecutor", () => {
         now: "2026-03-08T00:00:00.000Z",
         prompt: "List folders on the desktop"
       })
-    ).rejects.toThrow("Gemini CLI output was empty");
+    ).rejects.toThrow(
+      "Gemini CLI did not return usable structured output in stream-json mode."
+    );
   });
 
   it("falls back to a conservative completion message when the final response is not structured JSON", async () => {

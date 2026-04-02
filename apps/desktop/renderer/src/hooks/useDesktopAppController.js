@@ -117,6 +117,26 @@ const EMPTY_SETUP_STATUS = {
     summary: "Local file access has not been checked yet.",
     detail: "Relay will probe common local folders when setup status is refreshed.",
     directories: []
+  },
+  workspaceToolsReady: {
+    status: "unknown",
+    summary: "Workspace tools readiness has not been checked yet.",
+    detail: "Relay will ask Gemini CLI to confirm file-oriented access to the current workspace when setup status is refreshed.",
+    workspacePath: null,
+    code: null
+  },
+  geminiWorkspaceTrust: {
+    status: "unknown",
+    summary: "Gemini workspace trust has not been checked yet.",
+    detail: "Relay will inspect Gemini CLI trust settings for the current workspace when setup status is refreshed.",
+    folderTrustEnabled: false,
+    workspacePath: null,
+    settingsPath: null,
+    trustedFoldersPath: null,
+    trusted: false,
+    explicitlyUntrusted: false,
+    effectiveRulePath: null,
+    effectiveRuleValue: null
   }
 };
 
@@ -1786,6 +1806,30 @@ export function useDesktopAppController() {
     }
   }, [hideRuntimeError, showRuntimeError]);
 
+  const handleDisableGeminiFolderTrust = useCallback(async () => {
+    try {
+      hideRuntimeError();
+      await window.desktopUi.disableGeminiFolderTrust();
+      await refreshSetupStatus({ refresh: true });
+      return true;
+    } catch (error) {
+      showRuntimeError(error);
+      return false;
+    }
+  }, [hideRuntimeError, refreshSetupStatus, showRuntimeError]);
+
+  const handleTrustGeminiWorkspace = useCallback(async () => {
+    try {
+      hideRuntimeError();
+      await window.desktopUi.trustGeminiWorkspace();
+      await refreshSetupStatus({ refresh: true });
+      return true;
+    } catch (error) {
+      showRuntimeError(error);
+      return false;
+    }
+  }, [hideRuntimeError, refreshSetupStatus, showRuntimeError]);
+
   return {
     archivedEntries,
     audioEnergy,
@@ -1806,6 +1850,7 @@ export function useDesktopAppController() {
     handleExecutorEnabledChange,
     handleHangup,
     handleHeaderHealthWarningsChange,
+    handleDisableGeminiFolderTrust,
     handleMicToggle,
     handleVoiceCaptureEnabledChange,
     handleMuteToggle,
@@ -1823,6 +1868,7 @@ export function useDesktopAppController() {
     handleRetryExecutorHealthCheck,
     handleSelectMicrophone,
     handleStartMutedChange,
+    handleTrustGeminiWorkspace,
     handleToggleDebugFilter,
     historyEntries,
     historyOpen,

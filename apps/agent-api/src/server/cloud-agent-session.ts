@@ -230,6 +230,14 @@ function formatTaskRunnerStatusLabel(status: Task["status"]): string {
 }
 
 function toHumanProgressCopy(message: string): string {
+  if (message.startsWith("Execution heartbeat: ")) {
+    return message.slice("Execution heartbeat: ".length);
+  }
+
+  if (message.startsWith("Potential blocker: ")) {
+    return `Potential blocker detected. ${message.slice("Potential blocker: ".length)}`;
+  }
+
   if (message.startsWith("Tool requested: ")) {
     return `Checking the required tool. ${message.slice("Tool requested: ".length)}`;
   }

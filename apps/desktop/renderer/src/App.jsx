@@ -214,6 +214,7 @@ export default function App() {
     handleConnect,
     handleCopyDiagnostics,
     handleCopyText,
+    handleDisableGeminiFolderTrust,
     handleExecutorEnabledChange,
     handleHangup,
     handleHeaderHealthWarningsChange,
@@ -233,6 +234,7 @@ export default function App() {
     handleRetryExecutorHealthCheck,
     handleSelectMicrophone,
     handleStartMutedChange,
+    handleTrustGeminiWorkspace,
     handleToggleDebugFilter,
     historyEntries,
     historyOpen,
@@ -522,6 +524,10 @@ export default function App() {
             taskCancelUiState={taskCancelUiState}
             summary={summary}
             debugEvents={filteredDebugEvents}
+            setupStatus={setupStatus}
+            onDisableGeminiFolderTrust={handleDisableGeminiFolderTrust}
+            onTrustGeminiWorkspace={handleTrustGeminiWorkspace}
+            onOpenSupportTarget={handleOpenSupportTarget}
             voiceConnected={voiceState.connected}
             pendingBriefingCount={summary.pendingBriefingCount ?? 0}
           />
@@ -566,6 +572,7 @@ export default function App() {
             onMotionPreferenceChange={handleMotionPreferenceChange}
             onHeaderHealthWarningsChange={handleHeaderHealthWarningsChange}
             onCopyText={handleCopyText}
+            onDisableGeminiFolderTrust={handleDisableGeminiFolderTrust}
             onOpenGeminiLoginTerminal={handleOpenGeminiLoginTerminal}
             onOpenDeveloperConsole={handleOpenDeveloperConsole}
             onOpenSupportTarget={handleOpenSupportTarget}
@@ -574,6 +581,7 @@ export default function App() {
             onCopyDiagnostics={handleCopyDiagnostics}
             onRefreshHistory={handleRefreshHistory}
             onResetSettings={handleResetSettings}
+            onTrustGeminiWorkspace={handleTrustGeminiWorkspace}
           />
         </Suspense>
       ) : null}

@@ -1,10 +1,15 @@
 export {
   buildGeminiCliCommand,
   buildGeminiCliHealthCommand,
+  buildGeminiCliWorkspaceProbeCommand,
   resolveDefaultWorkingDirectory,
   resolveGeminiCliCommand,
+  resolveGeminiCliOutputFormat,
+  resolveWindowsShellMode,
   type DefaultWorkingDirectoryOptions,
-  type GeminiCliHealthCommandInput
+  type GeminiCliHealthCommandInput,
+  type GeminiCliWorkspaceProbeCommandInput,
+  type WindowsShellMode
 } from "./command-builder.js";
 export {
   buildExecutorPrompt,

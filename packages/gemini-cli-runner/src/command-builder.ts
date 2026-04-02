@@ -15,7 +15,13 @@ export interface GeminiCliHealthCommandInput {
   workingDirectory?: string;
 }
 
+export interface GeminiCliWorkspaceProbeCommandInput {
+  workingDirectory?: string;
+  expectedChildName?: string | null;
+}
+
 export type GeminiCliOutputFormat = "stream-json" | "json";
+export type WindowsShellMode = "avoid" | "allow";
 
 function isExecutableFile(path: string): boolean {
   try {
@@ -121,8 +127,74 @@ function buildExecutorPrompt(
   return buildExecutorPromptText({
     prompt: request.prompt,
     workingDirectory,
-    platform
+    platform,
+    windowsShellMode: resolveWindowsShellMode(request, platform)
   });
+}
+
+function normalizeKeywordInput(request: ExecutorRunRequest): string {
+  return [
+    request.prompt,
+    request.task.title,
+    request.task.normalizedGoal
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join("\n")
+    .toLowerCase();
+}
+
+export function resolveWindowsShellMode(
+  request: ExecutorRunRequest,
+  platform: NodeJS.Platform = process.platform
+): WindowsShellMode {
+  if (platform !== "win32") {
+    return "allow";
+  }
+
+  const text = normalizeKeywordInput(request);
+  const shellKeywords = [
+    "test",
+    "tests",
+    "build",
+    "install",
+    "run ",
+    " run",
+    "execute",
+    "server",
+    "start ",
+    "npm",
+    "pnpm",
+    "yarn",
+    "bun",
+    "git",
+    "commit",
+    "migration",
+    "migrate",
+    "lint",
+    "format",
+    "prettier",
+    "eslint",
+    "codegen",
+    "generate",
+    "pytest",
+    "cargo",
+    "make ",
+    "docker",
+    "powershell",
+    "cmd.exe",
+    "테스트",
+    "빌드",
+    "설치",
+    "실행",
+    "서버",
+    "커밋",
+    "마이그레이션",
+    "린트",
+    "포맷",
+    "코드젠"
+  ];
+
+  return shellKeywords.some((keyword) => text.includes(keyword)) ? "allow" : "avoid";
 }
 
 export function resolveGeminiCliOutputFormat(
@@ -180,6 +252,43 @@ export function buildGeminiCliHealthCommand(
     args: [
       "-p",
       "Reply exactly READY.",
+      "--output-format",
+      outputFormat,
+      "--extensions",
+      ""
+    ],
+    cwd: workingDirectory,
+    outputFormat
+  };
+}
+
+export function buildGeminiCliWorkspaceProbeCommand(
+  input: GeminiCliWorkspaceProbeCommandInput = {},
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): GeminiCliCommand {
+  const workingDirectory = resolveLocalWorkingDirectory(input.workingDirectory);
+  const outputFormat = resolveGeminiCliOutputFormat(platform);
+  const expectedChildName = input.expectedChildName?.trim();
+  const probePrompt = expectedChildName
+    ? [
+        "Inspect the immediate children of the current working directory using built-in file and directory tools only.",
+        "Do not use shell commands.",
+        `Reply exactly PROBE_OK:${expectedChildName} where the suffix is the alphabetically first immediate child name.`
+      ].join(" ")
+    : [
+        "Inspect the current working directory using built-in file and directory tools only.",
+        "Do not use shell commands.",
+        "Reply exactly PROBE_OK."
+      ].join(" ");
+
+  return {
+    command: resolveGeminiCliCommand(env),
+    args: [
+      "-p",
+      probePrompt,
+      "--approval-mode",
+      "yolo",
       "--output-format",
       outputFormat,
       "--extensions",

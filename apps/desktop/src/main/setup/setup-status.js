@@ -5,9 +5,14 @@ import { dirname, isAbsolute, join } from "node:path";
 import { homedir } from "node:os";
 import {
   buildGeminiCliEnvironment,
+  buildGeminiCliWorkspaceProbeCommand,
+  parseGeminiCliOutput,
+  resolveDefaultWorkingDirectory,
   resolveGeminiCliCommand,
+  resolveGeminiCliOutputFormat,
   resolvePlatformSpawnCommand
 } from "@agent/gemini-cli-runner";
+import { inspectGeminiWorkspaceTrust } from "./gemini-trust.js";
 
 const SETUP_PROBE_TIMEOUT_MS = 4_500;
 
@@ -133,6 +138,194 @@ function runCommand(file, args, options = {}) {
       })
     );
   });
+}
+
+function firstNonEmptyString(values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function extractProbeResponse(output) {
+  const resultEvent = output.events.find((event) => event.type === "result");
+  if (!resultEvent) {
+    return null;
+  }
+
+  return firstNonEmptyString([
+    resultEvent.payload.response,
+    resultEvent.payload.message,
+    resultEvent.payload.text,
+    resultEvent.payload.output,
+    resultEvent.payload.content
+  ]);
+}
+
+function classifyWorkspaceProbeFailure(text) {
+  const normalized = trimString(text)?.toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (
+    normalized.includes("safe mode") ||
+    normalized.includes("trusted folders") ||
+    normalized.includes("trust this workspace") ||
+    normalized.includes("workspace is not trusted") ||
+    normalized.includes("untrusted workspace")
+  ) {
+    return "trust";
+  }
+
+  if (
+    normalized.includes("waiting for approval") ||
+    normalized.includes("approval required") ||
+    normalized.includes("approve")
+  ) {
+    return "approval";
+  }
+
+  if (
+    normalized.includes("cmd.exe") ||
+    normalized.includes("powershell") ||
+    normalized.includes("shell command") ||
+    normalized.includes("run_shell_command")
+  ) {
+    return "shell";
+  }
+
+  if (
+    normalized.includes("authentication") ||
+    normalized.includes("login required") ||
+    normalized.includes("api key") ||
+    normalized.includes("credentials")
+  ) {
+    return "auth";
+  }
+
+  if (normalized.includes("permission denied") || normalized.includes("insufficient permission")) {
+    return "permission";
+  }
+
+  return "unknown";
+}
+
+export async function probeGeminiWorkspaceToolsReadiness({
+  workspacePath,
+  env = process.env,
+  timeoutMs = 12_000,
+  platform = process.platform
+} = {}) {
+  const normalizedWorkspace = trimString(workspacePath);
+  if (!normalizedWorkspace) {
+    return createItemStatus(
+      "warning",
+      "Workspace tools probe was skipped.",
+      "Relay could not determine a workspace path for the Gemini CLI tools probe.",
+      {
+        workspacePath: null,
+        code: "missing_workspace"
+      }
+    );
+  }
+
+  let firstChildName = null;
+  try {
+    const children = (await readdir(normalizedWorkspace, { withFileTypes: true }))
+      .map((entry) => entry.name)
+      .sort((left, right) => left.localeCompare(right));
+    firstChildName = children[0] ?? null;
+  } catch (error) {
+    return createItemStatus(
+      "warning",
+      "Workspace tools probe could not inspect the workspace locally.",
+      "Relay could not read the current workspace before asking Gemini CLI to inspect it.",
+      {
+        workspacePath: normalizedWorkspace,
+        code: "workspace_read_failed",
+        stderrSnippet: normalizeOutputSnippet(
+          error instanceof Error ? error.message : String(error)
+        )
+      }
+    );
+  }
+
+  const command = buildGeminiCliWorkspaceProbeCommand(
+    {
+      workingDirectory: normalizedWorkspace,
+      expectedChildName: firstChildName
+    },
+    env,
+    platform
+  );
+
+  try {
+    const result = await runCommand(command.command, command.args, {
+      cwd: command.cwd,
+      env: buildGeminiCliEnvironment(env),
+      timeoutMs
+    });
+    const parsed = parseGeminiCliOutput(result.stdout);
+    const response = extractProbeResponse(parsed);
+    const expectedResponse = firstChildName ? `PROBE_OK:${firstChildName}` : "PROBE_OK";
+    if (response === expectedResponse) {
+      return createItemStatus(
+        "ready",
+        "Gemini CLI can inspect this workspace.",
+        "Relay confirmed that Gemini CLI can inspect the current workspace with file-oriented tools before task execution starts.",
+        {
+          workspacePath: normalizedWorkspace,
+          expectedResponse,
+          outputFormat: resolveGeminiCliOutputFormat(platform),
+          stdoutSnippet: normalizeOutputSnippet(result.stdout),
+          stderrSnippet: normalizeOutputSnippet(result.stderr)
+        }
+      );
+    }
+
+    const combinedFailureText = [response, result.stderr, result.stdout].filter(Boolean).join("\n");
+    const blockerCode = classifyWorkspaceProbeFailure(combinedFailureText);
+    return createItemStatus(
+      blockerCode === "trust" || blockerCode === "approval" ? "error" : "warning",
+      "Gemini CLI could not confirm file-tool access for this workspace.",
+      blockerCode === "trust"
+        ? "Gemini CLI appears to be in safe mode for this workspace. Trust this workspace or disable Trusted Folders before running local tasks."
+        : blockerCode === "approval"
+          ? "Gemini CLI appears to be waiting for approval before using workspace tools. Trust this workspace or disable Trusted Folders before running local tasks."
+          : "Gemini CLI did not prove that it could inspect the current workspace with file-oriented tools.",
+      {
+        workspacePath: normalizedWorkspace,
+        expectedResponse,
+        actualResponse: response,
+        code: blockerCode,
+        outputFormat: resolveGeminiCliOutputFormat(platform),
+        stdoutSnippet: normalizeOutputSnippet(result.stdout),
+        stderrSnippet: normalizeOutputSnippet(result.stderr)
+      }
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const blockerCode = classifyWorkspaceProbeFailure(detail);
+    return createItemStatus(
+      blockerCode === "trust" || blockerCode === "approval" ? "error" : "warning",
+      "Gemini CLI workspace tools probe did not complete cleanly.",
+      blockerCode === "trust"
+        ? "Gemini CLI appears to be blocked by workspace trust before it can use local tools."
+        : blockerCode === "approval"
+          ? "Gemini CLI appears to be waiting for approval before it can use local tools."
+          : "Relay could not complete the local workspace tools probe in time.",
+      {
+        workspacePath: normalizedWorkspace,
+        code: blockerCode,
+        outputFormat: resolveGeminiCliOutputFormat(platform),
+        stderrSnippet: normalizeOutputSnippet(detail)
+      }
+    );
+  }
 }
 
 async function probeGeminiBinary(env = process.env) {
@@ -294,6 +487,30 @@ export function createEmptySetupStatus() {
       {
         directories: []
       }
+    ),
+    workspaceToolsReady: createItemStatus(
+      "unknown",
+      "Workspace tools readiness has not been checked yet.",
+      "Relay will ask Gemini CLI to confirm file-oriented access to the current workspace when setup status is refreshed.",
+      {
+        workspacePath: null,
+        code: null
+      }
+    ),
+    geminiWorkspaceTrust: createItemStatus(
+      "unknown",
+      "Gemini workspace trust has not been checked yet.",
+      "Relay will inspect Gemini CLI trust settings for the current workspace when setup status is refreshed.",
+      {
+        folderTrustEnabled: false,
+        workspacePath: null,
+        settingsPath: null,
+        trustedFoldersPath: null,
+        trusted: false,
+        explicitlyUntrusted: false,
+        effectiveRulePath: null,
+        effectiveRuleValue: null
+      }
     )
   };
 }
@@ -322,9 +539,40 @@ export async function collectSetupStatus({
   now = () => new Date().toISOString()
 } = {}) {
   const checkedAt = now();
-  const [hostedBackend, localExecutorBinary] = await Promise.all([
+  const geminiPaths = getGeminiConfigPaths();
+  const workspacePath =
+    trimString(lastExecutorWorkingDirectory) ??
+    resolveDefaultWorkingDirectory({
+      homeDirectory: geminiPaths.homeDirectory
+    }) ??
+    desktopPath ??
+    geminiPaths.homeDirectory;
+
+  const [hostedBackend, localExecutorBinary, trustInspection, workspaceToolsReady] =
+    await Promise.all([
     probeHostedBackend(baseUrl, sessionToken),
-    probeGeminiBinary(env)
+    probeGeminiBinary(env),
+    inspectGeminiWorkspaceTrust({
+      settingsPath: geminiPaths.settingsPath,
+      trustedFoldersPath: geminiPaths.trustedFoldersPath,
+      workspacePath,
+      homeDirectory: geminiPaths.homeDirectory
+    }).catch((error) => ({
+      folderTrustEnabled: false,
+      workspacePath,
+      settingsPath: geminiPaths.settingsPath,
+      trustedFoldersPath: geminiPaths.trustedFoldersPath,
+      trusted: false,
+      explicitlyUntrusted: false,
+      effectiveRulePath: null,
+      effectiveRuleValue: null,
+      inspectionError:
+        error instanceof Error ? error.message : String(error)
+    })),
+    probeGeminiWorkspaceToolsReadiness({
+      workspacePath,
+      env
+    })
   ]);
 
   const directories = await Promise.all([
@@ -395,12 +643,49 @@ export async function collectSetupStatus({
             }
           );
 
+  const geminiWorkspaceTrust = trustInspection.inspectionError
+    ? createItemStatus(
+        "warning",
+        "Gemini trust settings could not be fully inspected.",
+        "Relay could not parse the local Gemini trust configuration cleanly. You can still open or repair the files from here.",
+        trustInspection
+      )
+    : !trustInspection.folderTrustEnabled
+    ? createItemStatus(
+        "ready",
+        "Gemini Trusted Folders is disabled.",
+        "Gemini CLI will not force workspace trust checks before running tools in this workspace.",
+        trustInspection
+      )
+    : trustInspection.trusted
+      ? createItemStatus(
+          "ready",
+          "Current workspace is trusted by Gemini CLI.",
+          "Gemini CLI can auto-approve tools in this workspace when other settings allow it.",
+          trustInspection
+        )
+      : trustInspection.explicitlyUntrusted
+        ? createItemStatus(
+            "error",
+            "Current workspace is explicitly untrusted.",
+            "Gemini CLI will run in safe mode here and can block automatic tool execution until you trust this workspace or disable Trusted Folders.",
+            trustInspection
+          )
+        : createItemStatus(
+            "warning",
+            "Current workspace is not trusted yet.",
+            "If Gemini Trusted Folders is enabled, Gemini CLI can pause for trust or approval here until you trust this workspace or disable the feature.",
+            trustInspection
+          );
+
   return {
     checkedAt,
     hostedBackend,
     microphone,
     localExecutorBinary,
-    localFileAccess
+    localFileAccess,
+    workspaceToolsReady,
+    geminiWorkspaceTrust
   };
 }
 

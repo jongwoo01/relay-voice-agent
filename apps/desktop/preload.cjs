@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld("desktopUi", {
   refreshHistory: () => ipcRenderer.invoke("desktop-ui:refresh-history"),
   retryExecutorHealthCheck: () =>
     ipcRenderer.invoke("desktop-ui:retry-executor-health"),
+  disableGeminiFolderTrust: () =>
+    ipcRenderer.invoke("desktop-ui:disable-gemini-folder-trust"),
+  trustGeminiWorkspace: () =>
+    ipcRenderer.invoke("desktop-ui:trust-gemini-workspace"),
   openSupportTarget: (target) => ipcRenderer.invoke("desktop-ui:open-support-target", target),
   openGeminiLoginTerminal: () =>
     ipcRenderer.invoke("desktop-ui:open-gemini-login-terminal"),

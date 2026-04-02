@@ -1,6 +1,13 @@
 import { createLocalExecutionLayer } from "../execution/local-execution-layer.js";
 import { normalizeDesktopSettings } from "../ui/desktop-settings.js";
 import { isExecutorCancelledError } from "@agent/gemini-cli-runner";
+import {
+  inspectGeminiWorkspaceTrust
+} from "../setup/gemini-trust.js";
+import {
+  getGeminiConfigPaths,
+  probeGeminiWorkspaceToolsReadiness
+} from "../setup/setup-status.js";
 
 function createInitialState() {
   return {
@@ -180,6 +187,50 @@ export class CloudSessionClient {
       detail,
       createdAt: new Date().toISOString()
     });
+  }
+
+  async runWindowsExecutorPreflight(request) {
+    if (process.platform !== "win32") {
+      return null;
+    }
+
+    const workspacePath =
+      typeof request?.request?.workingDirectory === "string" &&
+      request.request.workingDirectory.trim()
+        ? request.request.workingDirectory.trim()
+        : this.lastExecutorWorkingDirectory ?? undefined;
+    const geminiPaths = getGeminiConfigPaths();
+    const trustInspection = await inspectGeminiWorkspaceTrust({
+      settingsPath: geminiPaths.settingsPath,
+      trustedFoldersPath: geminiPaths.trustedFoldersPath,
+      workspacePath,
+      homeDirectory: geminiPaths.homeDirectory
+    });
+
+    if (trustInspection.folderTrustEnabled === true && trustInspection.trusted !== true) {
+      return {
+        code: trustInspection.explicitlyUntrusted ? "workspace_explicitly_untrusted" : "workspace_not_trusted",
+        message:
+          "Gemini CLI Trusted Folders is enabled and this workspace is not trusted, so Windows local execution would enter safe mode and pause tool usage. Use Disable Trusted Folders or Trust this workspace in Relay before retrying.",
+        workspacePath: trustInspection.workspacePath
+      };
+    }
+
+    const workspaceTools = await probeGeminiWorkspaceToolsReadiness({
+      workspacePath: trustInspection.workspacePath,
+      env: process.env,
+      platform: "win32"
+    });
+    if (workspaceTools.status === "error") {
+      return {
+        code: workspaceTools.code ?? "workspace_tools_probe_failed",
+        message:
+          `${workspaceTools.detail} Use Disable Trusted Folders or Trust this workspace in Relay if the blocker is related to trust or approval.`,
+        workspacePath: trustInspection.workspacePath
+      };
+    }
+
+    return null;
   }
 
   formatLocalExecutionDisabledBlocker() {
@@ -766,6 +817,28 @@ export class CloudSessionClient {
           probeWorkingDirectory: this.executorHealth.probeWorkingDirectory ?? null
         })
       );
+    }
+
+    const windowsPreflightFailure = await this.runWindowsExecutorPreflight(request);
+    if (windowsPreflightFailure) {
+      await this.emitExecutorHealthDebugEvent(
+        "windows_preflight_blocked",
+        "Blocked local task before Gemini CLI launch because the Windows workspace is not execution-ready.",
+        JSON.stringify({
+          taskId: request.taskId,
+          code: windowsPreflightFailure.code,
+          workspacePath: windowsPreflightFailure.workspacePath,
+          message: windowsPreflightFailure.message
+        })
+      );
+      this.send({
+        type: "executor_terminal",
+        runId: request.runId,
+        taskId: request.taskId,
+        ok: false,
+        error: windowsPreflightFailure.message
+      });
+      return;
     }
 
     try {
